@@ -1,0 +1,296 @@
+'use client'
+
+import { useEffect, useState, use } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { AutoClient, AutoDeal } from '@/lib/types/database'
+import { createClient } from '@/lib/supabase/client'
+import { 
+  Loader2, User, Phone, Mail, MapPin, CreditCard, Car as CarIcon,
+  Star, Ban, FileText, Calendar, AlertTriangle
+} from 'lucide-react'
+import { format } from 'date-fns'
+import { ru } from 'date-fns/locale'
+
+const CLIENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  BUYER: { label: 'Покупатель', color: 'bg-emerald-500/20 text-emerald-400' },
+  SELLER: { label: 'Продавец', color: 'bg-blue-500/20 text-blue-400' },
+  RENTER: { label: 'Арендатор', color: 'bg-amber-500/20 text-amber-400' },
+  CONSIGNOR: { label: 'Комитент', color: 'bg-violet-500/20 text-violet-400' },
+}
+
+const DEAL_TYPE_LABELS: Record<string, string> = {
+  CASH_SALE: 'Наличная продажа',
+  COMMISSION_SALE: 'Комиссия',
+  INSTALLMENT: 'Рассрочка',
+  RENT: 'Аренда',
+}
+
+export default function AutoClientPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params)
+  const [client, setClient] = useState<AutoClient | null>(null)
+  const [deals, setDeals] = useState<AutoDeal[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const router = useRouter()
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        // Загружаем клиента
+        const { data: clientData, error: clientError } = await supabase
+          .from('auto_clients')
+          .select('*')
+          .eq('id', id)
+          .single()
+
+        if (clientError) throw clientError
+        setClient(clientData)
+
+        // Загружаем сделки клиента
+        const { data: dealsData, error: dealsError } = await supabase
+          .from('auto_deals')
+          .select('*')
+          .or(`buyer_id.eq.${id},seller_id.eq.${id}`)
+          .order('created_at', { ascending: false })
+
+        if (dealsError) throw dealsError
+        setDeals(dealsData || [])
+      } catch (error) {
+        console.error('[v0] Error loading client:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadData()
+  }, [id])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!client) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Клиент не найден</p>
+      </div>
+    )
+  }
+
+  const typeInfo = CLIENT_TYPE_LABELS[client.client_type] || { label: client.client_type, color: 'bg-secondary' }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="border-b border-border bg-card">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Link href="/cars">
+                <Button variant="ghost" size="sm">{'← К списку'}</Button>
+              </Link>
+              <div className="flex items-center gap-3">
+                <div className={`p-2 rounded-lg ${client.is_blacklisted ? 'bg-red-500/20' : 'bg-zinc-800'}`}>
+                  {client.is_blacklisted ? (
+                    <Ban className="h-5 w-5 text-red-400" />
+                  ) : (
+                    <User className="h-5 w-5 text-zinc-100" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h1 className="text-2xl font-bold text-foreground">{client.full_name}</h1>
+                    <Badge className={typeInfo.color}>{typeInfo.label}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star
+                        key={i}
+                        className={`h-4 w-4 ${i < client.rating ? 'text-amber-400 fill-amber-400' : 'text-muted-foreground'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container mx-auto px-4 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Основная информация */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Черный список */}
+            {client.is_blacklisted && (
+              <Card className="border-red-500/50 bg-red-500/10">
+                <CardContent className="pt-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="h-5 w-5 text-red-400" />
+                    <div>
+                      <p className="font-medium text-red-400">Клиент в черном списке</p>
+                      {client.blacklist_reason && (
+                        <p className="text-sm text-red-400/80">{client.blacklist_reason}</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Контакты */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Контактная информация</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {client.phone && (
+                  <div className="flex items-center gap-3">
+                    <Phone className="h-5 w-5 text-muted-foreground" />
+                    <a href={`tel:${client.phone}`} className="text-foreground hover:text-primary">
+                      {client.phone}
+                    </a>
+                  </div>
+                )}
+                {client.email && (
+                  <div className="flex items-center gap-3">
+                    <Mail className="h-5 w-5 text-muted-foreground" />
+                    <a href={`mailto:${client.email}`} className="text-foreground hover:text-primary">
+                      {client.email}
+                    </a>
+                  </div>
+                )}
+                {client.address && (
+                  <div className="flex items-center gap-3">
+                    <MapPin className="h-5 w-5 text-muted-foreground" />
+                    <span className="text-foreground">{client.address}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Паспортные данные */}
+            {(client.passport_series || client.passport_number) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Паспортные данные</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CreditCard className="h-5 w-5 text-muted-foreground" />
+                    <span className="font-mono">
+                      {client.passport_series} {client.passport_number}
+                    </span>
+                  </div>
+                  {client.passport_issued_by && (
+                    <p className="text-sm text-muted-foreground ml-8">{client.passport_issued_by}</p>
+                  )}
+                  {client.passport_issued_date && (
+                    <p className="text-sm text-muted-foreground ml-8">
+                      Выдан: {format(new Date(client.passport_issued_date), 'd MMMM yyyy', { locale: ru })}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Водительское удостоверение */}
+            {client.driver_license && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Водительское удостоверение</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <CarIcon className="h-5 w-5 text-muted-foreground" />
+                    <span className="font-mono">{client.driver_license}</span>
+                  </div>
+                  {client.driver_license_date && (
+                    <p className="text-sm text-muted-foreground ml-8">
+                      Выдано: {format(new Date(client.driver_license_date), 'd MMMM yyyy', { locale: ru })}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Примечание */}
+            {client.notes && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Примечание</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground whitespace-pre-wrap">{client.notes}</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Сделки */}
+          <div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Сделки ({deals.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {deals.length === 0 ? (
+                  <p className="text-muted-foreground text-sm">Сделок пока нет</p>
+                ) : (
+                  <div className="space-y-3">
+                    {deals.map((deal) => (
+                      <Link
+                        key={deal.id}
+                        href={`/cars/deals/${deal.id}`}
+                        className="block p-3 rounded-lg bg-secondary/50 hover:bg-secondary transition-colors"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-sm">{deal.deal_number}</span>
+                          <Badge variant="outline">{DEAL_TYPE_LABELS[deal.deal_type]}</Badge>
+                        </div>
+                        <div className="flex items-center justify-between mt-2">
+                          <span className="text-sm text-muted-foreground">
+                            {format(new Date(deal.contract_date), 'd MMM yyyy', { locale: ru })}
+                          </span>
+                          {deal.sale_price && (
+                            <span className="font-mono text-sm">
+                              {Number(deal.sale_price).toLocaleString()} {deal.sale_currency}
+                            </span>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Даты */}
+            <Card className="mt-6">
+              <CardContent className="pt-4 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Добавлен</span>
+                  <span>{format(new Date(client.created_at), 'd MMM yyyy', { locale: ru })}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Обновлен</span>
+                  <span>{format(new Date(client.updated_at), 'd MMM yyyy', { locale: ru })}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
+    </div>
+  )
+}
