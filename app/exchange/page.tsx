@@ -24,7 +24,6 @@ import { toast } from 'sonner'
 import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
 import { ExchangeHistoryList } from '@/components/exchange/exchange-history-list'
-import { ExchangeSettingsDialog } from '@/components/exchange/exchange-settings-dialog'
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   'RUB': '₽',
@@ -458,11 +457,11 @@ export default function ExchangePage() {
             </div>
             
             <div className="flex items-center gap-2">
-              <ExchangeSettingsDialog settings={settings} onSave={loadData}>
+              <Link href="/settings?tab=exchange">
                 <Button variant="outline" size="icon" className="bg-transparent">
                   <Settings className="h-5 w-5" />
                 </Button>
-              </ExchangeSettingsDialog>
+              </Link>
             </div>
           </div>
         </div>

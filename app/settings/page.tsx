@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -9,10 +10,17 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { 
   Settings, ArrowLeft, Building, Wallet, Package, 
-  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database
+  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
@@ -47,13 +55,45 @@ interface CurrencyRate {
   sort_order: number
 }
 
+interface ExchangeSettingsData {
+  id: string
+  base_currency: string
+  default_margin_percent: number
+  auto_update_rates: boolean
+  rate_update_interval_minutes: number
+  require_client_info: boolean
+  min_exchange_amount: number
+  max_exchange_amount: number | null
+  working_hours_start: string
+  working_hours_end: string
+}
+
+const CURRENCIES = ['USD', 'EUR', 'RUB', 'UAH', 'TRY', 'AED', 'CNY', 'GBP', 'KZT']
+
 
 
 export default function SettingsPage() {
+  const searchParams = useSearchParams()
+  const defaultTab = searchParams.get('tab') || 'general'
+  
   const [isLoading, setIsLoading] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [currencyRates, setCurrencyRates] = useState<CurrencyRate[]>([])
+  
+  // Exchange settings state
+  const [exchangeSettings, setExchangeSettings] = useState<ExchangeSettingsData | null>(null)
+  const [exchangeForm, setExchangeForm] = useState({
+    base_currency: 'USD',
+    default_margin_percent: '2.0',
+    auto_update_rates: true,
+    rate_update_interval_minutes: '15',
+    require_client_info: false,
+    min_exchange_amount: '0',
+    max_exchange_amount: '',
+    working_hours_start: '09:00',
+    working_hours_end: '21:00'
+  })
   
   const [settings, setSettings] = useState<SystemSettings>({
     company_name: '',
@@ -95,6 +135,28 @@ export default function SettingsPage() {
         .select('*')
         .order('sort_order')
       setCurrencyRates(crData || [])
+      
+      // Load exchange settings
+      const { data: exData } = await supabase
+        .from('exchange_settings')
+        .select('*')
+        .limit(1)
+        .single()
+      
+      if (exData) {
+        setExchangeSettings(exData)
+        setExchangeForm({
+          base_currency: exData.base_currency || 'USD',
+          default_margin_percent: exData.default_margin_percent?.toString() || '2.0',
+          auto_update_rates: exData.auto_update_rates ?? true,
+          rate_update_interval_minutes: exData.rate_update_interval_minutes?.toString() || '15',
+          require_client_info: exData.require_client_info ?? false,
+          min_exchange_amount: exData.min_exchange_amount?.toString() || '0',
+          max_exchange_amount: exData.max_exchange_amount?.toString() || '',
+          working_hours_start: exData.working_hours_start || '09:00',
+          working_hours_end: exData.working_hours_end || '21:00'
+        })
+      }
 
       
     } catch (error) {
@@ -158,6 +220,46 @@ export default function SettingsPage() {
     }
   }
 
+  const handleSaveExchangeSettings = async () => {
+    setIsSaving(true)
+    try {
+      const data = {
+        base_currency: exchangeForm.base_currency,
+        default_margin_percent: parseFloat(exchangeForm.default_margin_percent) || 2.0,
+        auto_update_rates: exchangeForm.auto_update_rates,
+        rate_update_interval_minutes: parseInt(exchangeForm.rate_update_interval_minutes) || 15,
+        require_client_info: exchangeForm.require_client_info,
+        min_exchange_amount: parseFloat(exchangeForm.min_exchange_amount) || 0,
+        max_exchange_amount: exchangeForm.max_exchange_amount ? parseFloat(exchangeForm.max_exchange_amount) : null,
+        working_hours_start: exchangeForm.working_hours_start,
+        working_hours_end: exchangeForm.working_hours_end,
+        updated_at: new Date().toISOString()
+      }
+      
+      if (exchangeSettings?.id) {
+        const { error } = await supabase
+          .from('exchange_settings')
+          .update(data)
+          .eq('id', exchangeSettings.id)
+        
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('exchange_settings')
+          .insert(data)
+        
+        if (error) throw error
+      }
+      
+      toast.success('Настройки обмена сохранены')
+      loadData()
+    } catch {
+      toast.error('Ошибка сохранения настроек обмена')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const handleToggleCurrencyPopular = async (id: string, isPopular: boolean) => {
     // Check if we already have 6 popular currencies
     const popularCount = currencyRates.filter(c => c.is_popular).length
@@ -217,8 +319,8 @@ export default function SettingsPage() {
       </header>
 
       <main className="container mx-auto px-4 py-6">
-        <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full max-w-3xl grid-cols-6">
+        <Tabs defaultValue={defaultTab} className="space-y-6">
+          <TabsList className="grid w-full max-w-4xl grid-cols-7">
             <TabsTrigger value="general" className="flex items-center gap-1">
               <Building className="h-4 w-4" />
               Общие
@@ -226,6 +328,10 @@ export default function SettingsPage() {
             <TabsTrigger value="finance" className="flex items-center gap-1">
               <Wallet className="h-4 w-4" />
               Финансы
+            </TabsTrigger>
+            <TabsTrigger value="exchange" className="flex items-center gap-1">
+              <ArrowLeftRight className="h-4 w-4" />
+              Обмен
             </TabsTrigger>
             <TabsTrigger value="stock" className="flex items-center gap-1">
               <Package className="h-4 w-4" />
@@ -390,6 +496,136 @@ export default function SettingsPage() {
                     onCheckedChange={(v) => setSettings({ ...settings, enable_auto_penalties: v })}
                   />
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Обмен валют */}
+          <TabsContent value="exchange" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
+                  Настройки клиентского обмена валют
+                </CardTitle>
+                <CardDescription>Параметры модуля обмена валют для клиентов</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Базовая валюта */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Базовая валюта для расчета прибыли</Label>
+                    <Select 
+                      value={exchangeForm.base_currency} 
+                      onValueChange={(v) => setExchangeForm({ ...exchangeForm, base_currency: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {CURRENCIES.map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      В этой валюте будет считаться прибыль в отчетах
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Маржа по умолчанию (%)</Label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={exchangeForm.default_margin_percent}
+                      onChange={(e) => setExchangeForm({ ...exchangeForm, default_margin_percent: e.target.value })}
+                    />
+                  </div>
+                </div>
+                
+                {/* Лимиты */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Минимальная сумма обмена</Label>
+                    <Input
+                      type="number"
+                      value={exchangeForm.min_exchange_amount}
+                      onChange={(e) => setExchangeForm({ ...exchangeForm, min_exchange_amount: e.target.value })}
+                      placeholder="0"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Максимальная сумма обмена</Label>
+                    <Input
+                      type="number"
+                      value={exchangeForm.max_exchange_amount}
+                      onChange={(e) => setExchangeForm({ ...exchangeForm, max_exchange_amount: e.target.value })}
+                      placeholder="Без лимита"
+                    />
+                  </div>
+                </div>
+                
+                {/* Рабочие часы */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Начало работы</Label>
+                    <Input
+                      type="time"
+                      value={exchangeForm.working_hours_start}
+                      onChange={(e) => setExchangeForm({ ...exchangeForm, working_hours_start: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Конец работы</Label>
+                    <Input
+                      type="time"
+                      value={exchangeForm.working_hours_end}
+                      onChange={(e) => setExchangeForm({ ...exchangeForm, working_hours_end: e.target.value })}
+                    />
+                  </div>
+                </div>
+                
+                {/* Переключатели */}
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <div>
+                      <p className="font-medium text-foreground">Автообновление курсов</p>
+                      <p className="text-sm text-muted-foreground">Автоматически обновлять курсы с внешних источников</p>
+                    </div>
+                    <Switch
+                      checked={exchangeForm.auto_update_rates}
+                      onCheckedChange={(v) => setExchangeForm({ ...exchangeForm, auto_update_rates: v })}
+                    />
+                  </div>
+                  
+                  {exchangeForm.auto_update_rates && (
+                    <div className="space-y-2 ml-4 pl-4 border-l-2 border-border">
+                      <Label>Интервал обновления (минут)</Label>
+                      <Input
+                        type="number"
+                        value={exchangeForm.rate_update_interval_minutes}
+                        onChange={(e) => setExchangeForm({ ...exchangeForm, rate_update_interval_minutes: e.target.value })}
+                        className="max-w-[200px]"
+                      />
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <div>
+                      <p className="font-medium text-foreground">Требовать данные клиента</p>
+                      <p className="text-sm text-muted-foreground">ФИО и телефон клиента обязательны для заполнения</p>
+                    </div>
+                    <Switch
+                      checked={exchangeForm.require_client_info}
+                      onCheckedChange={(v) => setExchangeForm({ ...exchangeForm, require_client_info: v })}
+                    />
+                  </div>
+                </div>
+                
+                <Button onClick={handleSaveExchangeSettings} disabled={isSaving}>
+                  {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Сохранить настройки обмена
+                </Button>
               </CardContent>
             </Card>
           </TabsContent>
