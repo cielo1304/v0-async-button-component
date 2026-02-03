@@ -516,33 +516,66 @@ export interface ExchangeRate {
   created_at: string
 }
 
-export interface ClientExchange {
+// Основная операция обмена (мультивалютная N→M)
+export interface ClientExchangeOperation {
   id: string
-  operation_number: number
-  from_currency: string
-  to_currency: string
-  from_amount: number
-  to_amount: number
-  applied_rate: number
-  market_rate: number | null
+  operation_number: string // CE-YYYYMMDD-XXXX
+  operation_date: string
+  daily_sequence: number
+  total_client_gives_usd: number
+  total_client_receives_usd: number
   profit_amount: number
   profit_currency: string
-  profit_in_base: number | null
-  from_cashbox_id: string | null
-  to_cashbox_id: string | null
   client_name: string | null
   client_phone: string | null
   client_document: string | null
   client_notes: string | null
   status: ClientExchangeStatus
+  location: string | null
   created_by: string | null
   completed_by: string | null
   cancelled_by: string | null
   cancelled_reason: string | null
-  location: string | null
   created_at: string
   completed_at: string | null
   cancelled_at: string | null
+  // Связанные детали (для UI)
+  details?: ClientExchangeDetail[]
+}
+
+// Детали операции - каждая валюта отдельной строкой
+export type ExchangeDirection = 'give' | 'receive'
+
+export interface ClientExchangeDetail {
+  id: string
+  operation_id: string
+  direction: ExchangeDirection
+  currency: string
+  amount: number
+  applied_rate: number | null
+  market_rate: number | null
+  cashbox_id: string | null
+  amount_in_base: number | null
+  created_at: string
+  // Для UI - название кассы
+  cashbox_name?: string
+}
+
+// История изменений курсов (аудит)
+export interface ExchangeRateHistory {
+  id: string
+  rate_id: string | null
+  from_currency: string
+  to_currency: string
+  old_buy_rate: number | null
+  old_sell_rate: number | null
+  old_market_rate: number | null
+  new_buy_rate: number
+  new_sell_rate: number
+  new_market_rate: number | null
+  changed_by: string | null
+  change_reason: string | null
+  changed_at: string
 }
 
 // ================================================

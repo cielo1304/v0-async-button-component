@@ -14,14 +14,14 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
-  ArrowLeftRight, ArrowUpDown, Settings, History, TrendingUp,
-  Calculator, Wallet, RefreshCw, Check, Clock, ChevronDown,
-  DollarSign, Banknote, ArrowRight, Home
+  ArrowLeftRight, Settings, History, TrendingUp,
+  Calculator, RefreshCw, Plus, Trash2, Check,
+  Banknote, Home, ArrowDown, ArrowUp, X
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ExchangeRate, ClientExchange, ExchangeSettings, Cashbox } from '@/lib/types/database'
+import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
 import { ExchangeHistoryList } from '@/components/exchange/exchange-history-list'
 import { ExchangeSettingsDialog } from '@/components/exchange/exchange-settings-dialog'
@@ -50,16 +50,24 @@ const CURRENCY_FLAGS: Record<string, string> = {
   'KZT': '🇰🇿',
 }
 
+// Тип для строки обмена (валюта + сумма + касса)
+interface ExchangeLine {
+  id: string
+  currency: string
+  amount: string
+  cashboxId: string
+}
+
 export default function ExchangePage() {
   const supabase = useMemo(() => createClient(), [])
   
-  // Состояние формы обмена
-  const [fromCurrency, setFromCurrency] = useState('USD')
-  const [toCurrency, setToCurrency] = useState('RUB')
-  const [fromAmount, setFromAmount] = useState<string>('')
-  const [toAmount, setToAmount] = useState<string>('')
-  const [isCalculating, setIsCalculating] = useState(false)
-  const [lastEditedField, setLastEditedField] = useState<'from' | 'to'>('from')
+  // Мультивалютный обмен: клиент дает N валют, получает M валют
+  const [clientGives, setClientGives] = useState<ExchangeLine[]>([
+    { id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }
+  ])
+  const [clientReceives, setClientReceives] = useState<ExchangeLine[]>([
+    { id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }
+  ])
   
   // Данные клиента
   const [clientName, setClientName] = useState('')
@@ -71,32 +79,11 @@ export default function ExchangePage() {
   const [settings, setSettings] = useState<ExchangeSettings | null>(null)
   const [todayStats, setTodayStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
   
-  // Выбор касс для операции
-  const [fromCashboxId, setFromCashboxId] = useState<string>('')
-  const [toCashboxId, setToCashboxId] = useState<string>('')
-  
   // Состояние UI
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
-  
-  // Текущий курс для выбранной пары
-  const currentRate = useMemo(() => {
-    return exchangeRates.find(r => 
-      r.from_currency === fromCurrency && 
-      r.to_currency === toCurrency &&
-      r.is_active
-    )
-  }, [exchangeRates, fromCurrency, toCurrency])
-  
-  // Обратный курс
-  const reverseRate = useMemo(() => {
-    return exchangeRates.find(r => 
-      r.from_currency === toCurrency && 
-      r.to_currency === fromCurrency &&
-      r.is_active
-    )
-  }, [exchangeRates, fromCurrency, toCurrency])
+  const [refreshKey, setRefreshKey] = useState(0)
   
   // Доступные валюты
   const availableCurrencies = useMemo(() => {
@@ -108,14 +95,19 @@ export default function ExchangePage() {
     return Array.from(currencies).sort()
   }, [exchangeRates])
   
-  // Кассы для выбранных валют
-  const fromCashboxes = useMemo(() => {
-    return cashboxes.filter(c => c.currency === fromCurrency && !c.is_archived)
-  }, [cashboxes, fromCurrency])
+  // Получить курс для пары валют
+  const getRate = useCallback((from: string, to: string): ExchangeRate | undefined => {
+    return exchangeRates.find(r => 
+      r.from_currency === from && 
+      r.to_currency === to &&
+      r.is_active
+    )
+  }, [exchangeRates])
   
-  const toCashboxes = useMemo(() => {
-    return cashboxes.filter(c => c.currency === toCurrency && !c.is_archived)
-  }, [cashboxes, toCurrency])
+  // Получить кассы для валюты
+  const getCashboxesForCurrency = useCallback((currency: string) => {
+    return cashboxes.filter(c => c.currency === currency && !c.is_archived)
+  }, [cashboxes])
   
   // Загрузка данных
   const loadData = useCallback(async () => {
@@ -147,20 +139,20 @@ export default function ExchangePage() {
       const startOfDay = new Date()
       startOfDay.setHours(0, 0, 0, 0)
       
-      const { data: todayExchanges } = await supabase
-        .from('client_exchanges')
-        .select('from_amount, profit_in_base')
+      const { data: todayOps } = await supabase
+        .from('client_exchange_operations')
+        .select('profit_amount, total_client_gives_usd')
         .eq('status', 'completed')
         .gte('completed_at', startOfDay.toISOString())
       
-      if (todayExchanges) {
+      if (todayOps) {
         setTodayStats({
-          count: todayExchanges.length,
-          volume: todayExchanges.reduce((sum, e) => sum + Number(e.from_amount), 0),
-          profit: todayExchanges.reduce((sum, e) => sum + Number(e.profit_in_base || 0), 0)
+          count: todayOps.length,
+          volume: todayOps.reduce((sum, e) => sum + Number(e.total_client_gives_usd || 0), 0),
+          profit: todayOps.reduce((sum, e) => sum + Number(e.profit_amount || 0), 0)
         })
       }
-    } catch (error) {
+    } catch {
       toast.error('Ошибка загрузки данных')
     } finally {
       setIsLoading(false)
@@ -171,133 +163,170 @@ export default function ExchangePage() {
     loadData()
   }, [loadData])
   
-  // Автовыбор касс при смене валют
-  useEffect(() => {
-    if (fromCashboxes.length > 0 && !fromCashboxId) {
-      setFromCashboxId(fromCashboxes[0].id)
-    }
-  }, [fromCashboxes, fromCashboxId])
-  
-  useEffect(() => {
-    if (toCashboxes.length > 0 && !toCashboxId) {
-      setToCashboxId(toCashboxes[0].id)
-    }
-  }, [toCashboxes, toCashboxId])
-  
-  // Расчет суммы
-  const calculateAmount = useCallback((amount: string, direction: 'from' | 'to') => {
-    if (!amount || !currentRate) {
-      if (direction === 'from') setToAmount('')
-      else setFromAmount('')
+  // Добавить строку валюты
+  const addGiveLine = () => {
+    if (clientGives.length >= 6) {
+      toast.error('Максимум 6 валют')
       return
     }
-    
-    const numAmount = parseFloat(amount.replace(/[^\d.,]/g, '').replace(',', '.'))
-    if (isNaN(numAmount)) return
-    
-    if (direction === 'from') {
-      // Клиент дает fromCurrency, получает toCurrency
-      // Мы покупаем у клиента -> используем buy_rate
-      const result = numAmount * currentRate.sell_rate
-      setToAmount(result.toFixed(2))
-    } else {
-      // Клиент хочет получить toCurrency
-      // Считаем сколько нужно дать
-      const result = numAmount / currentRate.sell_rate
-      setFromAmount(result.toFixed(2))
+    const usedCurrencies = clientGives.map(l => l.currency)
+    const availableCurrency = availableCurrencies.find(c => !usedCurrencies.includes(c)) || 'USD'
+    setClientGives([...clientGives, { 
+      id: crypto.randomUUID(), 
+      currency: availableCurrency, 
+      amount: '', 
+      cashboxId: '' 
+    }])
+  }
+  
+  const addReceiveLine = () => {
+    if (clientReceives.length >= 6) {
+      toast.error('Максимум 6 валют')
+      return
     }
-  }, [currentRate])
-  
-  // Обработка ввода суммы
-  const handleFromAmountChange = (value: string) => {
-    setFromAmount(value)
-    setLastEditedField('from')
-    calculateAmount(value, 'from')
+    const usedCurrencies = clientReceives.map(l => l.currency)
+    const availableCurrency = availableCurrencies.find(c => !usedCurrencies.includes(c)) || 'RUB'
+    setClientReceives([...clientReceives, { 
+      id: crypto.randomUUID(), 
+      currency: availableCurrency, 
+      amount: '', 
+      cashboxId: '' 
+    }])
   }
   
-  const handleToAmountChange = (value: string) => {
-    setToAmount(value)
-    setLastEditedField('to')
-    calculateAmount(value, 'to')
+  // Удалить строку валюты
+  const removeGiveLine = (id: string) => {
+    if (clientGives.length <= 1) return
+    setClientGives(clientGives.filter(l => l.id !== id))
   }
   
-  // Смена направления
-  const swapCurrencies = () => {
-    setFromCurrency(toCurrency)
-    setToCurrency(fromCurrency)
-    setFromAmount(toAmount)
-    setToAmount(fromAmount)
-    setFromCashboxId(toCashboxId)
-    setToCashboxId(fromCashboxId)
+  const removeReceiveLine = (id: string) => {
+    if (clientReceives.length <= 1) return
+    setClientReceives(clientReceives.filter(l => l.id !== id))
   }
+  
+  // Обновить строку
+  const updateGiveLine = (id: string, field: keyof ExchangeLine, value: string) => {
+    setClientGives(clientGives.map(l => 
+      l.id === id ? { ...l, [field]: value, ...(field === 'currency' ? { cashboxId: '' } : {}) } : l
+    ))
+  }
+  
+  const updateReceiveLine = (id: string, field: keyof ExchangeLine, value: string) => {
+    setClientReceives(clientReceives.map(l => 
+      l.id === id ? { ...l, [field]: value, ...(field === 'currency' ? { cashboxId: '' } : {}) } : l
+    ))
+  }
+  
+  // Расчет общей суммы в базовой валюте (USD)
+  const calculateTotalInBase = useCallback((lines: ExchangeLine[], direction: 'give' | 'receive'): number => {
+    let total = 0
+    const baseCurrency = settings?.base_currency || 'USD'
+    
+    for (const line of lines) {
+      const amount = parseFloat(line.amount) || 0
+      if (amount === 0) continue
+      
+      if (line.currency === baseCurrency) {
+        total += amount
+      } else {
+        // Конвертируем в базовую валюту
+        const rate = getRate(line.currency, baseCurrency)
+        if (rate) {
+          // Используем buy_rate если клиент дает, sell_rate если получает
+          const useRate = direction === 'give' ? rate.buy_rate : rate.sell_rate
+          total += amount * useRate
+        } else {
+          // Попробуем обратный курс
+          const reverseRate = getRate(baseCurrency, line.currency)
+          if (reverseRate) {
+            const useRate = direction === 'give' ? reverseRate.sell_rate : reverseRate.buy_rate
+            total += amount / useRate
+          }
+        }
+      }
+    }
+    
+    return total
+  }, [settings, getRate])
   
   // Расчет прибыли
-  const calculateProfit = useCallback(() => {
-    if (!currentRate || !fromAmount) return { amount: 0, currency: settings?.base_currency || 'USD' }
+  const calculatedProfit = useMemo(() => {
+    const givesInBase = calculateTotalInBase(clientGives, 'give')
+    const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
     
-    const numFromAmount = parseFloat(fromAmount)
-    if (isNaN(numFromAmount)) return { amount: 0, currency: settings?.base_currency || 'USD' }
-    
-    // Прибыль = разница между рыночным курсом и нашим курсом
-    const marketRate = currentRate.market_rate || currentRate.sell_rate
-    const ourRate = currentRate.sell_rate
-    
-    // Прибыль в валюте получения
-    const profitInToCurrency = numFromAmount * (ourRate - marketRate)
-    
-    return { 
-      amount: Math.abs(profitInToCurrency), 
-      currency: toCurrency 
-    }
-  }, [currentRate, fromAmount, toCurrency, settings])
+    // Прибыль = то что клиент дал - то что клиент получил (в базовой валюте)
+    return givesInBase - receivesInBase
+  }, [clientGives, clientReceives, calculateTotalInBase])
   
-  const profit = calculateProfit()
+  // Автозаполнение кассы при выборе валюты
+  useEffect(() => {
+    setClientGives(prev => prev.map(line => {
+      if (!line.cashboxId) {
+        const cboxes = getCashboxesForCurrency(line.currency)
+        if (cboxes.length > 0) {
+          return { ...line, cashboxId: cboxes[0].id }
+        }
+      }
+      return line
+    }))
+  }, [clientGives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  
+  useEffect(() => {
+    setClientReceives(prev => prev.map(line => {
+      if (!line.cashboxId) {
+        const cboxes = getCashboxesForCurrency(line.currency)
+        if (cboxes.length > 0) {
+          return { ...line, cashboxId: cboxes[0].id }
+        }
+      }
+      return line
+    }))
+  }, [clientReceives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  
+  // Проверка валидности
+  const isValid = useMemo(() => {
+    // Все строки должны иметь сумму и кассу
+    const givesValid = clientGives.every(l => 
+      parseFloat(l.amount) > 0 && l.cashboxId
+    )
+    const receivesValid = clientReceives.every(l => 
+      parseFloat(l.amount) > 0 && l.cashboxId
+    )
+    
+    // Проверка баланса касс на выдачу
+    const balancesOk = clientReceives.every(l => {
+      const amount = parseFloat(l.amount) || 0
+      const cashbox = cashboxes.find(c => c.id === l.cashboxId)
+      return cashbox && cashbox.balance >= amount
+    })
+    
+    return givesValid && receivesValid && balancesOk
+  }, [clientGives, clientReceives, cashboxes])
   
   // Отправка операции
   const handleSubmit = async () => {
-    if (!fromAmount || !toAmount || !fromCashboxId || !toCashboxId || !currentRate) {
-      toast.error('Заполните все поля')
-      return
-    }
-    
-    const numFromAmount = parseFloat(fromAmount)
-    const numToAmount = parseFloat(toAmount)
-    
-    if (isNaN(numFromAmount) || isNaN(numToAmount)) {
-      toast.error('Некорректная сумма')
-      return
-    }
-    
-    // Проверка минимальной суммы
-    if (settings?.min_exchange_amount && numFromAmount < settings.min_exchange_amount) {
-      toast.error(`Минимальная сумма обмена: ${settings.min_exchange_amount}`)
-      return
-    }
-    
-    // Проверка баланса кассы
-    const toCashbox = cashboxes.find(c => c.id === toCashboxId)
-    if (toCashbox && toCashbox.balance < numToAmount) {
-      toast.error(`Недостаточно средств в кассе ${toCashbox.name}`)
+    if (!isValid) {
+      toast.error('Проверьте заполнение всех полей и баланс касс')
       return
     }
     
     setIsSubmitting(true)
     
     try {
-      // Создаем операцию обмена
-      const { data: exchange, error: exchangeError } = await supabase
-        .from('client_exchanges')
+      const baseCurrency = settings?.base_currency || 'USD'
+      const givesInBase = calculateTotalInBase(clientGives, 'give')
+      const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
+      
+      // 1. Создаем основную операцию
+      const { data: operation, error: opError } = await supabase
+        .from('client_exchange_operations')
         .insert({
-          from_currency: fromCurrency,
-          to_currency: toCurrency,
-          from_amount: numFromAmount,
-          to_amount: numToAmount,
-          applied_rate: currentRate.sell_rate,
-          market_rate: currentRate.market_rate,
-          profit_amount: profit.amount,
-          profit_currency: profit.currency,
-          from_cashbox_id: fromCashboxId,
-          to_cashbox_id: toCashboxId,
+          operation_number: '', // Заполнится триггером
+          total_client_gives_usd: givesInBase,
+          total_client_receives_usd: receivesInBase,
+          profit_amount: calculatedProfit,
+          profit_currency: baseCurrency,
           client_name: clientName || null,
           client_phone: clientPhone || null,
           status: 'completed',
@@ -306,55 +335,97 @@ export default function ExchangePage() {
         .select()
         .single()
       
-      if (exchangeError) throw exchangeError
+      if (opError) throw opError
       
-      // Обновляем балансы касс
-      // Касса "от" (получаем от клиента) - увеличиваем
-      const { error: fromError } = await supabase.rpc('update_cashbox_balance', {
-        p_cashbox_id: fromCashboxId,
-        p_amount: numFromAmount
-      })
-      
-      // Касса "к" (отдаем клиенту) - уменьшаем
-      const { error: toError } = await supabase.rpc('update_cashbox_balance', {
-        p_cashbox_id: toCashboxId,
-        p_amount: -numToAmount
-      })
-      
-      // Создаем транзакции в обеих кассах
-      await Promise.all([
-        supabase.from('transactions').insert({
-          cashbox_id: fromCashboxId,
-          amount: numFromAmount,
-          category: 'EXCHANGE_IN',
-          description: `Обмен от клиента: ${numFromAmount} ${fromCurrency} → ${numToAmount} ${toCurrency}`,
-          reference_id: exchange.id
-        }),
-        supabase.from('transactions').insert({
-          cashbox_id: toCashboxId,
-          amount: -numToAmount,
-          category: 'EXCHANGE_OUT',
-          description: `Обмен клиенту: ${numFromAmount} ${fromCurrency} → ${numToAmount} ${toCurrency}`,
-          reference_id: exchange.id
+      // 2. Создаем детали - что клиент дает
+      for (const line of clientGives) {
+        const amount = parseFloat(line.amount)
+        const rate = getRate(line.currency, baseCurrency)
+        
+        await supabase.from('client_exchange_details').insert({
+          operation_id: operation.id,
+          direction: 'give',
+          currency: line.currency,
+          amount: amount,
+          applied_rate: rate?.buy_rate || null,
+          market_rate: rate?.market_rate || null,
+          cashbox_id: line.cashboxId,
+          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount * rate.buy_rate : null)
         })
-      ])
+        
+        // Увеличиваем баланс кассы (мы получаем от клиента)
+        await supabase.rpc('update_cashbox_balance', {
+          p_cashbox_id: line.cashboxId,
+          p_amount: amount
+        })
+        
+        // Создаем транзакцию
+        await supabase.from('transactions').insert({
+          cashbox_id: line.cashboxId,
+          amount: amount,
+          category: 'EXCHANGE_IN',
+          description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
+          reference_id: operation.id
+        })
+      }
       
-      toast.success('Обмен выполнен успешно!')
+      // 3. Создаем детали - что клиент получает
+      for (const line of clientReceives) {
+        const amount = parseFloat(line.amount)
+        const rate = getRate(baseCurrency, line.currency)
+        
+        await supabase.from('client_exchange_details').insert({
+          operation_id: operation.id,
+          direction: 'receive',
+          currency: line.currency,
+          amount: amount,
+          applied_rate: rate?.sell_rate || null,
+          market_rate: rate?.market_rate || null,
+          cashbox_id: line.cashboxId,
+          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount / rate.sell_rate : null)
+        })
+        
+        // Уменьшаем баланс кассы (мы отдаем клиенту)
+        await supabase.rpc('update_cashbox_balance', {
+          p_cashbox_id: line.cashboxId,
+          p_amount: -amount
+        })
+        
+        // Создаем транзакцию
+        await supabase.from('transactions').insert({
+          cashbox_id: line.cashboxId,
+          amount: -amount,
+          category: 'EXCHANGE_OUT',
+          description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
+          reference_id: operation.id
+        })
+      }
+      
+      toast.success(`Обмен ${operation.operation_number} выполнен!`)
       
       // Сброс формы
-      setFromAmount('')
-      setToAmount('')
+      setClientGives([{ id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }])
+      setClientReceives([{ id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
       
       // Обновляем данные
       loadData()
+      setRefreshKey(k => k + 1)
       
     } catch (error) {
       toast.error('Ошибка при выполнении обмена')
     } finally {
       setIsSubmitting(false)
     }
+  }
+  
+  // Сброс формы
+  const resetForm = () => {
+    setClientGives([{ id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }])
+    setClientReceives([{ id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }])
+    setClientName('')
+    setClientPhone('')
   }
   
   if (isLoading) {
@@ -382,7 +453,7 @@ export default function ExchangePage() {
                   <ArrowLeftRight className="h-6 w-6 text-cyan-400" />
                   Обмен валют
                 </h1>
-                <p className="text-sm text-muted-foreground">Клиентские операции обмена</p>
+                <p className="text-sm text-muted-foreground">Клиентские операции обмена (мультивалюта)</p>
               </div>
             </div>
             
@@ -415,299 +486,309 @@ export default function ExchangePage() {
           </TabsList>
           
           <TabsContent value="exchange" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Статистика за день */}
-              <div className="lg:col-span-3 grid grid-cols-3 gap-4">
-                <Card className="bg-card border-border">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-cyan-500/20">
-                        <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Операций сегодня</p>
-                        <p className="text-2xl font-bold font-mono">{todayStats.count}</p>
-                      </div>
+            {/* Статистика за день */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-cyan-500/20">
+                      <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
                     </div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="bg-card border-border">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-blue-500/20">
-                        <Banknote className="h-5 w-5 text-blue-400" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Оборот</p>
-                        <p className="text-2xl font-bold font-mono">
-                          {todayStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Операций сегодня</p>
+                      <p className="text-2xl font-bold font-mono">{todayStats.count}</p>
                     </div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="bg-card border-border">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-emerald-500/20">
-                        <TrendingUp className="h-5 w-5 text-emerald-400" />
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
-                        <p className="text-2xl font-bold font-mono text-emerald-400">
-                          +{todayStats.profit.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
-                        </p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                  </div>
+                </CardContent>
+              </Card>
               
-              {/* Форма обмена */}
-              <div className="lg:col-span-2">
-                <Card className="bg-card border-border">
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Calculator className="h-5 w-5 text-cyan-400" />
-                      Новый обмен
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-6">
-                    {/* Валюты и суммы */}
-                    <div className="space-y-4">
-                      {/* Отдает клиент */}
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground">Клиент отдает</Label>
-                        <div className="flex gap-2">
-                          <Select value={fromCurrency} onValueChange={(v) => {
-                            setFromCurrency(v)
-                            setFromCashboxId('')
-                          }}>
-                            <SelectTrigger className="w-[140px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableCurrencies.map(c => (
-                                <SelectItem key={c} value={c}>
-                                  <span className="flex items-center gap-2">
-                                    <span>{CURRENCY_FLAGS[c] || ''}</span>
-                                    <span>{c}</span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            type="text"
-                            placeholder="0.00"
-                            value={fromAmount}
-                            onChange={(e) => handleFromAmountChange(e.target.value)}
-                            className="flex-1 text-xl font-mono text-right"
-                          />
-                        </div>
-                        {fromCashboxes.length > 0 && (
-                          <Select value={fromCashboxId} onValueChange={setFromCashboxId}>
-                            <SelectTrigger className="text-sm">
-                              <SelectValue placeholder="Выберите кассу" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {fromCashboxes.map(c => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  <span className="flex items-center justify-between w-full gap-4">
-                                    <span>{c.name}</span>
-                                    <span className="text-muted-foreground font-mono">
-                                      {c.balance.toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
-                                    </span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                      
-                      {/* Кнопка смены направления и курс */}
-                      <div className="flex items-center justify-center gap-4">
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          onClick={swapCurrencies}
-                          className="rounded-full bg-transparent"
-                        >
-                          <ArrowUpDown className="h-4 w-4" />
-                        </Button>
-                        
-                        {currentRate && (
-                          <div className="text-sm text-muted-foreground">
-                            Курс: <span className="font-mono font-medium text-foreground">
-                              1 {fromCurrency} = {currentRate.sell_rate.toFixed(4)} {toCurrency}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                      
-                      {/* Получает клиент */}
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground">Клиент получает</Label>
-                        <div className="flex gap-2">
-                          <Select value={toCurrency} onValueChange={(v) => {
-                            setToCurrency(v)
-                            setToCashboxId('')
-                          }}>
-                            <SelectTrigger className="w-[140px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {availableCurrencies.map(c => (
-                                <SelectItem key={c} value={c}>
-                                  <span className="flex items-center gap-2">
-                                    <span>{CURRENCY_FLAGS[c] || ''}</span>
-                                    <span>{c}</span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            type="text"
-                            placeholder="0.00"
-                            value={toAmount}
-                            onChange={(e) => handleToAmountChange(e.target.value)}
-                            className="flex-1 text-xl font-mono text-right"
-                          />
-                        </div>
-                        {toCashboxes.length > 0 && (
-                          <Select value={toCashboxId} onValueChange={setToCashboxId}>
-                            <SelectTrigger className="text-sm">
-                              <SelectValue placeholder="Выберите кассу" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {toCashboxes.map(c => (
-                                <SelectItem key={c.id} value={c.id}>
-                                  <span className="flex items-center justify-between w-full gap-4">
-                                    <span>{c.name}</span>
-                                    <span className="text-muted-foreground font-mono">
-                                      {c.balance.toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
-                                    </span>
-                                  </span>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-blue-500/20">
+                      <Banknote className="h-5 w-5 text-blue-400" />
                     </div>
-                    
-                    {/* Данные клиента */}
-                    {settings?.require_client_info && (
-                      <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
-                        <div className="space-y-2">
-                          <Label>Имя клиента</Label>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Оборот ({settings?.base_currency || 'USD'})</p>
+                      <p className="text-2xl font-bold font-mono">
+                        {todayStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card className="bg-card border-border">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-emerald-500/20">
+                      <TrendingUp className="h-5 w-5 text-emerald-400" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
+                      <p className="text-2xl font-bold font-mono text-emerald-400">
+                        +{todayStats.profit.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Форма мультивалютного обмена */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Клиент ОТДАЕТ */}
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <ArrowDown className="h-5 w-5 text-emerald-400" />
+                    Клиент отдает
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {clientGives.map((line, index) => (
+                    <div key={line.id} className="flex gap-2 items-start">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex gap-2">
+                          <Select 
+                            value={line.currency} 
+                            onValueChange={(v) => updateGiveLine(line.id, 'currency', v)}
+                          >
+                            <SelectTrigger className="w-[120px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableCurrencies.map(c => (
+                                <SelectItem key={c} value={c}>
+                                  <span className="flex items-center gap-2">
+                                    <span>{CURRENCY_FLAGS[c] || ''}</span>
+                                    <span>{c}</span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <Input
-                            placeholder="ФИО"
-                            value={clientName}
-                            onChange={(e) => setClientName(e.target.value)}
+                            type="text"
+                            placeholder="0.00"
+                            value={line.amount}
+                            onChange={(e) => updateGiveLine(line.id, 'amount', e.target.value)}
+                            className="flex-1 text-lg font-mono text-right"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Телефон</Label>
-                          <Input
-                            placeholder="+7..."
-                            value={clientPhone}
-                            onChange={(e) => setClientPhone(e.target.value)}
-                          />
-                        </div>
+                        <Select 
+                          value={line.cashboxId} 
+                          onValueChange={(v) => updateGiveLine(line.id, 'cashboxId', v)}
+                        >
+                          <SelectTrigger className="text-sm h-8">
+                            <SelectValue placeholder="Выберите кассу" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getCashboxesForCurrency(line.currency).map(c => (
+                              <SelectItem key={c.id} value={c.id}>
+                                <span className="flex items-center justify-between w-full gap-4">
+                                  <span>{c.name}</span>
+                                  <span className="text-muted-foreground font-mono text-xs">
+                                    {Number(c.balance).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
+                                  </span>
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
+                      {clientGives.length > 1 && (
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                          onClick={() => removeGiveLine(line.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  
+                  {clientGives.length < 6 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full bg-transparent"
+                      onClick={addGiveLine}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Добавить валюту
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+              
+              {/* Клиент ПОЛУЧАЕТ */}
+              <Card className="bg-card border-border">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <ArrowUp className="h-5 w-5 text-red-400" />
+                    Клиент получает
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {clientReceives.map((line, index) => {
+                    const cashbox = cashboxes.find(c => c.id === line.cashboxId)
+                    const amount = parseFloat(line.amount) || 0
+                    const insufficientBalance = cashbox && cashbox.balance < amount
                     
-                    {/* Прибыль */}
-                    {profit.amount > 0 && (
-                      <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-muted-foreground">Прибыль с операции</span>
-                          <span className="font-mono font-bold text-emerald-400">
-                            +{profit.amount.toFixed(2)} {CURRENCY_SYMBOLS[profit.currency] || profit.currency}
-                          </span>
+                    return (
+                      <div key={line.id} className="flex gap-2 items-start">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex gap-2">
+                            <Select 
+                              value={line.currency} 
+                              onValueChange={(v) => updateReceiveLine(line.id, 'currency', v)}
+                            >
+                              <SelectTrigger className="w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableCurrencies.map(c => (
+                                  <SelectItem key={c} value={c}>
+                                    <span className="flex items-center gap-2">
+                                      <span>{CURRENCY_FLAGS[c] || ''}</span>
+                                      <span>{c}</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="text"
+                              placeholder="0.00"
+                              value={line.amount}
+                              onChange={(e) => updateReceiveLine(line.id, 'amount', e.target.value)}
+                              className={`flex-1 text-lg font-mono text-right ${insufficientBalance ? 'border-red-500' : ''}`}
+                            />
+                          </div>
+                          <Select 
+                            value={line.cashboxId} 
+                            onValueChange={(v) => updateReceiveLine(line.id, 'cashboxId', v)}
+                          >
+                            <SelectTrigger className={`text-sm h-8 ${insufficientBalance ? 'border-red-500' : ''}`}>
+                              <SelectValue placeholder="Выберите кассу" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {getCashboxesForCurrency(line.currency).map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  <span className="flex items-center justify-between w-full gap-4">
+                                    <span>{c.name}</span>
+                                    <span className={`font-mono text-xs ${c.balance < amount ? 'text-red-400' : 'text-muted-foreground'}`}>
+                                      {Number(c.balance).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
+                                    </span>
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {insufficientBalance && (
+                            <p className="text-xs text-red-400">Недостаточно средств в кассе</p>
+                          )}
                         </div>
+                        {clientReceives.length > 1 && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeReceiveLine(line.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
-                    )}
-                    
-                    {/* Кнопка */}
-                    <Button
-                      className="w-full"
-                      size="lg"
+                    )
+                  })}
+                  
+                  {clientReceives.length < 6 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="w-full bg-transparent"
+                      onClick={addReceiveLine}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Добавить валюту
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Итого и действия */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4">
+                <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
+                  {/* Данные клиента */}
+                  <div className="flex gap-4 flex-1">
+                    <div className="flex-1">
+                      <Label className="text-xs text-muted-foreground">Имя клиента</Label>
+                      <Input
+                        placeholder="Необязательно"
+                        value={clientName}
+                        onChange={(e) => setClientName(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label className="text-xs text-muted-foreground">Телефон</Label>
+                      <Input
+                        placeholder="Необязательно"
+                        value={clientPhone}
+                        onChange={(e) => setClientPhone(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* Прибыль */}
+                  <div className="text-center px-6 py-2 rounded-lg bg-muted/50">
+                    <p className="text-xs text-muted-foreground">Прибыль</p>
+                    <p className={`text-xl font-bold font-mono ${calculatedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                      {calculatedProfit >= 0 ? '+' : ''}{calculatedProfit.toFixed(2)} {settings?.base_currency || 'USD'}
+                    </p>
+                  </div>
+                  
+                  {/* Кнопки */}
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={resetForm}
+                      className="bg-transparent"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Сбросить
+                    </Button>
+                    <Button 
                       onClick={handleSubmit}
-                      disabled={isSubmitting || !fromAmount || !toAmount || !fromCashboxId || !toCashboxId}
+                      disabled={!isValid || isSubmitting}
+                      className="bg-cyan-600 hover:bg-cyan-700"
                     >
                       {isSubmitting ? (
-                        <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
                       ) : (
                         <Check className="h-4 w-4 mr-2" />
                       )}
                       Выполнить обмен
                     </Button>
-                  </CardContent>
-                </Card>
-              </div>
-              
-              {/* Популярные курсы */}
-              <div>
-                <Card className="bg-card border-border">
-                  <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2">
-                      <TrendingUp className="h-5 w-5 text-cyan-400" />
-                      Популярные курсы
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {exchangeRates
-                      .filter(r => r.is_popular)
-                      .slice(0, 6)
-                      .map(rate => (
-                        <button
-                          key={rate.id}
-                          className="w-full p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left"
-                          onClick={() => {
-                            setFromCurrency(rate.from_currency)
-                            setToCurrency(rate.to_currency)
-                            setFromCashboxId('')
-                            setToCashboxId('')
-                          }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span>{CURRENCY_FLAGS[rate.from_currency] || ''}</span>
-                              <span className="font-medium">{rate.from_currency}</span>
-                              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                              <span>{CURRENCY_FLAGS[rate.to_currency] || ''}</span>
-                              <span className="font-medium">{rate.to_currency}</span>
-                            </div>
-                            <div className="font-mono text-sm">
-                              {rate.sell_rate.toFixed(2)}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    
-                    {exchangeRates.filter(r => r.is_popular).length === 0 && (
-                      <p className="text-sm text-muted-foreground text-center py-4">
-                        Нет популярных курсов
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
           
           <TabsContent value="rates">
-            <ExchangeRatesManager onUpdate={loadData} />
+            <ExchangeRatesManager rates={exchangeRates} onUpdate={loadData} />
           </TabsContent>
           
           <TabsContent value="history">
-            <ExchangeHistoryList />
+            <ExchangeHistoryList refreshKey={refreshKey} />
           </TabsContent>
         </Tabs>
       </main>

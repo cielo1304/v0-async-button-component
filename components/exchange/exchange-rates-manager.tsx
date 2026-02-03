@@ -109,18 +109,35 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     }
     
     try {
+      const newBuyRate = parseFloat(buyRate)
+      const newSellRate = parseFloat(sellRate)
+      const newMarketRate = marketRate ? parseFloat(marketRate) : null
+      
       const data = {
         from_currency: fromCurrency.toUpperCase(),
         to_currency: toCurrency.toUpperCase(),
-        buy_rate: parseFloat(buyRate),
-        sell_rate: parseFloat(sellRate),
-        market_rate: marketRate ? parseFloat(marketRate) : null,
+        buy_rate: newBuyRate,
+        sell_rate: newSellRate,
+        market_rate: newMarketRate,
         is_popular: isPopular,
         is_active: isActive,
         last_updated: new Date().toISOString()
       }
       
       if (editingRate) {
+        // Сохраняем в историю изменений (аудит)
+        await supabase.from('exchange_rate_history').insert({
+          rate_id: editingRate.id,
+          from_currency: editingRate.from_currency,
+          to_currency: editingRate.to_currency,
+          old_buy_rate: editingRate.buy_rate,
+          old_sell_rate: editingRate.sell_rate,
+          old_market_rate: editingRate.market_rate,
+          new_buy_rate: newBuyRate,
+          new_sell_rate: newSellRate,
+          new_market_rate: newMarketRate
+        })
+        
         const { error } = await supabase
           .from('exchange_rates')
           .update(data)

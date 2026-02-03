@@ -26,10 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { History, Search, Calendar, ArrowRight, RefreshCw, Eye, XCircle, CheckCircle } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, Eye, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ClientExchange } from '@/lib/types/database'
+import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
@@ -50,22 +50,27 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Отменен', color: 'bg-red-500/20 text-red-400' },
 }
 
-export function ExchangeHistoryList() {
+interface ExchangeHistoryListProps {
+  refreshKey?: number
+}
+
+export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps) {
   const supabase = useMemo(() => createClient(), [])
-  const [exchanges, setExchanges] = useState<ClientExchange[]>([])
+  const [operations, setOperations] = useState<ClientExchangeOperation[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [selectedExchange, setSelectedExchange] = useState<ClientExchange | null>(null)
+  const [selectedOperation, setSelectedOperation] = useState<ClientExchangeOperation | null>(null)
+  const [selectedDetails, setSelectedDetails] = useState<ClientExchangeDetail[]>([])
   
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [dateFilter, setDateFilter] = useState<string>('today')
   
-  const loadExchanges = async () => {
+  const loadOperations = async () => {
     setIsLoading(true)
     try {
       let query = supabase
-        .from('client_exchanges')
+        .from('client_exchange_operations')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(100)
@@ -94,7 +99,7 @@ export function ExchangeHistoryList() {
       const { data, error } = await query
       
       if (error) throw error
-      setExchanges(data || [])
+      setOperations(data || [])
     } catch {
       toast.error('Ошибка загрузки истории')
     } finally {
@@ -103,26 +108,41 @@ export function ExchangeHistoryList() {
   }
   
   useEffect(() => {
-    loadExchanges()
-  }, [statusFilter, dateFilter])
+    loadOperations()
+  }, [statusFilter, dateFilter, refreshKey])
   
   // Фильтрация по поиску
-  const filteredExchanges = useMemo(() => {
-    if (!searchQuery) return exchanges
+  const filteredOperations = useMemo(() => {
+    if (!searchQuery) return operations
     
     const query = searchQuery.toLowerCase()
-    return exchanges.filter(e => 
+    return operations.filter(e => 
       e.client_name?.toLowerCase().includes(query) ||
       e.client_phone?.includes(query) ||
-      e.operation_number.toString().includes(query) ||
-      e.from_currency.toLowerCase().includes(query) ||
-      e.to_currency.toLowerCase().includes(query)
+      e.operation_number.toLowerCase().includes(query)
     )
-  }, [exchanges, searchQuery])
+  }, [operations, searchQuery])
   
-  // Отмена операции
-  const cancelExchange = async (exchange: ClientExchange) => {
-    if (exchange.status !== 'pending') {
+  // Загрузка деталей операции
+  const loadDetails = async (operation: ClientExchangeOperation) => {
+    try {
+      const { data, error } = await supabase
+        .from('client_exchange_details')
+        .select('*')
+        .eq('operation_id', operation.id)
+        .order('direction')
+      
+      if (error) throw error
+      setSelectedDetails(data || [])
+      setSelectedOperation(operation)
+    } catch {
+      toast.error('Ошибка загрузки деталей')
+    }
+  }
+  
+  // Отмена операции (только pending)
+  const cancelOperation = async (operation: ClientExchangeOperation) => {
+    if (operation.status !== 'pending') {
       toast.error('Можно отменить только ожидающие операции')
       return
     }
@@ -131,20 +151,30 @@ export function ExchangeHistoryList() {
     
     try {
       const { error } = await supabase
-        .from('client_exchanges')
+        .from('client_exchange_operations')
         .update({
           status: 'cancelled',
           cancelled_at: new Date().toISOString(),
           cancelled_reason: 'Отменено оператором'
         })
-        .eq('id', exchange.id)
+        .eq('id', operation.id)
       
       if (error) throw error
       toast.success('Операция отменена')
-      loadExchanges()
+      loadOperations()
     } catch {
       toast.error('Ошибка отмены')
     }
+  }
+  
+  // Группировка деталей по направлению
+  const giveDetails = selectedDetails.filter(d => d.direction === 'give')
+  const receiveDetails = selectedDetails.filter(d => d.direction === 'receive')
+  
+  // Форматирование сводки операции (для таблицы)
+  const formatOperationSummary = (op: ClientExchangeOperation) => {
+    // Пока без деталей - показываем эквивалент в USD
+    return `${op.total_client_gives_usd.toFixed(0)} USD`
   }
   
   return (
@@ -192,7 +222,7 @@ export function ExchangeHistoryList() {
               </SelectContent>
             </Select>
             
-            <Button variant="outline" size="icon" onClick={loadExchanges} className="bg-transparent">
+            <Button variant="outline" size="icon" onClick={loadOperations} className="bg-transparent">
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
@@ -202,57 +232,49 @@ export function ExchangeHistoryList() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>№</TableHead>
+              <TableHead>Номер</TableHead>
               <TableHead>Дата</TableHead>
-              <TableHead>Операция</TableHead>
-              <TableHead className="text-right">Отдал</TableHead>
-              <TableHead className="text-right">Получил</TableHead>
-              <TableHead className="text-right">Курс</TableHead>
+              <TableHead>Клиент</TableHead>
+              <TableHead className="text-right">Оборот</TableHead>
               <TableHead className="text-right">Прибыль</TableHead>
               <TableHead>Статус</TableHead>
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredExchanges.map(exchange => (
-              <TableRow key={exchange.id}>
-                <TableCell className="font-mono text-muted-foreground">
-                  #{exchange.operation_number}
+            {filteredOperations.map(op => (
+              <TableRow key={op.id}>
+                <TableCell className="font-mono text-cyan-400">
+                  {op.operation_number}
                 </TableCell>
                 <TableCell className="text-sm">
-                  {format(new Date(exchange.created_at), 'dd.MM.yy HH:mm', { locale: ru })}
+                  {format(new Date(op.created_at), 'dd.MM.yy HH:mm', { locale: ru })}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1">
-                    <span className="font-medium">{exchange.from_currency}</span>
-                    <ArrowRight className="h-3 w-3 text-muted-foreground" />
-                    <span className="font-medium">{exchange.to_currency}</span>
-                  </div>
-                  {exchange.client_name && (
-                    <div className="text-xs text-muted-foreground">{exchange.client_name}</div>
+                  {op.client_name || <span className="text-muted-foreground">-</span>}
+                  {op.client_phone && (
+                    <div className="text-xs text-muted-foreground">{op.client_phone}</div>
                   )}
                 </TableCell>
                 <TableCell className="text-right font-mono">
-                  {exchange.from_amount.toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[exchange.from_currency] || exchange.from_currency}
-                </TableCell>
-                <TableCell className="text-right font-mono">
-                  {exchange.to_amount.toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[exchange.to_currency] || exchange.to_currency}
-                </TableCell>
-                <TableCell className="text-right font-mono text-muted-foreground">
-                  {exchange.applied_rate.toFixed(4)}
+                  ~{Number(op.total_client_gives_usd).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} USD
                 </TableCell>
                 <TableCell className="text-right">
-                  {exchange.profit_amount > 0 ? (
+                  {Number(op.profit_amount) > 0 ? (
                     <span className="font-mono text-emerald-400">
-                      +{exchange.profit_amount.toFixed(2)} {CURRENCY_SYMBOLS[exchange.profit_currency] || exchange.profit_currency}
+                      +{Number(op.profit_amount).toFixed(2)} {op.profit_currency}
+                    </span>
+                  ) : Number(op.profit_amount) < 0 ? (
+                    <span className="font-mono text-red-400">
+                      {Number(op.profit_amount).toFixed(2)} {op.profit_currency}
                     </span>
                   ) : (
-                    <span className="text-muted-foreground">-</span>
+                    <span className="text-muted-foreground">0</span>
                   )}
                 </TableCell>
                 <TableCell>
-                  <Badge className={STATUS_LABELS[exchange.status]?.color || ''}>
-                    {STATUS_LABELS[exchange.status]?.label || exchange.status}
+                  <Badge className={STATUS_LABELS[op.status]?.color || ''}>
+                    {STATUS_LABELS[op.status]?.label || op.status}
                   </Badge>
                 </TableCell>
                 <TableCell>
@@ -260,15 +282,15 @@ export function ExchangeHistoryList() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => setSelectedExchange(exchange)}
+                      onClick={() => loadDetails(op)}
                     >
                       <Eye className="h-4 w-4" />
                     </Button>
-                    {exchange.status === 'pending' && (
+                    {op.status === 'pending' && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => cancelExchange(exchange)}
+                        onClick={() => cancelOperation(op)}
                         className="text-red-400 hover:text-red-300"
                       >
                         <XCircle className="h-4 w-4" />
@@ -278,9 +300,9 @@ export function ExchangeHistoryList() {
                 </TableCell>
               </TableRow>
             ))}
-            {filteredExchanges.length === 0 && (
+            {filteredOperations.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   {isLoading ? 'Загрузка...' : 'Нет операций'}
                 </TableCell>
               </TableRow>
@@ -288,69 +310,91 @@ export function ExchangeHistoryList() {
           </TableBody>
         </Table>
         
-        {/* Диалог деталей */}
-        <Dialog open={!!selectedExchange} onOpenChange={() => setSelectedExchange(null)}>
-          <DialogContent>
+        {/* Диалог деталей мультивалютной операции */}
+        <Dialog open={!!selectedOperation} onOpenChange={() => setSelectedOperation(null)}>
+          <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>
-                Операция #{selectedExchange?.operation_number}
+              <DialogTitle className="flex items-center gap-2">
+                <span className="font-mono text-cyan-400">{selectedOperation?.operation_number}</span>
+                {selectedOperation && (
+                  <Badge className={STATUS_LABELS[selectedOperation.status]?.color || ''}>
+                    {STATUS_LABELS[selectedOperation.status]?.label || selectedOperation.status}
+                  </Badge>
+                )}
               </DialogTitle>
             </DialogHeader>
-            {selectedExchange && (
-              <div className="space-y-4 pt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-sm text-muted-foreground">Клиент отдал</div>
-                    <div className="text-xl font-mono font-bold">
-                      {selectedExchange.from_amount.toLocaleString('ru-RU')} {selectedExchange.from_currency}
-                    </div>
+            {selectedOperation && (
+              <div className="space-y-4 pt-2">
+                {/* Дата */}
+                <div className="text-sm text-muted-foreground">
+                  {format(new Date(selectedOperation.created_at), 'dd MMMM yyyy, HH:mm', { locale: ru })}
+                </div>
+                
+                {/* Клиент отдал */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <ArrowDown className="h-4 w-4 text-emerald-400" />
+                    Клиент отдал
                   </div>
-                  <div>
-                    <div className="text-sm text-muted-foreground">Клиент получил</div>
-                    <div className="text-xl font-mono font-bold">
-                      {selectedExchange.to_amount.toLocaleString('ru-RU')} {selectedExchange.to_currency}
-                    </div>
+                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                    {giveDetails.length > 0 ? giveDetails.map(d => (
+                      <div key={d.id} className="flex justify-between items-center">
+                        <span className="font-medium">{d.currency}</span>
+                        <span className="font-mono text-lg">
+                          {Number(d.amount).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[d.currency] || d.currency}
+                        </span>
+                      </div>
+                    )) : (
+                      <div className="text-muted-foreground text-sm">Нет данных</div>
+                    )}
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-muted-foreground">Курс</div>
-                    <div className="font-mono">{selectedExchange.applied_rate.toFixed(4)}</div>
+                {/* Клиент получил */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <ArrowUp className="h-4 w-4 text-red-400" />
+                    Клиент получил
                   </div>
-                  <div>
-                    <div className="text-muted-foreground">Рыночный курс</div>
-                    <div className="font-mono">{selectedExchange.market_rate?.toFixed(4) || '-'}</div>
+                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                    {receiveDetails.length > 0 ? receiveDetails.map(d => (
+                      <div key={d.id} className="flex justify-between items-center">
+                        <span className="font-medium">{d.currency}</span>
+                        <span className="font-mono text-lg">
+                          {Number(d.amount).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[d.currency] || d.currency}
+                        </span>
+                      </div>
+                    )) : (
+                      <div className="text-muted-foreground text-sm">Нет данных</div>
+                    )}
                   </div>
                 </div>
                 
-                {selectedExchange.profit_amount > 0 && (
-                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                    <div className="text-sm text-muted-foreground">Прибыль</div>
-                    <div className="text-lg font-mono font-bold text-emerald-400">
-                      +{selectedExchange.profit_amount.toFixed(2)} {selectedExchange.profit_currency}
-                    </div>
+                {/* Прибыль */}
+                <div className={`p-3 rounded-lg border ${
+                  Number(selectedOperation.profit_amount) >= 0 
+                    ? 'bg-emerald-500/10 border-emerald-500/20' 
+                    : 'bg-red-500/10 border-red-500/20'
+                }`}>
+                  <div className="text-sm text-muted-foreground">Прибыль</div>
+                  <div className={`text-xl font-mono font-bold ${
+                    Number(selectedOperation.profit_amount) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  }`}>
+                    {Number(selectedOperation.profit_amount) >= 0 ? '+' : ''}
+                    {Number(selectedOperation.profit_amount).toFixed(2)} {selectedOperation.profit_currency}
                   </div>
-                )}
+                </div>
                 
-                {selectedExchange.client_name && (
+                {/* Клиент */}
+                {(selectedOperation.client_name || selectedOperation.client_phone) && (
                   <div className="pt-2 border-t border-border">
                     <div className="text-sm text-muted-foreground mb-1">Клиент</div>
-                    <div>{selectedExchange.client_name}</div>
-                    {selectedExchange.client_phone && (
-                      <div className="text-sm text-muted-foreground">{selectedExchange.client_phone}</div>
+                    {selectedOperation.client_name && <div>{selectedOperation.client_name}</div>}
+                    {selectedOperation.client_phone && (
+                      <div className="text-sm text-muted-foreground">{selectedOperation.client_phone}</div>
                     )}
                   </div>
                 )}
-                
-                <div className="flex items-center justify-between pt-2 text-sm">
-                  <div className="text-muted-foreground">
-                    {format(new Date(selectedExchange.created_at), 'dd MMMM yyyy, HH:mm', { locale: ru })}
-                  </div>
-                  <Badge className={STATUS_LABELS[selectedExchange.status]?.color || ''}>
-                    {STATUS_LABELS[selectedExchange.status]?.label || selectedExchange.status}
-                  </Badge>
-                </div>
               </div>
             )}
           </DialogContent>
