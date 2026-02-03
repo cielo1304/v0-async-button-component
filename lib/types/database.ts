@@ -477,3 +477,96 @@ export interface AutoInspection {
   inspected_by: string | null
   created_at: string
 }
+
+// ================================================
+// МОДУЛЬ КЛИЕНТСКОГО ОБМЕНА ВАЛЮТ
+// ================================================
+
+export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled'
+
+export interface ExchangeSettings {
+  id: string
+  base_currency: string
+  default_margin_percent: number
+  auto_update_rates: boolean
+  rate_update_interval_minutes: number
+  require_client_info: boolean
+  min_exchange_amount: number
+  max_exchange_amount: number | null
+  working_hours_start: string
+  working_hours_end: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ExchangeRate {
+  id: string
+  from_currency: string
+  to_currency: string
+  buy_rate: number
+  buy_margin_percent: number
+  sell_rate: number
+  sell_margin_percent: number
+  market_rate: number | null
+  is_active: boolean
+  is_popular: boolean
+  sort_order: number
+  last_updated: string
+  updated_by: string | null
+  created_at: string
+}
+
+export interface ClientExchange {
+  id: string
+  operation_number: number
+  from_currency: string
+  to_currency: string
+  from_amount: number
+  to_amount: number
+  applied_rate: number
+  market_rate: number | null
+  profit_amount: number
+  profit_currency: string
+  profit_in_base: number | null
+  from_cashbox_id: string | null
+  to_cashbox_id: string | null
+  client_name: string | null
+  client_phone: string | null
+  client_document: string | null
+  client_notes: string | null
+  status: ClientExchangeStatus
+  created_by: string | null
+  completed_by: string | null
+  cancelled_by: string | null
+  cancelled_reason: string | null
+  location: string | null
+  created_at: string
+  completed_at: string | null
+  cancelled_at: string | null
+}
+
+// ================================================
+// СИСТЕМА РОЛЕЙ
+// ================================================
+
+export type SystemRoleCode = 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'CASHIER'
+
+export interface SystemRole {
+  id: string
+  code: SystemRoleCode | string
+  name: string
+  description: string | null
+  module: string
+  permissions: string[]
+  is_system: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UserRole {
+  id: string
+  user_id: string
+  role_id: string
+  assigned_at: string
+  assigned_by: string | null
+}

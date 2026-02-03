@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
+import { UserRolesManager } from '@/components/settings/user-roles-manager'
 
 interface SystemSettings {
   company_name: string
@@ -217,7 +218,7 @@ export default function SettingsPage() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue="general" className="space-y-6">
-          <TabsList className="grid w-full max-w-2xl grid-cols-5">
+          <TabsList className="grid w-full max-w-3xl grid-cols-6">
             <TabsTrigger value="general" className="flex items-center gap-1">
               <Building className="h-4 w-4" />
               Общие
@@ -233,6 +234,10 @@ export default function SettingsPage() {
             <TabsTrigger value="auto" className="flex items-center gap-1">
               <Car className="h-4 w-4" />
               Авто
+            </TabsTrigger>
+            <TabsTrigger value="roles" className="flex items-center gap-1">
+              <Shield className="h-4 w-4" />
+              Роли
             </TabsTrigger>
             <TabsTrigger value="system" className="flex items-center gap-1">
               <Database className="h-4 w-4" />
@@ -461,6 +466,11 @@ export default function SettingsPage() {
                 </p>
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Роли пользователей */}
+          <TabsContent value="roles" className="space-y-6">
+            <UserRolesManager />
           </TabsContent>
 
           {/* Система */}

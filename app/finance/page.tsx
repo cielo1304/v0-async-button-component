@@ -501,6 +501,12 @@ if (error) throw error
                 <DollarSign className="h-5 w-5 text-emerald-400" />
                 <h1 className="text-xl font-semibold text-foreground">Финансы</h1>
               </div>
+              <Link href="/exchange">
+                <Button variant="outline" size="sm" className="bg-transparent text-cyan-400 border-cyan-400/30 hover:bg-cyan-400/10">
+                  <ArrowLeftRight className="h-4 w-4 mr-2" />
+                  Клиентский обмен
+                </Button>
+              </Link>
             </div>
             
             {/* Currency Rates in Header */}
