@@ -210,10 +210,34 @@ export default function ExchangePage() {
     }])
   }
   
+  // Функция пересчета суммы получения на основе всех валют клиента
+  const recalculateReceiveAmount = useCallback((gives: ExchangeLine[]) => {
+    if (clientReceives.length !== 1) return
+    const receiveCurrency = clientReceives[0].currency
+    
+    let totalReceiveAmount = 0
+    for (const giveLine of gives) {
+      const giveAmount = parseFloat(giveLine.amount) || 0
+      if (giveAmount > 0 && giveLine.currency !== receiveCurrency) {
+        totalReceiveAmount += calculateReceiveAmount(giveAmount, giveLine.currency, receiveCurrency)
+      } else if (giveAmount > 0 && giveLine.currency === receiveCurrency) {
+        totalReceiveAmount += giveAmount
+      }
+    }
+    
+    if (totalReceiveAmount > 0) {
+      setClientReceives(prev => prev.map((l, i) => 
+        i === 0 ? { ...l, amount: totalReceiveAmount.toFixed(2) } : l
+      ))
+    }
+  }, [clientReceives, calculateReceiveAmount])
+  
   // Удалить строку валюты
   const removeGiveLine = (id: string) => {
-    if (clientGives.length <= 1) return
-    setClientGives(clientGives.filter(l => l.id !== id))
+    const newGives = clientGives.filter(l => l.id !== id)
+    setClientGives(newGives)
+    // Пересчитать сумму получения после удаления
+    recalculateReceiveAmount(newGives)
   }
   
   const removeReceiveLine = (id: string) => {
@@ -273,22 +297,26 @@ export default function ExchangePage() {
     setClientGives(newGives)
     
     // Автопересчет при изменении суммы или валюты
-    if (field === 'amount' || field === 'currency') {
-      const updatedLine = newGives.find(l => l.id === id)
-      if (updatedLine && clientReceives.length === 1 && newGives.length === 1) {
-        // Простой обмен 1 к 1 - автоматически пересчитываем
-        const giveAmount = parseFloat(field === 'amount' ? value : updatedLine.amount) || 0
-        const giveCurrency = field === 'currency' ? value : updatedLine.currency
-        const receiveCurrency = clientReceives[0].currency
-        
-        if (giveAmount > 0 && giveCurrency !== receiveCurrency) {
-          const receiveAmount = calculateReceiveAmount(giveAmount, giveCurrency, receiveCurrency)
-          if (receiveAmount > 0) {
-            setClientReceives(prev => prev.map((l, i) => 
-              i === 0 ? { ...l, amount: receiveAmount.toFixed(2) } : l
-            ))
-          }
+    // Работает для любого количества валют в "Клиент отдает"
+    if ((field === 'amount' || field === 'currency') && clientReceives.length === 1) {
+      const receiveCurrency = clientReceives[0].currency
+      
+      // Суммируем все валюты клиента в валюте получения
+      let totalReceiveAmount = 0
+      for (const giveLine of newGives) {
+        const giveAmount = parseFloat(giveLine.amount) || 0
+        if (giveAmount > 0 && giveLine.currency !== receiveCurrency) {
+          totalReceiveAmount += calculateReceiveAmount(giveAmount, giveLine.currency, receiveCurrency)
+        } else if (giveAmount > 0 && giveLine.currency === receiveCurrency) {
+          // Если валюта совпадает - просто добавляем сумму
+          totalReceiveAmount += giveAmount
         }
+      }
+      
+      if (totalReceiveAmount > 0) {
+        setClientReceives(prev => prev.map((l, i) => 
+          i === 0 ? { ...l, amount: totalReceiveAmount.toFixed(2) } : l
+        ))
       }
     }
   }
@@ -598,7 +626,7 @@ export default function ExchangePage() {
     }
   }
   
-// Поменять местами "Клиент отдает" и "Клиент получает"
+  // Поменять местами "Клиент отдает" и "Клиент получает"
   const swapGivesAndReceives = () => {
     const tempGives = [...clientGives]
     const tempReceives = [...clientReceives]
