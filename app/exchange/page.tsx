@@ -29,6 +29,7 @@ import { toast } from 'sonner'
 import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
 import { ExchangeHistoryList } from '@/components/exchange/exchange-history-list'
+import { nanoid } from 'nanoid'
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
   'RUB': '₽',
@@ -67,10 +68,10 @@ export default function ExchangePage() {
   
   // Мультивалютный обмен: клиент дает N валют, получает M валют
   const [clientGives, setClientGives] = useState<ExchangeLine[]>([
-    { id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }
+    { id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }
   ])
   const [clientReceives, setClientReceives] = useState<ExchangeLine[]>([
-    { id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }
+    { id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }
   ])
   
   // Данные клиента
@@ -187,7 +188,7 @@ export default function ExchangePage() {
     const usedCurrencies = clientGives.map(l => l.currency)
     const availableCurrency = availableCurrencies.find(c => !usedCurrencies.includes(c)) || 'USD'
     setClientGives([...clientGives, { 
-      id: crypto.randomUUID(), 
+      id: nanoid(), 
       currency: availableCurrency, 
       amount: '', 
       cashboxId: '' 
@@ -202,7 +203,7 @@ export default function ExchangePage() {
     const usedCurrencies = clientReceives.map(l => l.currency)
     const availableCurrency = availableCurrencies.find(c => !usedCurrencies.includes(c)) || 'RUB'
     setClientReceives([...clientReceives, { 
-      id: crypto.randomUUID(), 
+      id: nanoid(), 
       currency: availableCurrency, 
       amount: '', 
       cashboxId: '' 
@@ -578,8 +579,8 @@ export default function ExchangePage() {
       toast.success(`Обмен ${operation.operation_number} выполнен!`)
       
       // Сброс формы
-      setClientGives([{ id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }])
-      setClientReceives([{ id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }])
+      setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
+      setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
       
@@ -594,10 +595,18 @@ export default function ExchangePage() {
     }
   }
   
+// Поменять местами "Клиент отдает" и "Клиент получает"
+  const swapGivesAndReceives = () => {
+    const tempGives = [...clientGives]
+    const tempReceives = [...clientReceives]
+    setClientGives(tempReceives)
+    setClientReceives(tempGives)
+  }
+  
   // Сброс формы
   const resetForm = () => {
-    setClientGives([{ id: crypto.randomUUID(), currency: 'USD', amount: '', cashboxId: '' }])
-    setClientReceives([{ id: crypto.randomUUID(), currency: 'RUB', amount: '', cashboxId: '' }])
+    setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
+    setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
     setClientName('')
     setClientPhone('')
   }
@@ -710,7 +719,33 @@ export default function ExchangePage() {
             </div>
             
             {/* Форма мультивалютного обмена */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative">
+              {/* Кнопка обмена между блоками */}
+              <div className="hidden lg:flex absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  onClick={swapGivesAndReceives}
+                  className="rounded-full h-12 w-12 bg-background border-2 border-cyan-500/50 hover:border-cyan-400 hover:bg-cyan-500/10 shadow-lg"
+                  title="Поменять местами"
+                >
+                  <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
+                </Button>
+              </div>
+              
+              {/* Кнопка обмена для мобильных */}
+              <div className="flex lg:hidden justify-center -my-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={swapGivesAndReceives}
+                  className="bg-transparent border-cyan-500/50 hover:border-cyan-400 hover:bg-cyan-500/10"
+                >
+                  <ArrowLeftRight className="h-4 w-4 mr-2 text-cyan-400" />
+                  Поменять местами
+                </Button>
+              </div>
+              
               {/* Клиент ОТДАЕТ */}
               <Card className="bg-card border-border">
                 <CardHeader className="pb-3">
