@@ -477,3 +477,159 @@ export interface AutoInspection {
   inspected_by: string | null
   created_at: string
 }
+
+// ================================================
+// МОДУЛЬ КЛИЕНТСКОГО ОБМЕНА ВАЛЮТ
+// ================================================
+
+export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled'
+
+export type ProfitCalculationMethod = 'auto' | 'manual' | 'fixed_percent'
+export type FixedBaseSource = 'api' | 'manual'
+
+export interface ExchangeSettings {
+  id: string
+  base_currency: string
+  default_margin_percent: number
+  profit_calculation_method: ProfitCalculationMethod
+  auto_update_rates: boolean
+  rate_update_interval_minutes: number
+  require_client_info: boolean
+  min_exchange_amount: number
+  max_exchange_amount: number | null
+  working_hours_start: string
+  working_hours_end: string
+  created_at: string
+  updated_at: string
+}
+
+export type RateSourceType = 'api' | 'manual' | 'crypto'
+
+export interface CurrencyRateSource {
+  id: string
+  currency_code: string
+  source_type: RateSourceType
+  source_name: string
+  api_url: string | null
+  api_key: string | null
+  is_active: boolean
+  is_default: boolean
+  priority: number
+  last_rate: number | null
+  last_updated: string | null
+  update_interval_minutes: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ExchangeRate {
+  id: string
+  from_currency: string
+  to_currency: string
+  buy_rate: number
+  buy_margin_percent: number
+  sell_rate: number
+  sell_margin_percent: number
+  market_rate: number | null
+  is_active: boolean
+  is_popular: boolean
+  is_auto_rate: boolean
+  profit_calculation_method: ProfitCalculationMethod
+  fixed_base_source: FixedBaseSource
+  margin_percent: number
+  api_rate: number | null
+  api_rate_updated_at: string | null
+  sort_order: number
+  last_updated: string
+  updated_by: string | null
+  created_at: string
+}
+
+// Основная операция обмена (мультивалютная N→M)
+export interface ClientExchangeOperation {
+  id: string
+  operation_number: string // CE-YYYYMMDD-XXXX
+  operation_date: string
+  daily_sequence: number
+  total_client_gives_usd: number
+  total_client_receives_usd: number
+  profit_amount: number
+  profit_currency: string
+  client_name: string | null
+  client_phone: string | null
+  client_document: string | null
+  client_notes: string | null
+  status: ClientExchangeStatus
+  location: string | null
+  created_by: string | null
+  completed_by: string | null
+  cancelled_by: string | null
+  cancelled_reason: string | null
+  created_at: string
+  completed_at: string | null
+  cancelled_at: string | null
+  // Связанные детали (для UI)
+  details?: ClientExchangeDetail[]
+}
+
+// Детали операции - каждая валюта отдельной строкой
+export type ExchangeDirection = 'give' | 'receive'
+
+export interface ClientExchangeDetail {
+  id: string
+  operation_id: string
+  direction: ExchangeDirection
+  currency: string
+  amount: number
+  applied_rate: number | null
+  market_rate: number | null
+  cashbox_id: string | null
+  amount_in_base: number | null
+  created_at: string
+  // Для UI - название кассы
+  cashbox_name?: string
+}
+
+// История изменений курсов (аудит)
+export interface ExchangeRateHistory {
+  id: string
+  rate_id: string | null
+  from_currency: string
+  to_currency: string
+  old_buy_rate: number | null
+  old_sell_rate: number | null
+  old_market_rate: number | null
+  new_buy_rate: number
+  new_sell_rate: number
+  new_market_rate: number | null
+  changed_by: string | null
+  change_reason: string | null
+  changed_at: string
+}
+
+// ================================================
+// СИСТЕМА РОЛЕЙ
+// ================================================
+
+export type SystemRoleCode = 'ADMIN' | 'MANAGER' | 'ACCOUNTANT' | 'CASHIER'
+
+export interface SystemRole {
+  id: string
+  code: SystemRoleCode | string
+  name: string
+  description: string | null
+  module: string
+  permissions: string[]
+  is_system: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface UserRole {
+  id: string
+  user_id: string
+  role_id: string
+  assigned_at: string
+  assigned_by: string | null
+}

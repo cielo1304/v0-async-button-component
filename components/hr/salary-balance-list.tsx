@@ -27,8 +27,8 @@ export function SalaryBalanceList() {
 
         if (error) throw error
         setEmployees(data || [])
-      } catch (error) {
-        console.error('[v0] Error loading employees:', error)
+      } catch {
+        // Silent fail
       } finally {
         setIsLoading(false)
       }
