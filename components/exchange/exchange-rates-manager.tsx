@@ -40,6 +40,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
 import { EditRateDialog } from './edit-rate-dialog'
+import { fetchExternalRate } from '@/app/actions/exchange'
 
 interface Props {
   onUpdate?: () => void
@@ -95,161 +96,38 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const [allSources, setAllSources] = useState<CurrencyRateSource[]>([])
   const [availableSourcesForPair, setAvailableSourcesForPair] = useState<{from: CurrencyRateSource[], to: CurrencyRateSource[]}>({from: [], to: []})
 
-  // Получить курс из конкретного источника
-  const fetchRateFromSource = useCallback(async (source: CurrencyRateSource, targetCurrency?: string): Promise<number | null> => {
-    try {
-      // Для криптовалют используем Binance
-      if (source.source_type === 'crypto') {
-        const symbol = `${source.currency_code}USDT`
-        const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-        if (res.ok) {
-          const data = await res.json()
-          const priceInUSDT = parseFloat(data.price)
-          // Если целевая валюта USDT или USD - возвращаем как есть
-          if (targetCurrency === 'USDT' || targetCurrency === 'USD') {
-            return priceInUSDT
-          }
-          return priceInUSDT
-        }
-      }
-      
-      // Для фиатных валют используем Exchange Rate API
-      if (source.source_type === 'api') {
-        // Используем api_url если указан, иначе дефолтный
-        const apiUrl = source.api_url || `https://open.er-api.com/v6/latest/${source.currency_code}`
-        const res = await fetch(apiUrl)
-        if (res.ok) {
-          const data = await res.json()
-          if (targetCurrency && data.rates?.[targetCurrency]) {
-            return data.rates[targetCurrency]
-          }
-          // Возвращаем последний известный курс если есть
-          return source.last_rate
-        }
-      }
-      
-      // Для ручных источников возвращаем сохраненный курс
-      if (source.source_type === 'manual') {
-        return source.last_rate
-      }
-      
-      return null
-    } catch {
-      return null
-    }
-  }, [])
-  
-  // Получить курс из API для валютной пары используя настроенные источники
+  // Получить курс из API для валютной пары через Server Action (обход CORS)
   const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string, specificSourceId?: string): Promise<{ rate: number | null, sourceUsed: CurrencyRateSource | null }> => {
-    // Если указан конкретный источник - используем его
+    // Если указан конкретный источник - получаем его параметры
+    let sourceType: string | undefined
+    let apiUrl: string | undefined
+    let apiPath: string | undefined
+    let sourceUsed: CurrencyRateSource | null = null
+    
     if (specificSourceId) {
       const source = allSources.find(s => s.id === specificSourceId)
       if (source) {
-        const rate = await fetchRateFromSource(source, toCurr)
-        return { rate, sourceUsed: source }
-      }
-    }
-    
-    // Ищем источники для валют
-    const fromSources = allSources.filter(s => s.currency_code === fromCurr && s.is_active)
-    const toSources = allSources.filter(s => s.currency_code === toCurr && s.is_active)
-    
-    // Пробуем получить курс через источник "от" валюты
-    for (const source of fromSources.sort((a, b) => a.priority - b.priority)) {
-      if (source.source_type === 'api') {
-        try {
-          const apiUrl = source.api_url || `https://open.er-api.com/v6/latest/${fromCurr}`
-          const res = await fetch(apiUrl)
-          if (res.ok) {
-            const data = await res.json()
-            if (data.rates?.[toCurr]) {
-              return { rate: data.rates[toCurr], sourceUsed: source }
-            }
-          }
-        } catch {}
-      }
-      if (source.source_type === 'crypto') {
-        // Криптовалюта -> USDT
-        if (toCurr === 'USDT' || toCurr === 'USD') {
-          try {
-            const symbol = `${fromCurr}USDT`
-            const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-            if (res.ok) {
-              const data = await res.json()
-              return { rate: parseFloat(data.price), sourceUsed: source }
-            }
-          } catch {}
+        sourceType = source.source_type
+        apiUrl = source.api_url || undefined
+        apiPath = source.api_path || undefined
+        sourceUsed = source
+        
+        // Для ручных источников возвращаем сохраненный курс
+        if (source.source_type === 'manual') {
+          return { rate: source.last_rate, sourceUsed: source }
         }
       }
     }
     
-    // Пробуем через источник "в" валюту (обратный курс)
-    for (const source of toSources.sort((a, b) => a.priority - b.priority)) {
-      if (source.source_type === 'crypto') {
-        // USDT -> Криптовалюта (обратный курс)
-        if (fromCurr === 'USDT' || fromCurr === 'USD') {
-          try {
-            const symbol = `${toCurr}USDT`
-            const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-            if (res.ok) {
-              const data = await res.json()
-              return { rate: 1 / parseFloat(data.price), sourceUsed: source }
-            }
-          } catch {}
-        }
-      }
-    }
+    // Вызываем Server Action для получения курса
+    const result = await fetchExternalRate(fromCurr, toCurr, sourceType, apiUrl, apiPath)
     
-    // Fallback на стандартный API
-    try {
-      const res = await fetch(`https://open.er-api.com/v6/latest/${fromCurr}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.rates?.[toCurr]) {
-          return { rate: data.rates[toCurr], sourceUsed: null }
-        }
-      }
-    } catch {}
-    
-    // Fallback для криптовалют через Binance
-    const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'SOL', 'ADA']
-    const isCryptoFrom = cryptoCurrencies.includes(fromCurr)
-    const isCryptoTo = cryptoCurrencies.includes(toCurr)
-    
-    if (isCryptoFrom || isCryptoTo) {
-      try {
-        if (isCryptoFrom && (toCurr === 'USD' || toCurr === 'USDT')) {
-          const symbol = `${fromCurr}USDT`
-          const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-          if (res.ok) {
-            const data = await res.json()
-            return { rate: parseFloat(data.price), sourceUsed: null }
-          }
-        }
-        if (isCryptoTo && (fromCurr === 'USD' || fromCurr === 'USDT')) {
-          const symbol = `${toCurr}USDT`
-          const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-          if (res.ok) {
-            const data = await res.json()
-            return { rate: 1 / parseFloat(data.price), sourceUsed: null }
-          }
-        }
-        // Крипто к крипто через USDT
-        if (isCryptoFrom && isCryptoTo) {
-          const fromRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${fromCurr}USDT`)
-          const toRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${toCurr}USDT`)
-          if (fromRes.ok && toRes.ok) {
-            const fromData = await fromRes.json()
-            const toData = await toRes.json()
-            const rate = parseFloat(fromData.price) / parseFloat(toData.price)
-            return { rate, sourceUsed: null }
-          }
-        }
-      } catch {}
+    if (result.rate) {
+      return { rate: result.rate, sourceUsed }
     }
     
     return { rate: null, sourceUsed: null }
-  }, [allSources, fetchRateFromSource])
+  }, [allSources])
 
   const loadRates = useCallback(async () => {
     setIsLoading(true)

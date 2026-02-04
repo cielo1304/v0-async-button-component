@@ -25,6 +25,7 @@ import { RefreshCw, TrendingUp, Wifi, WifiOff, Check, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
+import { fetchExternalRate } from '@/app/actions/exchange'
 
 const CURRENCY_FLAGS: Record<string, string> = {
   'RUB': '🇷🇺',
@@ -95,100 +96,42 @@ export function EditRateDialog({ rate, open, onOpenChange, onSave }: EditRateDia
     }
   }, [allSources, selectedSourceId])
 
-  // Fetch rate from source
-  const fetchRateFromSource = useCallback(async (source: CurrencyRateSource, targetCurrency?: string): Promise<number | null> => {
-    try {
-      if (source.source_type === 'crypto') {
-        const symbol = `${source.currency_code}USDT`
-        const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-        if (response.ok) {
-          const data = await response.json()
-          return parseFloat(data.price)
-        }
-      } else if (source.source_type === 'api' && source.api_url) {
-        const url = targetCurrency 
-          ? source.api_url.replace('{from}', source.currency_code).replace('{to}', targetCurrency)
-          : source.api_url
-        const response = await fetch(url)
-        if (response.ok) {
-          const data = await response.json()
-          if (source.api_path) {
-            const path = source.api_path.replace('{to}', targetCurrency || '')
-            const value = path.split('.').reduce((obj, key) => obj?.[key], data as Record<string, unknown>)
-            if (typeof value === 'number') return value
-          }
-          return data.rate || data.price || data.result
-        }
-      }
-    } catch (e) {
-      console.error('Error fetching from source:', e)
-    }
-    return null
-  }, [])
-
-  // Load API rate for pair
+  // Load API rate for pair via Server Action (обход CORS)
   const loadApiRateForPair = useCallback(async (from: string, to: string, sourceId?: string) => {
     setIsLoadingApiRate(true)
     setApiRateError(null)
     setApiRate(null)
 
     try {
-      // Try specific source first
+      // Получаем источник если указан
+      let sourceType: string | undefined
+      let apiUrl: string | undefined
+      let apiPath: string | undefined
+      
       if (sourceId && sourceId !== 'auto') {
         const source = allSources.find(s => s.id === sourceId)
         if (source) {
-          const rate = await fetchRateFromSource(source, to)
-          if (rate) {
-            setApiRate(rate)
-            setIsLoadingApiRate(false)
-            return
-          }
+          sourceType = source.source_type
+          apiUrl = source.api_url || undefined
+          apiPath = source.api_path || undefined
         }
       }
 
-      // Try default Exchange Rate API
-      try {
-        const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${from}`)
-        if (response.ok) {
-          const data = await response.json()
-          if (data.rates && data.rates[to]) {
-            setApiRate(data.rates[to])
-            setIsLoadingApiRate(false)
-            return
-          }
-        }
-      } catch (e) {
-        // Continue to fallback
+      // Вызываем Server Action для получения курса
+      const result = await fetchExternalRate(from, to, sourceType, apiUrl, apiPath)
+      
+      if (result.rate) {
+        setApiRate(result.rate)
+      } else {
+        setApiRateError(result.error || 'Курс не найден')
       }
-
-      // Fallback for crypto
-      const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'USDC']
-      if (cryptoCurrencies.includes(from) || cryptoCurrencies.includes(to)) {
-        try {
-          if (from === 'USDT' || to === 'USDT') {
-            const otherCurrency = from === 'USDT' ? to : from
-            const symbol = `${otherCurrency}USDT`
-            const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
-            if (response.ok) {
-              const data = await response.json()
-              const price = parseFloat(data.price)
-              setApiRate(from === 'USDT' ? 1 / price : price)
-              setIsLoadingApiRate(false)
-              return
-            }
-          }
-        } catch (e) {
-          // Continue
-        }
-      }
-
-      setApiRateError('Курс не найден')
     } catch (error) {
+      console.error('Error loading rate:', error)
       setApiRateError('Ошибка загрузки курса')
     } finally {
       setIsLoadingApiRate(false)
     }
-  }, [allSources, fetchRateFromSource])
+  }, [allSources])
 
   // Initialize form when rate changes
   useEffect(() => {

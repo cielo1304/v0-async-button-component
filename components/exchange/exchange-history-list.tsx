@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,23 +26,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
-import { format } from 'date-fns'
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
 import { ru } from 'date-fns/locale'
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  'RUB': '₽',
-  'USD': '$',
-  'EUR': '€',
-  'UAH': '₴',
-  'TRY': '₺',
-  'AED': 'د.إ',
-  'CNY': '¥',
-  'GBP': '£',
-}
+import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
+import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
@@ -64,9 +62,67 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [dateFilter, setDateFilter] = useState<string>('today')
+  const [dateFilter, setDateFilter] = useState<DatePeriod>('today')
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({ from: undefined, to: undefined })
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   
-  const loadOperations = async () => {
+  // Получение лейбла периода
+  const getPeriodLabel = (p: DatePeriod): string => {
+    switch (p) {
+      case 'today': return 'Сегодня'
+      case 'this_week': return 'Эта неделя'
+      case 'this_month': return 'Этот месяц'
+      case 'this_year': return 'Этот год'
+      case 'yesterday': return 'Вчера'
+      case 'last_week': return 'Прошлая неделя'
+      case 'last_month': return 'Прошлый месяц'
+      case 'last_year': return 'Прошлый год'
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return `${format(customDateRange.from, 'dd.MM.yy')} - ${format(customDateRange.to, 'dd.MM.yy')}`
+        }
+        return 'Выбрать даты'
+      case 'all': return 'Все время'
+      default: return 'Сегодня'
+    }
+  }
+
+  // Получение диапазона дат по периоду
+  const getDateRangeForPeriod = useCallback((p: DatePeriod): { start: Date; end: Date } | null => {
+    const now = new Date()
+    switch (p) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) }
+      case 'yesterday':
+        const yesterday = subDays(now, 1)
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) }
+      case 'this_week':
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) }
+      case 'last_week':
+        const lastWeek = subWeeks(now, 1)
+        return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      case 'this_month':
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+      case 'last_month':
+        const lastMonth = subMonths(now, 1)
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      case 'this_year':
+        return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
+      case 'last_year':
+        return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return { start: startOfDay(customDateRange.from), end: endOfDay(customDateRange.to) }
+        }
+        return null
+      case 'all':
+        return null
+      default:
+        return { start: startOfDay(now), end: endOfDay(now) }
+    }
+  }, [customDateRange])
+  
+  const loadOperations = useCallback(async () => {
     setIsLoading(true)
     try {
       let query = supabase
@@ -81,19 +137,10 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
       }
       
       // Фильтр по дате
-      const now = new Date()
-      if (dateFilter === 'today') {
-        const startOfDay = new Date(now)
-        startOfDay.setHours(0, 0, 0, 0)
-        query = query.gte('created_at', startOfDay.toISOString())
-      } else if (dateFilter === 'week') {
-        const weekAgo = new Date(now)
-        weekAgo.setDate(weekAgo.getDate() - 7)
-        query = query.gte('created_at', weekAgo.toISOString())
-      } else if (dateFilter === 'month') {
-        const monthAgo = new Date(now)
-        monthAgo.setMonth(monthAgo.getMonth() - 1)
-        query = query.gte('created_at', monthAgo.toISOString())
+      const dateRange = getDateRangeForPeriod(dateFilter)
+      if (dateRange) {
+        query = query.gte('created_at', dateRange.start.toISOString())
+        query = query.lte('created_at', dateRange.end.toISOString())
       }
       
       const { data, error } = await query
@@ -105,11 +152,11 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [supabase, statusFilter, dateFilter, getDateRangeForPeriod])
   
   useEffect(() => {
     loadOperations()
-  }, [statusFilter, dateFilter, refreshKey])
+  }, [loadOperations, refreshKey])
   
   // Фильтрация по поиску
   const filteredOperations = useMemo(() => {
@@ -209,18 +256,65 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
               </SelectContent>
             </Select>
             
-            <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-[140px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Период" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Сегодня</SelectItem>
-                <SelectItem value="week">Неделя</SelectItem>
-                <SelectItem value="month">Месяц</SelectItem>
-                <SelectItem value="all">Все время</SelectItem>
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                  <Calendar className="h-4 w-4 mr-2" />
+                  {getPeriodLabel(dateFilter)}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => setDateFilter('today')}>
+                  {dateFilter === 'today' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('this_week')}>
+                  {dateFilter === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('this_month')}>
+                  {dateFilter === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('this_year')}>
+                  {dateFilter === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuSeparator />
+                
+                <DropdownMenuItem onClick={() => setDateFilter('yesterday')}>
+                  {dateFilter === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('last_week')}>
+                  {dateFilter === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('last_month')}>
+                  {dateFilter === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setDateFilter('last_year')}>
+                  {dateFilter === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuSeparator />
+                
+                <DropdownMenuItem onClick={() => setDateFilter('all')}>
+                  {dateFilter === 'all' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'all' ? 'ml-6' : ''}>Все время</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuSeparator />
+                
+                <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                  {dateFilter === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                  <span className={dateFilter !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             
             <Button variant="outline" size="icon" onClick={loadOperations} className="bg-transparent">
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
@@ -228,6 +322,23 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
           </div>
         </div>
       </CardHeader>
+      
+      {/* Date Picker Dialog */}
+      <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Выбрать даты</DialogTitle>
+          </DialogHeader>
+          <CustomCalendarComponent
+            selected={customDateRange}
+            onSelect={(range) => {
+              setCustomDateRange(range)
+              setDateFilter('custom')
+            }}
+            onClose={() => setIsDatePickerOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
       <CardContent>
         <Table>
           <TableHeader>

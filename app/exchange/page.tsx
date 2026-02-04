@@ -1,6 +1,5 @@
 'use client'
 
-import { useRef } from "react"
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -14,6 +13,7 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,7 +25,7 @@ import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Wifi, WifiOff, Calendar
+  Calendar
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -35,31 +35,9 @@ import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
 import { ExchangeHistoryList } from '@/components/exchange/exchange-history-list'
 import { EditRateDialog } from '@/components/exchange/edit-rate-dialog'
+import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
+import { CURRENCY_SYMBOLS, CURRENCY_FLAGS, type DatePeriod } from '@/lib/constants/currencies'
 import { nanoid } from 'nanoid'
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  'RUB': '₽',
-  'USD': '$',
-  'EUR': '€',
-  'UAH': '₴',
-  'TRY': '₺',
-  'AED': 'د.إ',
-  'CNY': '¥',
-  'GBP': '£',
-  'KZT': '₸',
-}
-
-const CURRENCY_FLAGS: Record<string, string> = {
-  'RUB': '🇷🇺',
-  'USD': '🇺🇸',
-  'EUR': '🇪🇺',
-  'UAH': '🇺🇦',
-  'TRY': '🇹🇷',
-  'AED': '🇦🇪',
-  'CNY': '🇨🇳',
-  'GBP': '🇬🇧',
-  'KZT': '🇰🇿',
-}
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -89,7 +67,9 @@ export default function ExchangePage() {
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [settings, setSettings] = useState<ExchangeSettings | null>(null)
   const [periodStats, setPeriodStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
-  const [statsPeriod, setStatsPeriod] = useState<string>('today')
+  const [statsPeriod, setStatsPeriod] = useState<DatePeriod>('today')
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({ from: undefined, to: undefined })
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   
   // Состояние UI
   const [isLoading, setIsLoading] = useState(true)
@@ -148,12 +128,17 @@ export default function ExchangePage() {
         return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
       case 'last_year':
         return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return { start: startOfDay(customDateRange.from), end: endOfDay(customDateRange.to) }
+        }
+        return null
       case 'all':
         return null // null означает "все время" - без фильтра по дате
       default:
         return { start: startOfDay(now), end: endOfDay(now) }
     }
-  }, [])
+  }, [customDateRange])
   
   // Загрузка статистики по периоду
   const loadPeriodStats = useCallback(async (period: string) => {
@@ -221,10 +206,10 @@ export default function ExchangePage() {
     loadData()
   }, [loadData])
   
-  // Обновление статистики при смене периода
+  // Обновление статистики при смене периода или изменении кастомного диапазона
   useEffect(() => {
     loadPeriodStats(statsPeriod)
-  }, [statsPeriod, loadPeriodStats])
+  }, [statsPeriod, loadPeriodStats, customDateRange])
   
   // Хелпер для получения лейбла периода
   const getPeriodLabel = (period: string): string => {
@@ -237,6 +222,11 @@ export default function ExchangePage() {
       case 'last_week': return 'Прошлая неделя'
       case 'last_month': return 'Прошлый месяц'
       case 'last_year': return 'Прошлый год'
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return `${format(customDateRange.from, 'dd.MM.yy')} - ${format(customDateRange.to, 'dd.MM.yy')}`
+        }
+        return 'Выбрать даты'
       case 'all': return 'Все время'
       default: return 'Сегодня'
     }
@@ -488,6 +478,10 @@ export default function ExchangePage() {
     return givesInBase - receivesInBase
   }, [clientGives, clientReceives, calculateTotalInBase])
   
+  // Мемоизация ключей валют для зависимостей useEffect (вместо join в зависимостях)
+  const givesCurrenciesKey = useMemo(() => clientGives.map(l => l.currency).join(','), [clientGives])
+  const receivesCurrenciesKey = useMemo(() => clientReceives.map(l => l.currency).join(','), [clientReceives])
+  
   // Автозаполнение кассы при выборе валюты
   useEffect(() => {
     setClientGives(prev => prev.map(line => {
@@ -499,7 +493,7 @@ export default function ExchangePage() {
       }
       return line
     }))
-  }, [clientGives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  }, [givesCurrenciesKey, getCashboxesForCurrency])
   
   useEffect(() => {
     setClientReceives(prev => prev.map(line => {
@@ -511,7 +505,7 @@ export default function ExchangePage() {
       }
       return line
     }))
-  }, [clientReceives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  }, [receivesCurrenciesKey, getCashboxesForCurrency])
   
   // Проверка валидности
   const isValid = useMemo(() => {
@@ -819,12 +813,36 @@ export default function ExchangePage() {
                           {statsPeriod === 'all' && <Check className="h-4 w-4 mr-2" />}
                           <span className={statsPeriod !== 'all' ? 'ml-6' : ''}>Все время</span>
                         </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                          {statsPeriod === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
             </div>
+            
+            {/* Date Picker Dialog */}
+            <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Выбрать даты</DialogTitle>
+                </DialogHeader>
+                <CustomCalendar
+                  selected={customDateRange}
+                  onSelect={(range) => {
+                    setCustomDateRange(range)
+                    setStatsPeriod('custom')
+                  }}
+                  onClose={() => setIsDatePickerOpen(false)}
+                />
+              </DialogContent>
+            </Dialog>
             
             {/* Форма мультивалютного обмена */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative">
