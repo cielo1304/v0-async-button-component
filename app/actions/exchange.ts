@@ -191,42 +191,14 @@ export async function getCurrencyRates() {
 // Получить курс валюты из внешнего API (Server Action для обхода CORS)
 export async function fetchExternalRate(fromCurrency: string, toCurrency: string, sourceType?: string, apiUrl?: string, apiPath?: string): Promise<{ rate: number | null; error: string | null }> {
   try {
-    const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'USDC']
+    // Если валюты одинаковые - курс 1
+    if (fromCurrency === toCurrency) {
+      return { rate: 1, error: null }
+    }
     
-    // Крипто через Binance
-    if (cryptoCurrencies.includes(fromCurrency) || cryptoCurrencies.includes(toCurrency)) {
-      if (fromCurrency === 'USDT' || toCurrency === 'USDT') {
-        const otherCurrency = fromCurrency === 'USDT' ? toCurrency : fromCurrency
-        const symbol = `${otherCurrency}USDT`
-        try {
-          const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, {
-            next: { revalidate: 60 }
-          })
-          if (response.ok) {
-            const data = await response.json()
-            const price = parseFloat(data.price)
-            return { rate: fromCurrency === 'USDT' ? 1 / price : price, error: null }
-          }
-        } catch (e) {
-          // Продолжаем к следующему источнику
-        }
-      }
-      
-      // Попробуем через пару к USDT
-      if (cryptoCurrencies.includes(fromCurrency)) {
-        try {
-          const symbol = `${fromCurrency}USDT`
-          const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, {
-            next: { revalidate: 60 }
-          })
-          if (response.ok) {
-            const data = await response.json()
-            return { rate: parseFloat(data.price), error: null }
-          }
-        } catch (e) {
-          // Продолжаем
-        }
-      }
+    // USDT и USD считаем равными для простоты
+    if ((fromCurrency === 'USDT' && toCurrency === 'USD') || (fromCurrency === 'USD' && toCurrency === 'USDT')) {
+      return { rate: 1, error: null }
     }
     
     // Кастомный API источник
@@ -247,15 +219,64 @@ export async function fetchExternalRate(fromCurrency: string, toCurrency: string
           }
           return { rate: data.rate || data.price || data.result || null, error: null }
         }
-      } catch (e) {
+      } catch {
         // Продолжаем к дефолтному API
       }
     }
     
-    // Дефолтный Exchange Rate API
+    // Для криптовалют используем CoinGecko (бесплатный, без региональных ограничений)
+    const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'USDC', 'BNB', 'XRP', 'SOL', 'ADA']
+    const cryptoIds: Record<string, string> = {
+      'BTC': 'bitcoin',
+      'ETH': 'ethereum',
+      'USDT': 'tether',
+      'USDC': 'usd-coin',
+      'BNB': 'binancecoin',
+      'XRP': 'ripple',
+      'SOL': 'solana',
+      'ADA': 'cardano'
+    }
+    
+    if (cryptoCurrencies.includes(fromCurrency)) {
+      const cryptoId = cryptoIds[fromCurrency]
+      if (cryptoId) {
+        try {
+          // CoinGecko возвращает курс к USD
+          const response = await fetch(
+            `https://api.coingecko.com/api/v3/simple/price?ids=${cryptoId}&vs_currencies=usd`,
+            { next: { revalidate: 60 } }
+          )
+          if (response.ok) {
+            const data = await response.json()
+            const priceInUSD = data[cryptoId]?.usd
+            if (priceInUSD) {
+              // Если целевая валюта USD или USDT - возвращаем напрямую
+              if (toCurrency === 'USD' || toCurrency === 'USDT') {
+                return { rate: priceInUSD, error: null }
+              }
+              // Иначе нужно конвертировать USD в целевую валюту
+              const usdToTargetResponse = await fetch(
+                `https://api.exchangerate-api.com/v4/latest/USD`,
+                { next: { revalidate: 300 } }
+              )
+              if (usdToTargetResponse.ok) {
+                const usdData = await usdToTargetResponse.json()
+                if (usdData.rates?.[toCurrency]) {
+                  return { rate: priceInUSD * usdData.rates[toCurrency], error: null }
+                }
+              }
+            }
+          }
+        } catch {
+          // Продолжаем к стандартному API
+        }
+      }
+    }
+    
+    // Дефолтный Exchange Rate API для фиатных валют
     try {
       const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${fromCurrency}`, {
-        next: { revalidate: 300 } // кэш на 5 минут
+        next: { revalidate: 300 }
       })
       if (response.ok) {
         const data = await response.json()
@@ -263,7 +284,7 @@ export async function fetchExternalRate(fromCurrency: string, toCurrency: string
           return { rate: data.rates[toCurrency], error: null }
         }
       }
-    } catch (e) {
+    } catch {
       // Продолжаем
     }
     
