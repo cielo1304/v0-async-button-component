@@ -1,19 +1,12 @@
 'use client'
 
 import { DialogFooter } from "@/components/ui/dialog"
-
 import { DialogDescription } from "@/components/ui/dialog"
-
 import { DialogTitle } from "@/components/ui/dialog"
-
 import { DialogHeader } from "@/components/ui/dialog"
-
 import { DialogContent } from "@/components/ui/dialog"
-
 import { DialogTrigger } from "@/components/ui/dialog"
-
 import { Dialog } from "@/components/ui/dialog"
-
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -34,7 +27,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { 
   Settings, ArrowLeft, Building, Wallet, Package, 
-  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users
+  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users, Pencil
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
@@ -971,8 +964,7 @@ export default function SettingsPage() {
                       return (
                         <div 
                           key={currency} 
-                          className="border rounded-lg p-4 cursor-pointer hover:border-cyan-500/50 hover:bg-secondary/30 transition-all"
-                          onClick={() => setEditingSource(defaultSource)}
+                          className="border rounded-lg p-4 hover:border-cyan-500/50 hover:bg-secondary/30 transition-all"
                         >
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-lg font-bold text-foreground">{currency}</span>
@@ -984,9 +976,51 @@ export default function SettingsPage() {
                               {defaultSource?.source_type === 'crypto' ? 'Крипто' : 'Фиат'}
                             </span>
                           </div>
-                          <p className="text-sm text-muted-foreground mb-1">
-                            {defaultSource?.source_name}
-                          </p>
+                          
+                          {/* Выпадающий список источников */}
+                          {sources.length > 1 ? (
+                            <Select
+                              value={defaultSource?.id}
+                              onValueChange={(sourceId) => {
+                                const source = sources.find(s => s.id === sourceId)
+                                if (source) setEditingSource(source)
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-sm mb-2">
+                                <SelectValue>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${
+                                      defaultSource?.is_active ? 'bg-green-500' : 'bg-gray-500'
+                                    }`} />
+                                    <span className="truncate">{defaultSource?.source_name}</span>
+                                  </div>
+                                </SelectValue>
+                              </SelectTrigger>
+                              <SelectContent>
+                                {sources.map(source => (
+                                  <SelectItem key={source.id} value={source.id}>
+                                    <div className="flex items-center gap-2">
+                                      <span className={`w-2 h-2 rounded-full ${
+                                        source.is_active ? 'bg-green-500' : 'bg-gray-500'
+                                      }`} />
+                                      <span>{source.source_name}</span>
+                                      {source.is_default && (
+                                        <span className="text-xs text-cyan-400">(основной)</span>
+                                      )}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <p 
+                              className="text-sm text-muted-foreground mb-2 cursor-pointer hover:text-foreground"
+                              onClick={() => setEditingSource(defaultSource)}
+                            >
+                              {defaultSource?.source_name}
+                            </p>
+                          )}
+                          
                           {defaultSource?.last_rate && (
                             <p className="text-xs text-cyan-400">
                               Курс: {defaultSource.last_rate}
@@ -994,11 +1028,17 @@ export default function SettingsPage() {
                           )}
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
                             <span className="text-xs text-muted-foreground">
-                              {activeCount} из {sources.length} активно
+                              {sources.length > 1 ? `${activeCount} из ${sources.length} источников` : '1 источник'}
                             </span>
-                            <div className={`w-2 h-2 rounded-full ${
-                              defaultSource?.is_active ? 'bg-green-500' : 'bg-gray-500'
-                            }`} />
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => setEditingSource(defaultSource)}
+                            >
+                              <Pencil className="h-3 w-3 mr-1" />
+                              Изменить
+                            </Button>
                           </div>
                         </div>
                       )

@@ -418,10 +418,10 @@ const resetForm = () => {
         // Автозаполнение курсов в зависимости от метода
         if (profitMethod === 'auto' || profitMethod === 'fixed_percent') {
           setBuyRate(rate.toFixed(4))
-          const margin = parseFloat(marginPercent) || 2.0
-          // Устанавливаем курс продажи с маржой
-          const sellRateValue = rate * (1 + margin / 100)
-          setSellRate(sellRateValue.toFixed(4))
+          if (profitMethod === 'fixed_percent') {
+            const margin = parseFloat(marginPercent) || 2.0
+            setSellRate((rate * (1 + margin / 100)).toFixed(4))
+          }
         }
         const sourceInfo = sourceUsed ? ` (${sourceUsed.source_name})` : ''
         toast.success(`Курс найден: 1 ${from} = ${rate.toFixed(4)} ${to}${sourceInfo}`)
@@ -453,19 +453,10 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setMarginPercent(rate.margin_percent?.toString() || '2.0')
     setApiRate(rate.api_rate || null)
     
-    // Обновляем доступные источники
-    updateAvailableSources(rate.from_currency, rate.to_currency)
-    
     // Подгружаем актуальный курс API
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
-      // Обновляем курсы если метод auto или fixed_percent
-      if (rate.profit_calculation_method === 'auto' || rate.profit_calculation_method === 'fixed_percent') {
-        setBuyRate(currentApiRate.toFixed(4))
-        const margin = rate.margin_percent || 2.0
-        setSellRate((currentApiRate * (1 + margin / 100)).toFixed(4))
-      }
     }
     
     setIsDialogOpen(true)
