@@ -23,7 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, RefreshCw, Star, TrendingUp, ArrowRight, Wifi, WifiOff } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Star, TrendingUp, ArrowRight, Wifi, WifiOff, Check, X } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
@@ -76,6 +76,8 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const [fixedBaseSource, setFixedBaseSource] = useState<'api' | 'manual'>('api')
   const [marginPercent, setMarginPercent] = useState('2.0')
   const [apiRate, setApiRate] = useState<number | null>(null)
+  const [isLoadingApiRate, setIsLoadingApiRate] = useState(false)
+  const [apiRateError, setApiRateError] = useState<string | null>(null)
 
   // Получить курс из API для валютной пары
   const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string): Promise<number | null> => {
@@ -235,7 +237,48 @@ const resetForm = () => {
     setFixedBaseSource('api')
     setMarginPercent(exchangeSettings?.default_margin_percent?.toString() || '2.0')
     setApiRate(null)
+    setApiRateError(null)
+    setIsLoadingApiRate(false)
     setEditingRate(null)
+  }
+  
+  // Загрузить курс из API с обратной связью
+  const loadApiRateForPair = async (from: string, to: string) => {
+    if (!from || !to || from === to) {
+      setApiRate(null)
+      setApiRateError(null)
+      return
+    }
+    
+    setIsLoadingApiRate(true)
+    setApiRateError(null)
+    
+    try {
+      const rate = await fetchRateFromAPI(from, to)
+      if (rate) {
+        setApiRate(rate)
+        setApiRateError(null)
+        // Автозаполнение курсов в зависимости от метода
+        if (profitMethod === 'auto' || profitMethod === 'fixed_percent') {
+          setBuyRate(rate.toFixed(4))
+          if (profitMethod === 'fixed_percent') {
+            const margin = parseFloat(marginPercent) || 2.0
+            setSellRate((rate * (1 + margin / 100)).toFixed(4))
+          }
+        }
+        toast.success(`Курс найден: 1 ${from} = ${rate.toFixed(4)} ${to}`)
+      } else {
+        setApiRate(null)
+        setApiRateError(`Курс ${from}/${to} не найден в API`)
+        toast.error(`Курс ${from}/${to} не найден в API`)
+      }
+    } catch (err) {
+      setApiRate(null)
+      setApiRateError('Ошибка загрузки курса из API')
+      toast.error('Ошибка загрузки курса из API')
+    } finally {
+      setIsLoadingApiRate(false)
+    }
   }
   
 const openEditDialog = async (rate: ExtendedExchangeRate) => {
@@ -505,7 +548,14 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                       <Input
                         placeholder="USD"
                         value={fromCurrency}
-                        onChange={(e) => setFromCurrency(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase()
+                          setFromCurrency(val)
+                          // Автозагрузка курса при заполнении обеих валют
+                          if (val.length >= 3 && toCurrency.length >= 3 && profitMethod !== 'manual') {
+                            loadApiRateForPair(val, toCurrency)
+                          }
+                        }}
                         maxLength={5}
                       />
                     </div>
@@ -514,7 +564,14 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                       <Input
                         placeholder="RUB"
                         value={toCurrency}
-                        onChange={(e) => setToCurrency(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                          const val = e.target.value.toUpperCase()
+                          setToCurrency(val)
+                          // Автозагрузка курса при заполнении обеих валют
+                          if (fromCurrency.length >= 3 && val.length >= 3 && profitMethod !== 'manual') {
+                            loadApiRateForPair(fromCurrency, val)
+                          }
+                        }}
                         maxLength={5}
                       />
                     </div>
@@ -530,7 +587,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                             ? 'border-cyan-500 bg-cyan-500/10' 
                             : 'border-border hover:border-muted-foreground'
                         }`}
-                        onClick={() => setProfitMethod('auto')}
+                        onClick={() => {
+                          setProfitMethod('auto')
+                          // Загружаем курс при переключении на авто режим
+                          if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
+                            loadApiRateForPair(fromCurrency, toCurrency)
+                          }
+                        }}
                       >
                         <Wifi className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Авто</span>
@@ -554,7 +617,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                             ? 'border-cyan-500 bg-cyan-500/10' 
                             : 'border-border hover:border-muted-foreground'
                         }`}
-                        onClick={() => setProfitMethod('fixed_percent')}
+                        onClick={() => {
+                          setProfitMethod('fixed_percent')
+                          // Загружаем курс при переключении на фикс режим
+                          if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
+                            loadApiRateForPair(fromCurrency, toCurrency)
+                          }
+                        }}
                       >
                         <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Фикс %</span>
@@ -563,12 +632,53 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                     </div>
                   </div>
                   
-                  {/* Показ курса API */}
-                  {apiRate && (
-                    <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                  {/* Блок курса API с кнопкой обновления */}
+                  {(profitMethod === 'auto' || profitMethod === 'fixed_percent') && fromCurrency && toCurrency && (
+                    <div className={`p-3 rounded-lg border ${
+                      apiRate 
+                        ? 'bg-cyan-500/10 border-cyan-500/20' 
+                        : apiRateError 
+                        ? 'bg-red-500/10 border-red-500/20'
+                        : 'bg-secondary/30 border-border'
+                    }`}>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">Текущий курс API:</span>
-                        <span className="font-mono font-bold text-cyan-400">{apiRate.toFixed(4)}</span>
+                        <div className="flex-1">
+                          {isLoadingApiRate ? (
+                            <div className="flex items-center gap-2">
+                              <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">Загрузка курса...</span>
+                            </div>
+                          ) : apiRate ? (
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Check className="h-4 w-4 text-green-400" />
+                                <span className="text-sm text-muted-foreground">Курс API найден:</span>
+                              </div>
+                              <p className="font-mono font-bold text-cyan-400 mt-1">
+                                1 {fromCurrency} = {apiRate.toFixed(4)} {toCurrency}
+                              </p>
+                            </div>
+                          ) : apiRateError ? (
+                            <div className="flex items-center gap-2">
+                              <X className="h-4 w-4 text-red-400" />
+                              <span className="text-sm text-red-400">{apiRateError}</span>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              Нажмите "Обновить" для загрузки курса из API
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => loadApiRateForPair(fromCurrency, toCurrency)}
+                          disabled={isLoadingApiRate || !fromCurrency || !toCurrency}
+                          className="ml-2 bg-transparent"
+                        >
+                          <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingApiRate ? 'animate-spin' : ''}`} />
+                          Обновить
+                        </Button>
                       </div>
                     </div>
                   )}
