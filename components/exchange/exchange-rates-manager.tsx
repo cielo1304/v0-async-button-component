@@ -21,13 +21,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Plus, Pencil, Trash2, RefreshCw, Star, TrendingUp, ArrowRight } from 'lucide-react'
+import { Plus, Pencil, Trash2, RefreshCw, Star, TrendingUp, ArrowRight, Download } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ExchangeRate } from '@/lib/types/database'
+import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
 
 interface Props {
   onUpdate?: () => void
+}
+
+interface RateSourceWithRate extends CurrencyRateSource {
+  fetched_rate?: number
 }
 
 const CURRENCY_FLAGS: Record<string, string> = {
@@ -45,7 +49,9 @@ const CURRENCY_FLAGS: Record<string, string> = {
 export function ExchangeRatesManager({ onUpdate }: Props) {
   const supabase = useMemo(() => createClient(), [])
   const [rates, setRates] = useState<ExchangeRate[]>([])
+  const [rateSources, setRateSources] = useState<RateSourceWithRate[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isFetchingRates, setIsFetchingRates] = useState(false)
   const [editingRate, setEditingRate] = useState<ExchangeRate | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   
@@ -61,17 +67,88 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const loadRates = async () => {
     setIsLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('exchange_rates')
-        .select('*')
-        .order('sort_order')
+      const [ratesResult, sourcesResult] = await Promise.all([
+        supabase
+          .from('exchange_rates')
+          .select('*')
+          .order('sort_order'),
+        supabase
+          .from('currency_rate_sources')
+          .select('*')
+          .eq('is_active', true)
+          .order('currency_code')
+      ])
       
-      if (error) throw error
-      setRates(data || [])
+      if (ratesResult.error) throw ratesResult.error
+      setRates(ratesResult.data || [])
+      setRateSources(sourcesResult.data || [])
     } catch {
       toast.error('Ошибка загрузки курсов')
     } finally {
       setIsLoading(false)
+    }
+  }
+  
+  // Получение курсов с внешних API
+  const fetchRatesFromSources = async () => {
+    setIsFetchingRates(true)
+    try {
+      const updatedSources: RateSourceWithRate[] = []
+      
+      for (const source of rateSources) {
+        if (!source.api_url || source.source_type === 'manual') {
+          updatedSources.push(source)
+          continue
+        }
+        
+        try {
+          let fetchedRate: number | undefined
+          
+          if (source.source_type === 'crypto') {
+            // Binance API
+            const symbol = `${source.currency_code}USDT`
+            const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+            if (res.ok) {
+              const data = await res.json()
+              fetchedRate = parseFloat(data.price)
+            }
+          } else {
+            // Exchange Rate API
+            const res = await fetch(`https://open.er-api.com/v6/latest/${source.currency_code}`)
+            if (res.ok) {
+              const data = await res.json()
+              // Курс к USD для упрощения
+              if (data.rates?.USD) {
+                fetchedRate = data.rates.USD
+              }
+            }
+          }
+          
+          if (fetchedRate) {
+            // Обновляем last_rate в БД
+            await supabase
+              .from('currency_rate_sources')
+              .update({ 
+                last_rate: fetchedRate, 
+                last_updated: new Date().toISOString() 
+              })
+              .eq('id', source.id)
+            
+            updatedSources.push({ ...source, fetched_rate: fetchedRate, last_rate: fetchedRate })
+          } else {
+            updatedSources.push(source)
+          }
+        } catch {
+          updatedSources.push(source)
+        }
+      }
+      
+      setRateSources(updatedSources)
+      toast.success('Курсы обновлены из внешних источников')
+    } catch {
+      toast.error('Ошибка получения курсов')
+    } finally {
+      setIsFetchingRates(false)
     }
   }
   
@@ -226,6 +303,16 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
             Управление курсами
           </CardTitle>
           <div className="flex gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={fetchRatesFromSources} 
+              disabled={isFetchingRates}
+              className="bg-transparent"
+            >
+              <Download className={`h-4 w-4 mr-2 ${isFetchingRates ? 'animate-pulse' : ''}`} />
+              Загрузить из API
+            </Button>
             <Button variant="outline" size="sm" onClick={loadRates} className="bg-transparent">
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
               Обновить
@@ -425,6 +512,57 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
             )}
           </TableBody>
         </Table>
+        
+        {/* Курсы из API источников */}
+        {rateSources.length > 0 && (
+          <div className="mt-6 pt-6 border-t border-border">
+            <h3 className="text-sm font-medium text-muted-foreground mb-3 flex items-center gap-2">
+              <Download className="h-4 w-4" />
+              Курсы из настроенных API источников
+            </h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+              {rateSources.map(source => (
+                <div 
+                  key={source.id}
+                  className={`p-3 rounded-lg border ${
+                    source.is_default ? 'border-cyan-500/50 bg-cyan-500/5' : 'border-border'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-foreground">
+                      {CURRENCY_FLAGS[source.currency_code] || ''} {source.currency_code}
+                    </span>
+                    <span className={`text-xs px-1.5 py-0.5 rounded ${
+                      source.source_type === 'crypto' 
+                        ? 'bg-orange-500/20 text-orange-400' 
+                        : 'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {source.source_type === 'crypto' ? 'Крипто' : 'API'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-2">{source.source_name}</p>
+                  {source.last_rate ? (
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-lg font-mono font-bold text-cyan-400">
+                        {source.last_rate.toFixed(source.source_type === 'crypto' ? 2 : 4)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {source.source_type === 'crypto' ? 'USDT' : 'к USD'}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Нет данных</span>
+                  )}
+                  {source.last_updated && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {new Date(source.last_updated).toLocaleTimeString('ru')}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   )
