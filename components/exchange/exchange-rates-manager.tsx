@@ -457,9 +457,16 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
-      // Для режимов auto и fixed_percent обновляем курс покупки из API
-      if (rate.profit_calculation_method === 'auto' || rate.profit_calculation_method === 'fixed_percent') {
+      // Для режима auto: sellRate = курс покупки из API (мы покупаем у клиента по API курсу)
+      if (rate.profit_calculation_method === 'auto') {
+        setSellRate(currentApiRate.toFixed(4))
+      }
+      // Для режима fixed_percent: buyRate = базовый курс из API
+      if (rate.profit_calculation_method === 'fixed_percent') {
         setBuyRate(currentApiRate.toFixed(4))
+        // sellRate рассчитывается автоматически с маржой
+        const margin = rate.margin_percent || 2.0
+        setSellRate((currentApiRate * (1 + margin / 100)).toFixed(4))
       }
     }
     
