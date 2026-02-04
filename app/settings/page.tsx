@@ -71,7 +71,18 @@ interface ExchangeSettingsData {
   working_hours_end: string
 }
 
+// Валюты для модуля обмена (базовая валюта прибыли)
 const CURRENCIES = ['USD', 'EUR', 'RUB', 'UAH', 'TRY', 'AED', 'CNY', 'GBP', 'KZT']
+
+// Системная валюта по умолчанию (для ЗП, закупок, продаж и пр.)
+const SYSTEM_CURRENCIES = [
+  { code: 'RUB', name: 'Российский рубль', symbol: '₽' },
+  { code: 'KZT', name: 'Казахстанский тенге', symbol: '₸' },
+  { code: 'UAH', name: 'Украинская гривна', symbol: '₴' },
+  { code: 'USD', name: 'Доллар США', symbol: '$' },
+  { code: 'EUR', name: 'Евро', symbol: '€' },
+  { code: 'TRY', name: 'Турецкая лира', symbol: '₺' },
+]
 
 
 
@@ -395,11 +406,28 @@ export default function SettingsPage() {
                   </div>
                   <div className="space-y-2">
                     <Label>Валюта по умолчанию</Label>
-                    <Input 
+                    <Select 
                       value={settings.default_currency}
-                      onChange={(e) => setSettings({ ...settings, default_currency: e.target.value })}
-                      placeholder="RUB"
-                    />
+                      onValueChange={(v) => setSettings({ ...settings, default_currency: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите валюту" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SYSTEM_CURRENCIES.map((currency) => (
+                          <SelectItem key={currency.code} value={currency.code}>
+                            <span className="flex items-center gap-2">
+                              <span className="w-5 text-center">{currency.symbol}</span>
+                              <span>{currency.code}</span>
+                              <span className="text-muted-foreground">— {currency.name}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Основная валюта для всех операций: ЗП, закупки, продажи
+                    </p>
                   </div>
                 </div>
                 <div className="space-y-2">
