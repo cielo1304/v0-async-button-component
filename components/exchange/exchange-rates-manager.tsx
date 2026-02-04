@@ -440,6 +440,7 @@ const resetForm = () => {
   }
   
 const openEditDialog = async (rate: ExtendedExchangeRate) => {
+    console.log('[v0] openEditDialog', { rate })
     setEditingRate(rate)
     setFromCurrency(rate.from_currency)
     setToCurrency(rate.to_currency)
@@ -451,39 +452,39 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setMarginPercent(rate.margin_percent?.toString() || '2.0')
     setApiRate(rate.api_rate || null)
     
-    // Для режима AUTO: в БД buy_rate=API, sell_rate=ручной
-    // В UI: buyRate="Курс продажи (вручную)", sellRate="Курс покупки (из API)"
+    // Загрузка значений в зависимости от метода расчета
+    // В БД для всех методов: buy_rate = рынок/базовый, sell_rate = клиенту
     if (rate.profit_calculation_method === 'auto') {
-      // buyRate = ручной курс продажи клиенту (из sell_rate в БД)
+      // Для Auto: buyRate = ручной курс клиенту (из sell_rate), apiRate показывает рынок
       setBuyRate(rate.sell_rate.toString())
-      // sellRate = API курс покупки у клиента (из buy_rate в БД)
       setSellRate(rate.buy_rate.toString())
     } else {
+      // Для manual/fixed: buyRate = рынок, sellRate = клиенту
       setBuyRate(rate.buy_rate.toString())
       setSellRate(rate.sell_rate.toString())
     }
     
-    // Подгружаем актуальный курс API
+    // Подгружаем актуальный курс API (не перезаписываем ручные значения!)
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
-      // Для режима auto: обновляем только отображение API курса, не трогаем ручной
-      if (rate.profit_calculation_method === 'auto') {
-        setSellRate(currentApiRate.toFixed(4))
-      }
-      // Для режима fixed_percent: buyRate = базовый курс из API
-      if (rate.profit_calculation_method === 'fixed_percent') {
+      console.log('[v0] API rate fetched:', currentApiRate)
+      
+      // Для режима fixed_percent: обновляем базовый курс и пересчитываем
+      if (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api') {
         setBuyRate(currentApiRate.toFixed(4))
-        // sellRate рассчитывается автоматически с маржой
         const margin = rate.margin_percent || 2.0
         setSellRate((currentApiRate * (1 + margin / 100)).toFixed(4))
       }
+      // Для auto: НЕ перезаписываем buyRate (ручной курс клиенту), только обновляем apiRate
     }
     
     setIsDialogOpen(true)
   }
   
   const handleSave = async () => {
+    console.log('[v0] handleSave called', { profitMethod, buyRate, sellRate, apiRate })
+    
     if (!fromCurrency || !toCurrency) {
       toast.error('Заполните валютную пару')
       return
@@ -503,12 +504,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
       
       // Расчет курсов в зависимости от метода
       if (profitMethod === 'auto') {
-        // Авто: buyRate в UI = ручной курс продажи клиенту, apiRate = курс покупки у клиента
-        // В БД сохраняем: buy_rate = API, sell_rate = ручной
-        const manualSellRate = parseFloat(buyRate) || 0 // Из поля "Курс продажи (вручную)"
-        finalBuyRate = apiRate || finalBuyRate // API курс покупки
-        finalSellRate = manualSellRate // Ручной курс продажи
-        finalMarketRate = apiRate || finalMarketRate
+        // Авто: buyRate = ручной курс клиенту (из правого поля UI)
+        // В БД: buy_rate = API (рынок), sell_rate = ручной (клиенту)
+        const manualClientRate = parseFloat(buyRate) || 0
+        finalBuyRate = apiRate || 0 // Рыночный API курс
+        finalSellRate = manualClientRate // Ручной курс клиенту
+        finalMarketRate = apiRate || 0
+        console.log('[v0] Auto mode save:', { apiRate, manualClientRate, finalBuyRate, finalSellRate })
       } else if (profitMethod === 'fixed_percent') {
         // Фикс процент: базовый курс + маржа%
         const baseRate = fixedBaseSource === 'api' && apiRate ? apiRate : parseFloat(buyRate) || 0
@@ -1023,9 +1025,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                     </div>
                   </div>
                   
-                  {/* Расчет маржи */}
-                  {((profitMethod === 'auto' && apiRate && buyRate) || 
-                    (profitMethod !== 'auto' && buyRate && sellRate)) && (
+                  {/* Расчет маржи - всегда показываем если есть данные */}
+                  {(() => {
+                    const hasAutoData = profitMethod === 'auto' && apiRate && parseFloat(buyRate) > 0
+                    const hasOtherData = profitMethod !== 'auto' && parseFloat(buyRate) > 0 && parseFloat(sellRate) > 0
+                    console.log('[v0] Margin display check:', { profitMethod, apiRate, buyRate, sellRate, hasAutoData, hasOtherData })
+                    return hasAutoData || hasOtherData
+                  })() && (
                     <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
