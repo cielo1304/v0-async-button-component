@@ -1108,8 +1108,9 @@ export default function ExchangePage() {
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     {exchangeRates.filter(r => r.is_active).map(rate => {
-                      // Маржа = (buy - sell) / buy * 100
-                      // Если покупаем по 1.0 и продаем по 0.95 - маржа +5% (мы зарабатываем)
+                      // Маржа = (Рынок - Клиенту) / Рынок * 100
+                      // В БД: buy_rate = рынок (API), sell_rate = клиенту (ручной)
+                      // Если даем клиенту меньше чем рынок - мы в плюсе
                       const marginValue = rate.buy_rate && rate.sell_rate && rate.buy_rate !== 0
                         ? ((rate.buy_rate - rate.sell_rate) / rate.buy_rate * 100)
                         : 0

@@ -1028,30 +1028,31 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                     <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
-                        <span className="font-mono font-bold text-emerald-400">
-{(() => {
-                  // Для AUTO: buyRate = ручной курс продажи, apiRate = курс покупки из API
-                  // Маржа = (API - ручной) / ручной * 100 = наша прибыль в %
+                        {(() => {
+                  // Для AUTO: buyRate = ручной курс клиенту, sellRate/apiRate = рыночный API курс
+                  // Маржа = (Рынок - Клиенту) / Рынок * 100
+                  // Если даем клиенту меньше чем рынок - мы в плюсе
+                  let marginVal = 0
                   if (profitMethod === 'auto') {
-                    const manualSell = parseFloat(buyRate) || 0 // Курс продажи клиенту
-                    const apiBuy = apiRate || 0 // Курс покупки у клиента
-                    if (manualSell && apiBuy) {
-                      const margin = ((apiBuy - manualSell) / manualSell * 100).toFixed(2)
-                      return `${margin}%`
+                    const clientRate = parseFloat(buyRate) || 0 // Курс клиенту (ручной)
+                    const marketRate = apiRate || parseFloat(sellRate) || 0 // Рыночный API курс
+                    if (clientRate && marketRate) {
+                      marginVal = (marketRate - clientRate) / marketRate * 100
                     }
                   } else {
-                    // Маржа = (buy - sell) / buy * 100
-                    // Если покупаем по 1.0 и продаем по 0.95 - маржа +5% (мы зарабатываем)
-                    const buy = parseFloat(buyRate) || 0
-                    const sell = parseFloat(sellRate) || 0
-                    if (buy && sell) {
-                      const margin = ((buy - sell) / buy * 100).toFixed(2)
-                      return `${margin}%`
+                    // Для manual/fixed: Рынок = buyRate, Клиенту = sellRate
+                    // Маржа = (Рынок - Клиенту) / Рынок * 100
+                    const marketRate = parseFloat(buyRate) || 0
+                    const clientRate = parseFloat(sellRate) || 0
+                    if (marketRate && clientRate) {
+                      marginVal = (marketRate - clientRate) / marketRate * 100
                     }
                   }
-                  return '—'
+                  const marginStr = Math.abs(marginVal).toFixed(2)
+                  const marginSign = marginVal >= 0 ? '+' : '-'
+                  const marginColor = marginVal >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  return <span className={`font-mono font-bold ${marginColor}`}>{marginSign}{marginStr}%</span>
                   })()}
-                        </span>
                       </div>
                     </div>
                   )}
