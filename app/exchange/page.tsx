@@ -14,14 +14,16 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Wifi, WifiOff
+  Wifi, WifiOff, Calendar, ChevronDown
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths, format } from 'date-fns'
 import { toast } from 'sonner'
 import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
@@ -80,13 +82,15 @@ export default function ExchangePage() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [settings, setSettings] = useState<ExchangeSettings | null>(null)
-  const [todayStats, setTodayStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
+  const [periodStats, setPeriodStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
+  const [statsPeriod, setStatsPeriod] = useState<string>('today')
   
   // Состояние UI
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
+  const [isPeriodPopoverOpen, setIsPeriodPopoverOpen] = useState(false)
   
   // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
@@ -116,6 +120,50 @@ export default function ExchangePage() {
     return cashboxes.filter(c => c.currency === currency && !c.is_archived)
   }, [cashboxes])
   
+  // Функция для получения диапазона дат по периоду
+  const getDateRangeForPeriod = useCallback((period: string): { start: Date; end: Date } => {
+    const now = new Date()
+    switch (period) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) }
+      case 'yesterday':
+        const yesterday = subDays(now, 1)
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) }
+      case 'this_week':
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) }
+      case 'last_week':
+        const lastWeek = subWeeks(now, 1)
+        return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      case 'this_month':
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+      case 'last_month':
+        const lastMonth = subMonths(now, 1)
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      default:
+        return { start: startOfDay(now), end: endOfDay(now) }
+    }
+  }, [])
+  
+  // Загрузка статистики по периоду
+  const loadPeriodStats = useCallback(async (period: string) => {
+    const { start, end } = getDateRangeForPeriod(period)
+    
+    const { data: periodOps } = await supabase
+      .from('client_exchange_operations')
+      .select('profit_amount, total_client_gives_usd')
+      .eq('status', 'completed')
+      .gte('completed_at', start.toISOString())
+      .lte('completed_at', end.toISOString())
+    
+    if (periodOps) {
+      setPeriodStats({
+        count: periodOps.length,
+        volume: periodOps.reduce((sum, e) => sum + Number(e.total_client_gives_usd || 0), 0),
+        profit: periodOps.reduce((sum, e) => sum + Number(e.profit_amount || 0), 0)
+      })
+    }
+  }, [supabase, getDateRangeForPeriod])
+  
   // Загрузка данных
   const loadData = useCallback(async () => {
     setIsLoading(true)
@@ -142,33 +190,36 @@ export default function ExchangePage() {
       if (cashboxesResult.data) setCashboxes(cashboxesResult.data)
       if (settingsResult.data) setSettings(settingsResult.data)
       
-      // Загрузка статистики за сегодня
-      const startOfDay = new Date()
-      startOfDay.setHours(0, 0, 0, 0)
-      
-      const { data: todayOps } = await supabase
-        .from('client_exchange_operations')
-        .select('profit_amount, total_client_gives_usd')
-        .eq('status', 'completed')
-        .gte('completed_at', startOfDay.toISOString())
-      
-      if (todayOps) {
-        setTodayStats({
-          count: todayOps.length,
-          volume: todayOps.reduce((sum, e) => sum + Number(e.total_client_gives_usd || 0), 0),
-          profit: todayOps.reduce((sum, e) => sum + Number(e.profit_amount || 0), 0)
-        })
-      }
+      // Загрузка статистики за выбранный период
+      await loadPeriodStats(statsPeriod)
     } catch {
       toast.error('Ошибка загрузки данных')
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [supabase, loadPeriodStats, statsPeriod])
   
   useEffect(() => {
     loadData()
   }, [loadData])
+  
+  // Обновление статистики при смене периода
+  useEffect(() => {
+    loadPeriodStats(statsPeriod)
+  }, [statsPeriod, loadPeriodStats])
+  
+  // Хелпер для получения лейбла периода
+  const getPeriodLabel = (period: string): string => {
+    switch (period) {
+      case 'today': return 'Сегодня'
+      case 'yesterday': return 'Вчера'
+      case 'this_week': return 'Эта неделя'
+      case 'last_week': return 'Прошлая неделя'
+      case 'this_month': return 'Этот месяц'
+      case 'last_month': return 'Прошлый месяц'
+      default: return 'Сегодня'
+    }
+  }
   
   // Добавить строку валюты
   const addGiveLine = () => {
@@ -651,7 +702,7 @@ export default function ExchangePage() {
           </TabsList>
           
           <TabsContent value="exchange" className="space-y-6">
-            {/* Статистика за день */}
+            {/* Статистика за период */}
             <div className="grid grid-cols-3 gap-4">
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
@@ -660,8 +711,8 @@ export default function ExchangePage() {
                       <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Операций сегодня</p>
-                      <p className="text-2xl font-bold font-mono">{todayStats.count}</p>
+                      <p className="text-xs text-muted-foreground">Операций {statsPeriod === 'today' ? 'сегодня' : ''}</p>
+                      <p className="text-2xl font-bold font-mono">{periodStats.count}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -676,7 +727,7 @@ export default function ExchangePage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Оборот ({settings?.base_currency || 'USD'})</p>
                       <p className="text-2xl font-bold font-mono">
-                        {todayStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
+                        {periodStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
                       </p>
                     </div>
                   </div>
@@ -685,16 +736,52 @@ export default function ExchangePage() {
               
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-500/20">
-                      <TrendingUp className="h-5 w-5 text-emerald-400" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/20">
+                        <TrendingUp className="h-5 w-5 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
+                        <p className={`text-xl font-bold font-mono ${periodStats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {periodStats.profit >= 0 ? '+' : ''}{periodStats.profit.toFixed(2)} {settings?.base_currency || 'USD'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
-                      <p className={`text-xl font-bold font-mono ${calculatedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {calculatedProfit >= 0 ? '+' : ''}{calculatedProfit.toFixed(2)} {settings?.base_currency || 'USD'}
-                      </p>
-                    </div>
+                    <Popover open={isPeriodPopoverOpen} onOpenChange={setIsPeriodPopoverOpen}>
+                      <PopoverTrigger asChild>
+                        <Button variant="outline" size="sm" className="bg-transparent text-xs h-7 px-2">
+                          <Calendar className="h-3 w-3 mr-1" />
+                          {getPeriodLabel(statsPeriod)}
+                          <ChevronDown className="h-3 w-3 ml-1" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent align="end" className="w-40 p-1">
+                        <div className="space-y-0.5">
+                          {[
+                            { value: 'today', label: 'Сегодня' },
+                            { value: 'yesterday', label: 'Вчера' },
+                            { value: 'this_week', label: 'Эта неделя' },
+                            { value: 'last_week', label: 'Прошлая неделя' },
+                            { value: 'this_month', label: 'Этот месяц' },
+                            { value: 'last_month', label: 'Прошлый месяц' },
+                          ].map(p => (
+                            <Button
+                              key={p.value}
+                              variant={statsPeriod === p.value ? 'secondary' : 'ghost'}
+                              size="sm"
+                              className="w-full justify-start text-xs h-7"
+                              onClick={() => {
+                                setStatsPeriod(p.value)
+                                setIsPeriodPopoverOpen(false)
+                              }}
+                            >
+                              {p.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
                   </div>
                 </CardContent>
               </Card>
@@ -1082,16 +1169,16 @@ export default function ExchangePage() {
                               <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
                             )}
                           </div>
-<div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                      <div>
-                        <span className="text-muted-foreground">Рынок: </span>
-                        <span className="font-mono text-cyan-400">{rate.buy_rate.toFixed(4)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Клиенту: </span>
-                        <span className="font-mono text-amber-400">{rate.sell_rate.toFixed(4)}</span>
-                      </div>
-                    </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                            <div>
+                              <span className="text-muted-foreground">Рынок: </span>
+                              <span className="font-mono text-cyan-400">{rate.buy_rate.toFixed(4)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Клиенту: </span>
+                              <span className="font-mono text-amber-400">{rate.sell_rate.toFixed(4)}</span>
+                            </div>
+                          </div>
                           <div className="flex items-center justify-between text-xs">
                             <span className={`px-1.5 py-0.5 rounded ${
                               rate.profit_calculation_method === 'auto' 
