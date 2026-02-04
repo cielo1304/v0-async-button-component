@@ -440,7 +440,7 @@ const resetForm = () => {
   }
   
 const openEditDialog = async (rate: ExtendedExchangeRate) => {
-    console.log('[v0] openEditDialog', { rate })
+    
     setEditingRate(rate)
     setFromCurrency(rate.from_currency)
     setToCurrency(rate.to_currency)
@@ -468,7 +468,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
-      console.log('[v0] API rate fetched:', currentApiRate)
+      
       
       // Для режима fixed_percent: обновляем базовый курс и пересчитываем
       if (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api') {
@@ -483,7 +483,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
   }
   
   const handleSave = async () => {
-    console.log('[v0] handleSave called', { profitMethod, buyRate, sellRate, apiRate })
+    
     
     if (!fromCurrency || !toCurrency) {
       toast.error('Заполните валютную пару')
@@ -510,7 +510,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
         finalBuyRate = apiRate || 0 // Рыночный API курс
         finalSellRate = manualClientRate // Ручной курс клиенту
         finalMarketRate = apiRate || 0
-        console.log('[v0] Auto mode save:', { apiRate, manualClientRate, finalBuyRate, finalSellRate })
+        
       } else if (profitMethod === 'fixed_percent') {
         // Фикс процент: базовый курс + маржа%
         const baseRate = fixedBaseSource === 'api' && apiRate ? apiRate : parseFloat(buyRate) || 0
@@ -775,14 +775,25 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                           profitMethod === 'auto' 
                             ? 'border-cyan-500 bg-cyan-500/10' 
                             : 'border-border hover:border-muted-foreground'
-                        }`}
-                        onClick={() => {
-                          setProfitMethod('auto')
-                          // Загружаем курс при переключении на авто режим
-                          if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
-                            loadApiRateForPair(fromCurrency, toCurrency)
-                          }
-                        }}
+}`}
+                  onClick={() => {
+                    // При смене на Auto: buyRate = ручной клиенту, sellRate = рынок
+                    // Сейчас (в manual): buyRate = рынок, sellRate = клиенту
+                    // Нужно поменять местами
+                    const prevMethod = profitMethod
+                    if (prevMethod !== 'auto') {
+                      // Переключаем значения: клиенту идет в buyRate, рынок в sellRate
+                      const tempBuy = buyRate
+                      const tempSell = sellRate
+                      setBuyRate(tempSell) // клиенту
+                      setSellRate(tempBuy) // рынок
+                    }
+                    setProfitMethod('auto')
+                    // Загружаем курс при переключении на авто режим
+                    if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
+                      loadApiRateForPair(fromCurrency, toCurrency)
+                    }
+                  }}
                       >
                         <Wifi className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Авто</span>
@@ -793,8 +804,19 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                           profitMethod === 'manual' 
                             ? 'border-cyan-500 bg-cyan-500/10' 
                             : 'border-border hover:border-muted-foreground'
-                        }`}
-                        onClick={() => setProfitMethod('manual')}
+}`}
+                    onClick={() => {
+                      // При смене на Manual: buyRate = рынок, sellRate = клиенту
+                      const prevMethod = profitMethod
+                      if (prevMethod === 'auto') {
+                        // Переключаем обратно: рынок в buyRate, клиенту в sellRate
+                        const tempBuy = buyRate // это был клиенту
+                        const tempSell = sellRate // это был рынок
+                        setBuyRate(tempSell) // рынок
+                        setSellRate(tempBuy) // клиенту
+                      }
+                      setProfitMethod('manual')
+                    }}
                       >
                         <WifiOff className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Ручной</span>
@@ -805,14 +827,23 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                           profitMethod === 'fixed_percent' 
                             ? 'border-cyan-500 bg-cyan-500/10' 
                             : 'border-border hover:border-muted-foreground'
-                        }`}
-                        onClick={() => {
-                          setProfitMethod('fixed_percent')
-                          // Загружаем курс при переключении на фикс режим
-                          if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
-                            loadApiRateForPair(fromCurrency, toCurrency)
-                          }
-                        }}
+}`}
+                    onClick={() => {
+                      // При смене на Fixed: buyRate = рынок, sellRate = клиенту
+                      const prevMethod = profitMethod
+                      if (prevMethod === 'auto') {
+                        // Из Auto: переключаем обратно
+                        const tempBuy = buyRate // был клиенту
+                        const tempSell = sellRate // был рынок
+                        setBuyRate(tempSell) // рынок
+                        setSellRate(tempBuy) // клиенту
+                      }
+                      setProfitMethod('fixed_percent')
+                      // Загружаем курс при переключении на фикс режим
+                      if (fromCurrency.length >= 3 && toCurrency.length >= 3) {
+                        loadApiRateForPair(fromCurrency, toCurrency)
+                      }
+                    }}
                       >
                         <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'fixed_percent' ? 'text-amber-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Фикс %</span>
@@ -1026,12 +1057,8 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                   </div>
                   
                   {/* Расчет маржи - всегда показываем если есть данные */}
-                  {(() => {
-                    const hasAutoData = profitMethod === 'auto' && apiRate && parseFloat(buyRate) > 0
-                    const hasOtherData = profitMethod !== 'auto' && parseFloat(buyRate) > 0 && parseFloat(sellRate) > 0
-                    console.log('[v0] Margin display check:', { profitMethod, apiRate, buyRate, sellRate, hasAutoData, hasOtherData })
-                    return hasAutoData || hasOtherData
-                  })() && (
+                  {((profitMethod === 'auto' && apiRate && parseFloat(buyRate) > 0) ||
+                    (profitMethod !== 'auto' && parseFloat(buyRate) > 0 && parseFloat(sellRate) > 0)) && (
                     <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
