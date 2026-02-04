@@ -981,9 +981,9 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label className={profitMethod === 'auto' && fixedBaseSource === 'api' ? '' : ''}>
-                        {profitMethod === 'auto' ? 'Курс продажи (вручную)' : 
-                         profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'Курс покупки (из API)' :
-                         'Курс покупки'}
+                        {profitMethod === 'auto' ? 'Клиенту (вручную)' : 
+                         profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'Рынок (из API)' :
+                         'Рынок'}
                       </Label>
                       <Input
                         type="number"
@@ -995,16 +995,16 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         className={profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {profitMethod === 'auto' ? 'Вы задаете курс по которому продаете клиенту' :
-                         profitMethod === 'manual' ? 'Мы покупаем у клиента по этому курсу' :
+                        {profitMethod === 'auto' ? 'Курс который вы даете клиенту' :
+                         profitMethod === 'manual' ? 'Рыночный/API курс валюты' :
                          fixedBaseSource === 'api' ? 'Берется из API автоматически' : 'Базовый курс вручную'}
                       </p>
                     </div>
                     <div className="space-y-2">
                       <Label>
-                        {profitMethod === 'auto' ? 'Курс покупки (из API)' : 
-                         profitMethod === 'fixed_percent' ? 'Курс продажи (авто)' :
-                         'Курс продажи'}
+                        {profitMethod === 'auto' ? 'Рынок (из API)' : 
+                         profitMethod === 'fixed_percent' ? 'Клиенту (авто)' :
+                         'Клиенту'}
                       </Label>
                       <Input
                         type="number"
@@ -1016,9 +1016,9 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         className={profitMethod === 'auto' || profitMethod === 'fixed_percent' ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {profitMethod === 'auto' ? 'Берется из настроенных API источников' :
-                         profitMethod === 'manual' ? 'Мы продаем клиенту по этому курсу' :
-                         `Базовый + ${marginPercent}% = курс продажи`}
+                        {profitMethod === 'auto' ? 'Рыночный курс из API' :
+                         profitMethod === 'manual' ? 'Курс который вы даете клиенту' :
+                         `Базовый + ${marginPercent}% = курс клиенту`}
                       </p>
                     </div>
                   </div>
