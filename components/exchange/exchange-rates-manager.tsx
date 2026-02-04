@@ -140,6 +140,17 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   
   // Получить курс из API для валютной пары используя настроенные источники
   const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string, specificSourceId?: string): Promise<{ rate: number | null, sourceUsed: CurrencyRateSource | null }> => {
+    // Специальная обработка для стейблкоинов (USD/USDT и USDT/USD)
+    // USDT привязан к USD, курс всегда ~1
+    const stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'TUSD']
+    const isFromStable = stablecoins.includes(fromCurr) || fromCurr === 'USD'
+    const isToStable = stablecoins.includes(toCurr) || toCurr === 'USD'
+    
+    if (isFromStable && isToStable) {
+      // Пара стейблкоин/стейблкоин или USD/стейблкоин - курс 1:1
+      return { rate: 1, sourceUsed: null }
+    }
+    
     // Если указан конкретный источник - используем его
     if (specificSourceId) {
       const source = allSources.find(s => s.id === specificSourceId)
