@@ -443,8 +443,6 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setEditingRate(rate)
     setFromCurrency(rate.from_currency)
     setToCurrency(rate.to_currency)
-    setBuyRate(rate.buy_rate.toString())
-    setSellRate(rate.sell_rate.toString())
     setMarketRate(rate.market_rate?.toString() || '')
     setIsPopular(rate.is_popular)
     setIsActive(rate.is_active)
@@ -453,11 +451,23 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setMarginPercent(rate.margin_percent?.toString() || '2.0')
     setApiRate(rate.api_rate || null)
     
+    // Для режима AUTO: в БД buy_rate=API, sell_rate=ручной
+    // В UI: buyRate="Курс продажи (вручную)", sellRate="Курс покупки (из API)"
+    if (rate.profit_calculation_method === 'auto') {
+      // buyRate = ручной курс продажи клиенту (из sell_rate в БД)
+      setBuyRate(rate.sell_rate.toString())
+      // sellRate = API курс покупки у клиента (из buy_rate в БД)
+      setSellRate(rate.buy_rate.toString())
+    } else {
+      setBuyRate(rate.buy_rate.toString())
+      setSellRate(rate.sell_rate.toString())
+    }
+    
     // Подгружаем актуальный курс API
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
-      // Для режима auto: sellRate = курс покупки из API (мы покупаем у клиента по API курсу)
+      // Для режима auto: обновляем только отображение API курса, не трогаем ручной
       if (rate.profit_calculation_method === 'auto') {
         setSellRate(currentApiRate.toFixed(4))
       }
@@ -493,12 +503,12 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
       
       // Расчет курсов в зависимости от метода
       if (profitMethod === 'auto') {
-        // Авто: курс API = покупка у клиента, курс вручную = продажа клиенту
-        // Разница = маржа
-        if (apiRate && finalSellRate) {
-          finalBuyRate = apiRate // Курс API для покупки
-          finalMarketRate = apiRate
-        }
+        // Авто: buyRate в UI = ручной курс продажи клиенту, apiRate = курс покупки у клиента
+        // В БД сохраняем: buy_rate = API, sell_rate = ручной
+        const manualSellRate = parseFloat(buyRate) || 0 // Из поля "Курс продажи (вручную)"
+        finalBuyRate = apiRate || finalBuyRate // API курс покупки
+        finalSellRate = manualSellRate // Ручной курс продажи
+        finalMarketRate = apiRate || finalMarketRate
       } else if (profitMethod === 'fixed_percent') {
         // Фикс процент: базовый курс + маржа%
         const baseRate = fixedBaseSource === 'api' && apiRate ? apiRate : parseFloat(buyRate) || 0
@@ -1019,15 +1029,26 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
                         <span className="font-mono font-bold text-emerald-400">
-                          {(() => {
-                            const buy = profitMethod === 'auto' ? (apiRate || 0) : parseFloat(buyRate) || 0
-                            const sell = parseFloat(sellRate) || 0
-                            if (buy && sell) {
-                              const margin = ((sell - buy) / buy * 100).toFixed(2)
-                              return `${margin}%`
-                            }
-                            return '—'
-                          })()}
+{(() => {
+                  // Для AUTO: buyRate = ручной курс продажи, apiRate = курс покупки из API
+                  // Маржа = (API - ручной) / ручной * 100 = наша прибыль в %
+                  if (profitMethod === 'auto') {
+                    const manualSell = parseFloat(buyRate) || 0 // Курс продажи клиенту
+                    const apiBuy = apiRate || 0 // Курс покупки у клиента
+                    if (manualSell && apiBuy) {
+                      const margin = ((apiBuy - manualSell) / manualSell * 100).toFixed(2)
+                      return `${margin}%`
+                    }
+                  } else {
+                    const buy = parseFloat(buyRate) || 0
+                    const sell = parseFloat(sellRate) || 0
+                    if (buy && sell) {
+                      const margin = ((sell - buy) / buy * 100).toFixed(2)
+                      return `${margin}%`
+                    }
+                  }
+                  return '—'
+                  })()}
                         </span>
                       </div>
                     </div>
