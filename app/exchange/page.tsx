@@ -204,17 +204,89 @@ export default function ExchangePage() {
     setClientReceives(clientReceives.filter(l => l.id !== id))
   }
   
-  // Обновить строку
+  // Найти курс для пары валют (с учётом обратного курса)
+  const findRateForPair = useCallback((fromCurrency: string, toCurrency: string): { rate: ExchangeRate | undefined, isReverse: boolean } => {
+    // Прямой курс
+    const directRate = exchangeRates.find(r => 
+      r.from_currency === fromCurrency && 
+      r.to_currency === toCurrency &&
+      r.is_active
+    )
+    if (directRate) return { rate: directRate, isReverse: false }
+    
+    // Обратный курс
+    const reverseRate = exchangeRates.find(r => 
+      r.from_currency === toCurrency && 
+      r.to_currency === fromCurrency &&
+      r.is_active
+    )
+    return { rate: reverseRate, isReverse: true }
+  }, [exchangeRates])
+  
+  // Рассчитать сумму к выдаче на основе суммы от клиента
+  const calculateReceiveAmount = useCallback((giveAmount: number, giveCurrency: string, receiveCurrency: string): number => {
+    if (giveAmount <= 0) return 0
+    
+    const { rate, isReverse } = findRateForPair(giveCurrency, receiveCurrency)
+    if (!rate) return 0
+    
+    // В зависимости от метода расчета
+    // Клиент отдает -> мы покупаем по buy_rate
+    // Клиент получает -> мы продаем по sell_rate
+    if (isReverse) {
+      // Обратный курс: from_currency = receiveCurrency, to_currency = giveCurrency
+      // Клиент отдает giveCurrency, получает receiveCurrency
+      // sell_rate = сколько receiveCurrency за 1 giveCurrency при продаже нами
+      return giveAmount * rate.sell_rate
+    } else {
+      // Прямой курс: from_currency = giveCurrency, to_currency = receiveCurrency  
+      // buy_rate = сколько receiveCurrency за 1 giveCurrency при покупке у клиента
+      return giveAmount * rate.buy_rate
+    }
+  }, [findRateForPair])
+  
+  // Обновить строку "Клиент отдает" + автоматически пересчитать "Клиент получает"
   const updateGiveLine = (id: string, field: keyof ExchangeLine, value: string) => {
-    setClientGives(clientGives.map(l => 
+    const newGives = clientGives.map(l => 
       l.id === id ? { ...l, [field]: value, ...(field === 'currency' ? { cashboxId: '' } : {}) } : l
-    ))
+    )
+    setClientGives(newGives)
+    
+    // Автопересчет при изменении суммы или валюты
+    if (field === 'amount' || field === 'currency') {
+      const updatedLine = newGives.find(l => l.id === id)
+      if (updatedLine && clientReceives.length === 1 && newGives.length === 1) {
+        // Простой обмен 1 к 1 - автоматически пересчитываем
+        const giveAmount = parseFloat(field === 'amount' ? value : updatedLine.amount) || 0
+        const giveCurrency = field === 'currency' ? value : updatedLine.currency
+        const receiveCurrency = clientReceives[0].currency
+        
+        if (giveAmount > 0 && giveCurrency !== receiveCurrency) {
+          const receiveAmount = calculateReceiveAmount(giveAmount, giveCurrency, receiveCurrency)
+          if (receiveAmount > 0) {
+            setClientReceives(prev => prev.map((l, i) => 
+              i === 0 ? { ...l, amount: receiveAmount.toFixed(2) } : l
+            ))
+          }
+        }
+      }
+    }
   }
   
   const updateReceiveLine = (id: string, field: keyof ExchangeLine, value: string) => {
     setClientReceives(clientReceives.map(l => 
       l.id === id ? { ...l, [field]: value, ...(field === 'currency' ? { cashboxId: '' } : {}) } : l
     ))
+  }
+  
+  // Текстовое описание метода расчета
+  const getMethodDescription = (method: string) => {
+    switch (method) {
+      case 'auto': return 'Авто (API vs Ручной)'
+      case 'manual': return 'Ручной (Покупка vs Продажа)'
+      case 'fixed_percent': return 'Фикс. процент'
+      default: return method
+    }
   }
   
   // Расчет общей суммы в базовой валюте (USD)
@@ -485,6 +557,82 @@ export default function ExchangePage() {
           </TabsList>
           
           <TabsContent value="exchange" className="space-y-6">
+            {/* Панель текущих курсов и методов расчета */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-cyan-400" />
+                    Активные курсы и методы расчета
+                  </CardTitle>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={loadData}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {exchangeRates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Нет активных курсов. Настройте курсы во вкладке "Курсы"
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {exchangeRates.filter(r => r.is_active).map(rate => {
+                      const margin = rate.buy_rate && rate.sell_rate 
+                        ? ((rate.sell_rate - rate.buy_rate) / rate.buy_rate * 100).toFixed(2)
+                        : '0'
+                      return (
+                        <div 
+                          key={rate.id} 
+                          className={`p-3 rounded-lg border transition-colors ${
+                            rate.is_popular 
+                              ? 'border-cyan-500/30 bg-cyan-500/5' 
+                              : 'border-border hover:border-muted-foreground'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-sm text-foreground">
+                              {CURRENCY_FLAGS[rate.from_currency] || ''} {rate.from_currency} → {CURRENCY_FLAGS[rate.to_currency] || ''} {rate.to_currency}
+                            </span>
+                            {rate.is_popular && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                            <div>
+                              <span className="text-muted-foreground">Покупка: </span>
+                              <span className="font-mono text-green-400">{rate.buy_rate.toFixed(4)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Продажа: </span>
+                              <span className="font-mono text-red-400">{rate.sell_rate.toFixed(4)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className={`px-1.5 py-0.5 rounded ${
+                              rate.profit_calculation_method === 'auto' 
+                                ? 'bg-cyan-500/20 text-cyan-400' 
+                                : rate.profit_calculation_method === 'fixed_percent'
+                                ? 'bg-amber-500/20 text-amber-400'
+                                : 'bg-secondary text-muted-foreground'
+                            }`}>
+                              {getMethodDescription(rate.profit_calculation_method || 'manual')}
+                            </span>
+                            <span className="font-mono text-emerald-400">+{margin}%</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            
             {/* Статистика за день */}
             <div className="grid grid-cols-3 gap-4">
               <Card className="bg-card border-border">
@@ -542,72 +690,104 @@ export default function ExchangePage() {
                   <CardTitle className="flex items-center gap-2 text-lg">
                     <ArrowDown className="h-5 w-5 text-emerald-400" />
                     Клиент отдает
+                    <span className="text-xs font-normal text-muted-foreground ml-2">(мы покупаем)</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {clientGives.map((line, index) => (
-                    <div key={line.id} className="flex gap-2 items-start">
-                      <div className="flex-1 space-y-2">
-                        <div className="flex gap-2">
+                  {clientGives.map((line, index) => {
+                    // Найдем применяемый курс для отображения
+                    const receiveCurrency = clientReceives[0]?.currency
+                    const { rate: appliedRate, isReverse } = receiveCurrency 
+                      ? findRateForPair(line.currency, receiveCurrency)
+                      : { rate: undefined, isReverse: false }
+                    const displayRate = appliedRate 
+                      ? (isReverse ? appliedRate.sell_rate : appliedRate.buy_rate)
+                      : null
+                    
+                    return (
+                      <div key={line.id} className="flex gap-2 items-start">
+                        <div className="flex-1 space-y-2">
+                          <div className="flex gap-2">
+                            <Select 
+                              value={line.currency} 
+                              onValueChange={(v) => updateGiveLine(line.id, 'currency', v)}
+                            >
+                              <SelectTrigger className="w-[120px]">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {availableCurrencies.map(c => (
+                                  <SelectItem key={c} value={c}>
+                                    <span className="flex items-center gap-2">
+                                      <span>{CURRENCY_FLAGS[c] || ''}</span>
+                                      <span>{c}</span>
+                                    </span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="text"
+                              placeholder="0.00"
+                              value={line.amount}
+                              onChange={(e) => updateGiveLine(line.id, 'amount', e.target.value)}
+                              className="flex-1 text-lg font-mono text-right"
+                            />
+                          </div>
+                          {/* Показываем применяемый курс */}
+                          {displayRate && receiveCurrency && line.currency !== receiveCurrency && (
+                            <div className="flex items-center justify-between px-2 py-1 rounded bg-secondary/30 text-xs">
+                              <span className="text-muted-foreground">
+                                Курс: 1 {line.currency} = {displayRate.toFixed(4)} {receiveCurrency}
+                              </span>
+                              {appliedRate && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  appliedRate.profit_calculation_method === 'auto' 
+                                    ? 'bg-cyan-500/20 text-cyan-400' 
+                                    : appliedRate.profit_calculation_method === 'fixed_percent'
+                                    ? 'bg-amber-500/20 text-amber-400'
+                                    : 'bg-secondary text-muted-foreground'
+                                }`}>
+                                  {appliedRate.profit_calculation_method === 'auto' ? 'Авто' : 
+                                   appliedRate.profit_calculation_method === 'fixed_percent' ? `${appliedRate.margin_percent}%` : 'Ручн.'}
+                                </span>
+                              )}
+                            </div>
+                          )}
                           <Select 
-                            value={line.currency} 
-                            onValueChange={(v) => updateGiveLine(line.id, 'currency', v)}
+                            value={line.cashboxId} 
+                            onValueChange={(v) => updateGiveLine(line.id, 'cashboxId', v)}
                           >
-                            <SelectTrigger className="w-[120px]">
-                              <SelectValue />
+                            <SelectTrigger className="text-sm h-8">
+                              <SelectValue placeholder="Выберите кассу" />
                             </SelectTrigger>
                             <SelectContent>
-                              {availableCurrencies.map(c => (
-                                <SelectItem key={c} value={c}>
-                                  <span className="flex items-center gap-2">
-                                    <span>{CURRENCY_FLAGS[c] || ''}</span>
-                                    <span>{c}</span>
+                              {getCashboxesForCurrency(line.currency).map(c => (
+                                <SelectItem key={c.id} value={c.id}>
+                                  <span className="flex items-center justify-between w-full gap-4">
+                                    <span>{c.name}</span>
+                                    <span className="text-muted-foreground font-mono text-xs">
+                                      {Number(c.balance).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
+                                    </span>
                                   </span>
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
-                          <Input
-                            type="text"
-                            placeholder="0.00"
-                            value={line.amount}
-                            onChange={(e) => updateGiveLine(line.id, 'amount', e.target.value)}
-                            className="flex-1 text-lg font-mono text-right"
-                          />
                         </div>
-                        <Select 
-                          value={line.cashboxId} 
-                          onValueChange={(v) => updateGiveLine(line.id, 'cashboxId', v)}
-                        >
-                          <SelectTrigger className="text-sm h-8">
-                            <SelectValue placeholder="Выберите кассу" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getCashboxesForCurrency(line.currency).map(c => (
-                              <SelectItem key={c.id} value={c.id}>
-                                <span className="flex items-center justify-between w-full gap-4">
-                                  <span>{c.name}</span>
-                                  <span className="text-muted-foreground font-mono text-xs">
-                                    {Number(c.balance).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[c.currency] || c.currency}
-                                  </span>
-                                </span>
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        {clientGives.length > 1 && (
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-10 w-10 text-muted-foreground hover:text-destructive"
+                            onClick={() => removeGiveLine(line.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
-                      {clientGives.length > 1 && (
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-10 w-10 text-muted-foreground hover:text-destructive"
-                          onClick={() => removeGiveLine(line.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  ))}
+                    )
+                  })}
                   
                   {clientGives.length < 6 && (
                     <Button 
@@ -629,6 +809,7 @@ export default function ExchangePage() {
                   <CardTitle className="flex items-center gap-2 text-lg">
                     <ArrowUp className="h-5 w-5 text-red-400" />
                     Клиент получает
+                    <span className="text-xs font-normal text-muted-foreground ml-2">(мы продаем)</span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -637,13 +818,30 @@ export default function ExchangePage() {
                     const amount = parseFloat(line.amount) || 0
                     const insufficientBalance = cashbox && cashbox.balance < amount
                     
+                    // Покажем откуда взялась сумма
+                    const giveCurrency = clientGives[0]?.currency
+                    const giveAmount = parseFloat(clientGives[0]?.amount) || 0
+                    
                     return (
                       <div key={line.id} className="flex gap-2 items-start">
                         <div className="flex-1 space-y-2">
                           <div className="flex gap-2">
                             <Select 
                               value={line.currency} 
-                              onValueChange={(v) => updateReceiveLine(line.id, 'currency', v)}
+                              onValueChange={(v) => {
+                                updateReceiveLine(line.id, 'currency', v)
+                                // Пересчитать сумму при смене валюты
+                                if (clientGives.length === 1 && clientReceives.length === 1 && giveAmount > 0) {
+                                  const newAmount = calculateReceiveAmount(giveAmount, giveCurrency, v)
+                                  if (newAmount > 0) {
+                                    setTimeout(() => {
+                                      setClientReceives(prev => prev.map((l, i) => 
+                                        i === 0 ? { ...l, amount: newAmount.toFixed(2) } : l
+                                      ))
+                                    }, 0)
+                                  }
+                                }
+                              }}
                             >
                               <SelectTrigger className="w-[120px]">
                                 <SelectValue />
@@ -659,13 +857,20 @@ export default function ExchangePage() {
                                 ))}
                               </SelectContent>
                             </Select>
-                            <Input
-                              type="text"
-                              placeholder="0.00"
-                              value={line.amount}
-                              onChange={(e) => updateReceiveLine(line.id, 'amount', e.target.value)}
-                              className={`flex-1 text-lg font-mono text-right ${insufficientBalance ? 'border-red-500' : ''}`}
-                            />
+                            <div className="flex-1 relative">
+                              <Input
+                                type="text"
+                                placeholder="Авто"
+                                value={line.amount}
+                                onChange={(e) => updateReceiveLine(line.id, 'amount', e.target.value)}
+                                className={`text-lg font-mono text-right pr-16 ${insufficientBalance ? 'border-red-500' : ''}`}
+                              />
+                              {clientGives.length === 1 && clientReceives.length === 1 && giveAmount > 0 && (
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-cyan-400">
+                                  авто
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <Select 
                             value={line.cashboxId} 
