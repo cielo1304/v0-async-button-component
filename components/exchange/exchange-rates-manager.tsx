@@ -457,6 +457,10 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
+      // Для режимов auto и fixed_percent обновляем курс покупки из API
+      if (rate.profit_calculation_method === 'auto' || rate.profit_calculation_method === 'fixed_percent') {
+        setBuyRate(currentApiRate.toFixed(4))
+      }
     }
     
     setIsDialogOpen(true)
