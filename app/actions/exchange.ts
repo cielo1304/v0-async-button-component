@@ -67,84 +67,133 @@ export async function executeExchange(input: ExchangeInput) {
     const newFromBalance = Number(fromBox.balance) - data.sentAmount
     const newToBalance = Number(toBox.balance) + data.receivedAmount
 
-    // 6. Обновляем баланс источника
-    const { error: updateFromError } = await supabase
-      .from('cashboxes')
-      .update({ balance: newFromBalance })
-      .eq('id', data.fromBoxId)
-
-    if (updateFromError) {
-      return { success: false, error: 'Ошибка обновления баланса источника' }
-    }
-
-    // 7. Обновляем баланс назначения
-    const { error: updateToError } = await supabase
-      .from('cashboxes')
-      .update({ balance: newToBalance })
-      .eq('id', data.toBoxId)
-
-    if (updateToError) {
-      // Откатываем изменение баланса источника
-      await supabase
+    // 6-10. Выполняем все операции атомарно через последовательные запросы с откатом при ошибке
+    // Примечание: Supabase не поддерживает транзакции напрямую через JS SDK,
+    // поэтому реализуем паттерн "компенсирующих транзакций"
+    
+    const rollbackOperations: Array<() => Promise<void>> = []
+    
+    try {
+      // 6. Обновляем баланс источника
+      const { error: updateFromError } = await supabase
         .from('cashboxes')
-        .update({ balance: fromBox.balance })
+        .update({ balance: newFromBalance })
         .eq('id', data.fromBoxId)
-      return { success: false, error: 'Ошибка обновления баланса назначения' }
-    }
 
-    // 8. Создаем транзакцию списания
-    const { data: txOut, error: txOutError } = await supabase
-      .from('transactions')
-      .insert({
-        cashbox_id: data.fromBoxId,
-        amount: -data.sentAmount,
-        balance_after: newFromBalance,
-        category: 'EXCHANGE_OUT',
-        description: data.description || `Обмен на ${data.receivedAmount.toFixed(2)} ${toBox.currency}`,
-        created_by: '00000000-0000-0000-0000-000000000000', // System user для MVP
-      })
-      .select()
-      .single()
-
-    if (txOutError) {
-      console.error('TX OUT error:', txOutError)
-    }
-
-    // 9. Создаем транзакцию зачисления
-    const { error: txInError } = await supabase
-      .from('transactions')
-      .insert({
-        cashbox_id: data.toBoxId,
-        amount: data.receivedAmount,
-        balance_after: newToBalance,
-        category: 'EXCHANGE_IN',
-        description: data.description || `Обмен из ${data.sentAmount.toFixed(2)} ${fromBox.currency}`,
-        reference_id: txOut?.id,
-        created_by: '00000000-0000-0000-0000-000000000000',
+      if (updateFromError) {
+        throw new Error('Ошибка обновления баланса источника')
+      }
+      
+      // Добавляем откат для этой операции
+      rollbackOperations.push(async () => {
+        await supabase.from('cashboxes').update({ balance: fromBox.balance }).eq('id', data.fromBoxId)
       })
 
-    if (txInError) {
-      console.error('TX IN error:', txInError)
-    }
+      // 7. Обновляем баланс назначения
+      const { error: updateToError } = await supabase
+        .from('cashboxes')
+        .update({ balance: newToBalance })
+        .eq('id', data.toBoxId)
 
-    // 10. Запись в журнал обменов
-    const { error: exchangeLogError } = await supabase
-      .from('exchange_logs')
-      .insert({
-        from_box_id: data.fromBoxId,
-        to_box_id: data.toBoxId,
-        sent_amount: data.sentAmount,
-        sent_currency: fromBox.currency,
-        received_amount: data.receivedAmount,
-        received_currency: toBox.currency,
-        rate: data.rate,
-        fee_amount: data.fee,
-        fee_currency: data.fee > 0 ? fromBox.currency : null,
-        created_by: '00000000-0000-0000-0000-000000000000',
+      if (updateToError) {
+        throw new Error('Ошибка обновления баланса назначения')
+      }
+      
+      rollbackOperations.push(async () => {
+        await supabase.from('cashboxes').update({ balance: toBox.balance }).eq('id', data.toBoxId)
       })
 
-    if (exchangeLogError) {
-      console.error('Exchange log error:', exchangeLogError)
+      // 8. Создаем транзакцию списания
+      const { data: txOut, error: txOutError } = await supabase
+        .from('transactions')
+        .insert({
+          cashbox_id: data.fromBoxId,
+          amount: -data.sentAmount,
+          balance_after: newFromBalance,
+          category: 'EXCHANGE_OUT',
+          description: data.description || `Обмен на ${data.receivedAmount.toFixed(2)} ${toBox.currency}`,
+          created_by: '00000000-0000-0000-0000-000000000000',
+        })
+        .select()
+        .single()
+
+      if (txOutError) {
+        throw new Error('Ошибка создания транзакции списания')
+      }
+      
+      rollbackOperations.push(async () => {
+        if (txOut?.id) {
+          await supabase.from('transactions').delete().eq('id', txOut.id)
+        }
+      })
+
+      // 9. Создаем транзакцию зачисления
+      const { data: txIn, error: txInError } = await supabase
+        .from('transactions')
+        .insert({
+          cashbox_id: data.toBoxId,
+          amount: data.receivedAmount,
+          balance_after: newToBalance,
+          category: 'EXCHANGE_IN',
+          description: data.description || `Обмен из ${data.sentAmount.toFixed(2)} ${fromBox.currency}`,
+          reference_id: txOut?.id,
+          created_by: '00000000-0000-0000-0000-000000000000',
+        })
+        .select()
+        .single()
+
+      if (txInError) {
+        throw new Error('Ошибка создания транзакции зачисления')
+      }
+      
+      rollbackOperations.push(async () => {
+        if (txIn?.id) {
+          await supabase.from('transactions').delete().eq('id', txIn.id)
+        }
+      })
+
+      // 10. Запись в журнал обменов
+      const { data: exchangeLog, error: exchangeLogError } = await supabase
+        .from('exchange_logs')
+        .insert({
+          from_box_id: data.fromBoxId,
+          to_box_id: data.toBoxId,
+          sent_amount: data.sentAmount,
+          sent_currency: fromBox.currency,
+          received_amount: data.receivedAmount,
+          received_currency: toBox.currency,
+          rate: data.rate,
+          fee_amount: data.fee,
+          fee_currency: data.fee > 0 ? fromBox.currency : null,
+          created_by: '00000000-0000-0000-0000-000000000000',
+        })
+        .select()
+        .single()
+
+      if (exchangeLogError) {
+        throw new Error('Ошибка записи в журнал обменов')
+      }
+      
+      rollbackOperations.push(async () => {
+        if (exchangeLog?.id) {
+          await supabase.from('exchange_logs').delete().eq('id', exchangeLog.id)
+        }
+      })
+      
+    } catch (operationError) {
+      // Выполняем откат всех успешных операций в обратном порядке
+      console.error('Exchange operation failed, rolling back:', operationError)
+      for (let i = rollbackOperations.length - 1; i >= 0; i--) {
+        try {
+          await rollbackOperations[i]()
+        } catch (rollbackError) {
+          console.error('Rollback failed:', rollbackError)
+        }
+      }
+      return { 
+        success: false, 
+        error: operationError instanceof Error ? operationError.message : 'Ошибка выполнения обмена' 
+      }
     }
 
     // 11. Ревалидация

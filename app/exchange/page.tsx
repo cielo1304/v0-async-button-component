@@ -478,6 +478,10 @@ export default function ExchangePage() {
     return givesInBase - receivesInBase
   }, [clientGives, clientReceives, calculateTotalInBase])
   
+  // Мемоизация ключей валют для зависимостей useEffect (вместо join в зависимостях)
+  const givesCurrenciesKey = useMemo(() => clientGives.map(l => l.currency).join(','), [clientGives])
+  const receivesCurrenciesKey = useMemo(() => clientReceives.map(l => l.currency).join(','), [clientReceives])
+  
   // Автозаполнение кассы при выборе валюты
   useEffect(() => {
     setClientGives(prev => prev.map(line => {
@@ -489,7 +493,7 @@ export default function ExchangePage() {
       }
       return line
     }))
-  }, [clientGives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  }, [givesCurrenciesKey, getCashboxesForCurrency])
   
   useEffect(() => {
     setClientReceives(prev => prev.map(line => {
@@ -501,7 +505,7 @@ export default function ExchangePage() {
       }
       return line
     }))
-  }, [clientReceives.map(l => l.currency).join(','), getCashboxesForCurrency])
+  }, [receivesCurrenciesKey, getCashboxesForCurrency])
   
   // Проверка валидности
   const isValid = useMemo(() => {
