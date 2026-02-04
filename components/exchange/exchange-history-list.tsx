@@ -26,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, Eye, XCircle } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
@@ -243,7 +243,11 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
           </TableHeader>
           <TableBody>
             {filteredOperations.map(op => (
-              <TableRow key={op.id}>
+              <TableRow 
+                key={op.id} 
+                className="cursor-pointer hover:bg-muted/50 transition-colors"
+                onClick={() => loadDetails(op)}
+              >
                 <TableCell className="font-mono text-cyan-400">
                   {op.operation_number}
                 </TableCell>
@@ -279,18 +283,14 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1 justify-end">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => loadDetails(op)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
                     {op.status === 'pending' && (
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => cancelOperation(op)}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          cancelOperation(op)
+                        }}
                         className="text-red-400 hover:text-red-300"
                       >
                         <XCircle className="h-4 w-4" />
@@ -314,84 +314,175 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
         <Dialog open={!!selectedOperation} onOpenChange={() => setSelectedOperation(null)}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <span className="font-mono text-cyan-400">{selectedOperation?.operation_number}</span>
-                {selectedOperation && (
-                  <Badge className={STATUS_LABELS[selectedOperation.status]?.color || ''}>
-                    {STATUS_LABELS[selectedOperation.status]?.label || selectedOperation.status}
-                  </Badge>
-                )}
+              <DialogTitle className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xl text-cyan-400">{selectedOperation?.operation_number}</span>
+                  {selectedOperation && (
+                    <Badge className={STATUS_LABELS[selectedOperation.status]?.color || ''}>
+                      {STATUS_LABELS[selectedOperation.status]?.label || selectedOperation.status}
+                    </Badge>
+                  )}
+                </div>
               </DialogTitle>
             </DialogHeader>
             {selectedOperation && (
               <div className="space-y-4 pt-2">
-                {/* Дата */}
-                <div className="text-sm text-muted-foreground">
-                  {format(new Date(selectedOperation.created_at), 'dd MMMM yyyy, HH:mm', { locale: ru })}
+                {/* Дата и локация */}
+                <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <span>{format(new Date(selectedOperation.created_at), 'dd MMMM yyyy, HH:mm', { locale: ru })}</span>
+                  {selectedOperation.location && (
+                    <span className="text-xs bg-secondary px-2 py-0.5 rounded">{selectedOperation.location}</span>
+                  )}
                 </div>
                 
                 {/* Клиент отдал */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <ArrowDown className="h-4 w-4 text-emerald-400" />
-                    Клиент отдал
+                  <div className="flex items-center gap-2 text-sm font-medium text-emerald-400">
+                    <ArrowDown className="h-4 w-4" />
+                    Клиент отдал (мы получили)
                   </div>
-                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3 space-y-2">
                     {giveDetails.length > 0 ? giveDetails.map(d => (
                       <div key={d.id} className="flex justify-between items-center">
-                        <span className="font-medium">{d.currency}</span>
-                        <span className="font-mono text-lg">
-                          {Number(d.amount).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[d.currency] || d.currency}
+                        <div>
+                          <span className="font-medium text-foreground">{d.currency}</span>
+                          {d.applied_rate && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              @ {d.applied_rate}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-lg text-foreground">
+                          {Number(d.amount).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} {CURRENCY_SYMBOLS[d.currency] || d.currency}
                         </span>
                       </div>
                     )) : (
                       <div className="text-muted-foreground text-sm">Нет данных</div>
+                    )}
+                    {giveDetails.length > 0 && (
+                      <div className="pt-2 border-t border-emerald-500/20 flex justify-between text-sm">
+                        <span className="text-muted-foreground">Эквивалент USD:</span>
+                        <span className="font-mono text-emerald-400">
+                          ~{Number(selectedOperation.total_client_gives_usd).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} $
+                        </span>
+                      </div>
                     )}
                   </div>
                 </div>
                 
                 {/* Клиент получил */}
                 <div className="space-y-2">
-                  <div className="flex items-center gap-2 text-sm font-medium">
-                    <ArrowUp className="h-4 w-4 text-red-400" />
-                    Клиент получил
+                  <div className="flex items-center gap-2 text-sm font-medium text-red-400">
+                    <ArrowUp className="h-4 w-4" />
+                    Клиент получил (мы выдали)
                   </div>
-                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
+                  <div className="bg-red-500/5 border border-red-500/20 rounded-lg p-3 space-y-2">
                     {receiveDetails.length > 0 ? receiveDetails.map(d => (
                       <div key={d.id} className="flex justify-between items-center">
-                        <span className="font-medium">{d.currency}</span>
-                        <span className="font-mono text-lg">
-                          {Number(d.amount).toLocaleString('ru-RU')} {CURRENCY_SYMBOLS[d.currency] || d.currency}
+                        <div>
+                          <span className="font-medium text-foreground">{d.currency}</span>
+                          {d.applied_rate && (
+                            <span className="text-xs text-muted-foreground ml-2">
+                              @ {d.applied_rate}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-mono text-lg text-foreground">
+                          {Number(d.amount).toLocaleString('ru-RU', { maximumFractionDigits: 2 })} {CURRENCY_SYMBOLS[d.currency] || d.currency}
                         </span>
                       </div>
                     )) : (
                       <div className="text-muted-foreground text-sm">Нет данных</div>
                     )}
+                    {receiveDetails.length > 0 && (
+                      <div className="pt-2 border-t border-red-500/20 flex justify-between text-sm">
+                        <span className="text-muted-foreground">Эквивалент USD:</span>
+                        <span className="font-mono text-red-400">
+                          ~{Number(selectedOperation.total_client_receives_usd).toLocaleString('ru-RU', { maximumFractionDigits: 0 })} $
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 
                 {/* Прибыль */}
-                <div className={`p-3 rounded-lg border ${
+                <div className={`p-4 rounded-lg border ${
                   Number(selectedOperation.profit_amount) >= 0 
-                    ? 'bg-emerald-500/10 border-emerald-500/20' 
-                    : 'bg-red-500/10 border-red-500/20'
+                    ? 'bg-emerald-500/10 border-emerald-500/30' 
+                    : 'bg-red-500/10 border-red-500/30'
                 }`}>
-                  <div className="text-sm text-muted-foreground">Прибыль</div>
-                  <div className={`text-xl font-mono font-bold ${
-                    Number(selectedOperation.profit_amount) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                  }`}>
-                    {Number(selectedOperation.profit_amount) >= 0 ? '+' : ''}
-                    {Number(selectedOperation.profit_amount).toFixed(2)} {selectedOperation.profit_currency}
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm text-muted-foreground">Прибыль с операции</div>
+                    <div className={`text-2xl font-mono font-bold ${
+                      Number(selectedOperation.profit_amount) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    }`}>
+                      {Number(selectedOperation.profit_amount) >= 0 ? '+' : ''}
+                      {Number(selectedOperation.profit_amount).toFixed(2)} {selectedOperation.profit_currency}
+                    </div>
                   </div>
                 </div>
                 
                 {/* Клиент */}
-                {(selectedOperation.client_name || selectedOperation.client_phone) && (
-                  <div className="pt-2 border-t border-border">
-                    <div className="text-sm text-muted-foreground mb-1">Клиент</div>
-                    {selectedOperation.client_name && <div>{selectedOperation.client_name}</div>}
-                    {selectedOperation.client_phone && (
-                      <div className="text-sm text-muted-foreground">{selectedOperation.client_phone}</div>
+                {(selectedOperation.client_name || selectedOperation.client_phone || selectedOperation.client_document) && (
+                  <div className="pt-3 border-t border-border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Данные клиента</div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      {selectedOperation.client_name && (
+                        <div>
+                          <span className="text-muted-foreground">ФИО: </span>
+                          <span className="text-foreground">{selectedOperation.client_name}</span>
+                        </div>
+                      )}
+                      {selectedOperation.client_phone && (
+                        <div>
+                          <span className="text-muted-foreground">Тел: </span>
+                          <span className="text-foreground">{selectedOperation.client_phone}</span>
+                        </div>
+                      )}
+                      {selectedOperation.client_document && (
+                        <div className="col-span-2">
+                          <span className="text-muted-foreground">Документ: </span>
+                          <span className="text-foreground">{selectedOperation.client_document}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Заметки */}
+                {selectedOperation.client_notes && (
+                  <div className="pt-3 border-t border-border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Заметки</div>
+                    <p className="text-sm text-foreground">{selectedOperation.client_notes}</p>
+                  </div>
+                )}
+                
+                {/* Кнопка отмены для pending */}
+                {selectedOperation.status === 'pending' && (
+                  <div className="pt-3 border-t border-border flex justify-end">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => {
+                        cancelOperation(selectedOperation)
+                        setSelectedOperation(null)
+                      }}
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Отменить операцию
+                    </Button>
+                  </div>
+                )}
+                
+                {/* Причина отмены */}
+                {selectedOperation.status === 'cancelled' && selectedOperation.cancelled_reason && (
+                  <div className="pt-3 border-t border-border">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">Причина отмены</div>
+                    <p className="text-sm text-red-400">{selectedOperation.cancelled_reason}</p>
+                    {selectedOperation.cancelled_at && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {format(new Date(selectedOperation.cancelled_at), 'dd.MM.yyyy HH:mm', { locale: ru })}
+                      </p>
                     )}
                   </div>
                 )}
