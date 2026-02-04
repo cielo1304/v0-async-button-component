@@ -1,5 +1,17 @@
 'use client'
 
+import { Badge } from "@/components/ui/badge"
+
+import { SelectItem } from "@/components/ui/select"
+
+import { SelectContent } from "@/components/ui/select"
+
+import { SelectValue } from "@/components/ui/select"
+
+import { SelectTrigger } from "@/components/ui/select"
+
+import { Select } from "@/components/ui/select"
+
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -78,39 +90,46 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const [apiRate, setApiRate] = useState<number | null>(null)
   const [isLoadingApiRate, setIsLoadingApiRate] = useState(false)
   const [apiRateError, setApiRateError] = useState<string | null>(null)
+  const [selectedSourceId, setSelectedSourceId] = useState<string>('')
+  const [allSources, setAllSources] = useState<CurrencyRateSource[]>([])
+  const [availableSourcesForPair, setAvailableSourcesForPair] = useState<{from: CurrencyRateSource[], to: CurrencyRateSource[]}>({from: [], to: []})
 
-  // Получить курс из API для валютной пары
-  const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string): Promise<number | null> => {
+  // Получить курс из конкретного источника
+  const fetchRateFromSource = useCallback(async (source: CurrencyRateSource, targetCurrency?: string): Promise<number | null> => {
     try {
-      // Пробуем Exchange Rate API
-      const res = await fetch(`https://open.er-api.com/v6/latest/${fromCurr}`)
-      if (res.ok) {
-        const data = await res.json()
-        if (data.rates?.[toCurr]) {
-          return data.rates[toCurr]
+      // Для криптовалют используем Binance
+      if (source.source_type === 'crypto') {
+        const symbol = `${source.currency_code}USDT`
+        const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+        if (res.ok) {
+          const data = await res.json()
+          const priceInUSDT = parseFloat(data.price)
+          // Если целевая валюта USDT или USD - возвращаем как есть
+          if (targetCurrency === 'USDT' || targetCurrency === 'USD') {
+            return priceInUSDT
+          }
+          return priceInUSDT
         }
       }
       
-      // Fallback для криптовалют через Binance
-      const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'BNB', 'XRP']
-      const isCryptoFrom = cryptoCurrencies.includes(fromCurr)
-      const isCryptoTo = cryptoCurrencies.includes(toCurr)
+      // Для фиатных валют используем Exchange Rate API
+      if (source.source_type === 'api') {
+        // Используем api_url если указан, иначе дефолтный
+        const apiUrl = source.api_url || `https://open.er-api.com/v6/latest/${source.currency_code}`
+        const res = await fetch(apiUrl)
+        if (res.ok) {
+          const data = await res.json()
+          if (targetCurrency && data.rates?.[targetCurrency]) {
+            return data.rates[targetCurrency]
+          }
+          // Возвращаем последний известный курс если есть
+          return source.last_rate
+        }
+      }
       
-      if (isCryptoFrom || isCryptoTo) {
-        if (isCryptoFrom && toCurr === 'USD') {
-          const binanceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${fromCurr}USDT`)
-          if (binanceRes.ok) {
-            const data = await binanceRes.json()
-            return parseFloat(data.price)
-          }
-        }
-        if (isCryptoTo && fromCurr === 'USD') {
-          const binanceRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${toCurr}USDT`)
-          if (binanceRes.ok) {
-            const data = await binanceRes.json()
-            return 1 / parseFloat(data.price)
-          }
-        }
+      // Для ручных источников возвращаем сохраненный курс
+      if (source.source_type === 'manual') {
+        return source.last_rate
       }
       
       return null
@@ -118,11 +137,123 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
       return null
     }
   }, [])
+  
+  // Получить курс из API для валютной пары используя настроенные источники
+  const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string, specificSourceId?: string): Promise<{ rate: number | null, sourceUsed: CurrencyRateSource | null }> => {
+    // Если указан конкретный источник - используем его
+    if (specificSourceId) {
+      const source = allSources.find(s => s.id === specificSourceId)
+      if (source) {
+        const rate = await fetchRateFromSource(source, toCurr)
+        return { rate, sourceUsed: source }
+      }
+    }
+    
+    // Ищем источники для валют
+    const fromSources = allSources.filter(s => s.currency_code === fromCurr && s.is_active)
+    const toSources = allSources.filter(s => s.currency_code === toCurr && s.is_active)
+    
+    // Пробуем получить курс через источник "от" валюты
+    for (const source of fromSources.sort((a, b) => a.priority - b.priority)) {
+      if (source.source_type === 'api') {
+        try {
+          const apiUrl = source.api_url || `https://open.er-api.com/v6/latest/${fromCurr}`
+          const res = await fetch(apiUrl)
+          if (res.ok) {
+            const data = await res.json()
+            if (data.rates?.[toCurr]) {
+              return { rate: data.rates[toCurr], sourceUsed: source }
+            }
+          }
+        } catch {}
+      }
+      if (source.source_type === 'crypto') {
+        // Криптовалюта -> USDT
+        if (toCurr === 'USDT' || toCurr === 'USD') {
+          try {
+            const symbol = `${fromCurr}USDT`
+            const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+            if (res.ok) {
+              const data = await res.json()
+              return { rate: parseFloat(data.price), sourceUsed: source }
+            }
+          } catch {}
+        }
+      }
+    }
+    
+    // Пробуем через источник "в" валюту (обратный курс)
+    for (const source of toSources.sort((a, b) => a.priority - b.priority)) {
+      if (source.source_type === 'crypto') {
+        // USDT -> Криптовалюта (обратный курс)
+        if (fromCurr === 'USDT' || fromCurr === 'USD') {
+          try {
+            const symbol = `${toCurr}USDT`
+            const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+            if (res.ok) {
+              const data = await res.json()
+              return { rate: 1 / parseFloat(data.price), sourceUsed: source }
+            }
+          } catch {}
+        }
+      }
+    }
+    
+    // Fallback на стандартный API
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${fromCurr}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.rates?.[toCurr]) {
+          return { rate: data.rates[toCurr], sourceUsed: null }
+        }
+      }
+    } catch {}
+    
+    // Fallback для криптовалют через Binance
+    const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'BNB', 'XRP', 'SOL', 'ADA']
+    const isCryptoFrom = cryptoCurrencies.includes(fromCurr)
+    const isCryptoTo = cryptoCurrencies.includes(toCurr)
+    
+    if (isCryptoFrom || isCryptoTo) {
+      try {
+        if (isCryptoFrom && (toCurr === 'USD' || toCurr === 'USDT')) {
+          const symbol = `${fromCurr}USDT`
+          const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+          if (res.ok) {
+            const data = await res.json()
+            return { rate: parseFloat(data.price), sourceUsed: null }
+          }
+        }
+        if (isCryptoTo && (fromCurr === 'USD' || fromCurr === 'USDT')) {
+          const symbol = `${toCurr}USDT`
+          const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`)
+          if (res.ok) {
+            const data = await res.json()
+            return { rate: 1 / parseFloat(data.price), sourceUsed: null }
+          }
+        }
+        // Крипто к крипто через USDT
+        if (isCryptoFrom && isCryptoTo) {
+          const fromRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${fromCurr}USDT`)
+          const toRes = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${toCurr}USDT`)
+          if (fromRes.ok && toRes.ok) {
+            const fromData = await fromRes.json()
+            const toData = await toRes.json()
+            const rate = parseFloat(fromData.price) / parseFloat(toData.price)
+            return { rate, sourceUsed: null }
+          }
+        }
+      } catch {}
+    }
+    
+    return { rate: null, sourceUsed: null }
+  }, [allSources, fetchRateFromSource])
 
   const loadRates = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ratesResult, sourcesResult, settingsResult] = await Promise.all([
+      const [ratesResult, sourcesResult, allSourcesResult, settingsResult] = await Promise.all([
         supabase
           .from('exchange_rates')
           .select('*')
@@ -134,6 +265,11 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
           .eq('is_default', true)
           .order('currency_code'),
         supabase
+          .from('currency_rate_sources')
+          .select('*')
+          .eq('is_active', true)
+          .order('priority'),
+        supabase
           .from('exchange_settings')
           .select('rate_update_interval_minutes, default_margin_percent')
           .limit(1)
@@ -143,6 +279,7 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
       if (ratesResult.error) throw ratesResult.error
       setRates(ratesResult.data || [])
       setRateSources(sourcesResult.data || [])
+      setAllSources(allSourcesResult.data || [])
       if (settingsResult.data) {
         setExchangeSettings(settingsResult.data)
       }
@@ -239,11 +376,28 @@ const resetForm = () => {
     setApiRate(null)
     setApiRateError(null)
     setIsLoadingApiRate(false)
+    setSelectedSourceId('')
+    setAvailableSourcesForPair({from: [], to: []})
     setEditingRate(null)
   }
   
+  // Обновить доступные источники для пары
+  const updateAvailableSources = useCallback((from: string, to: string) => {
+    const fromSources = allSources.filter(s => s.currency_code === from && s.is_active)
+    const toSources = allSources.filter(s => s.currency_code === to && s.is_active)
+    setAvailableSourcesForPair({ from: fromSources, to: toSources })
+    
+    // Авто-выбор источника по приоритету
+    const defaultSource = fromSources.find(s => s.is_default) || fromSources[0] || toSources.find(s => s.is_default) || toSources[0]
+    if (defaultSource) {
+      setSelectedSourceId(defaultSource.id)
+    } else {
+      setSelectedSourceId('')
+    }
+  }, [allSources])
+  
   // Загрузить курс из API с обратной связью
-  const loadApiRateForPair = async (from: string, to: string) => {
+  const loadApiRateForPair = async (from: string, to: string, sourceId?: string) => {
     if (!from || !to || from === to) {
       setApiRate(null)
       setApiRateError(null)
@@ -253,8 +407,11 @@ const resetForm = () => {
     setIsLoadingApiRate(true)
     setApiRateError(null)
     
+    // Обновим доступные источники
+    updateAvailableSources(from, to)
+    
     try {
-      const rate = await fetchRateFromAPI(from, to)
+      const { rate, sourceUsed } = await fetchRateFromAPI(from, to, sourceId || selectedSourceId)
       if (rate) {
         setApiRate(rate)
         setApiRateError(null)
@@ -266,11 +423,12 @@ const resetForm = () => {
             setSellRate((rate * (1 + margin / 100)).toFixed(4))
           }
         }
-        toast.success(`Курс найден: 1 ${from} = ${rate.toFixed(4)} ${to}`)
+        const sourceInfo = sourceUsed ? ` (${sourceUsed.source_name})` : ''
+        toast.success(`Курс найден: 1 ${from} = ${rate.toFixed(4)} ${to}${sourceInfo}`)
       } else {
         setApiRate(null)
-        setApiRateError(`Курс ${from}/${to} не найден в API`)
-        toast.error(`Курс ${from}/${to} не найден в API`)
+        setApiRateError(`Курс ${from}/${to} не найден. Проверьте источники в настройках.`)
+        toast.error(`Курс ${from}/${to} не найден. Добавьте источники в настройках.`)
       }
     } catch (err) {
       setApiRate(null)
@@ -551,6 +709,10 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         onChange={(e) => {
                           const val = e.target.value.toUpperCase()
                           setFromCurrency(val)
+                          // Обновляем доступные источники
+                          if (val.length >= 3 && toCurrency.length >= 3) {
+                            updateAvailableSources(val, toCurrency)
+                          }
                           // Автозагрузка курса при заполнении обеих валют
                           if (val.length >= 3 && toCurrency.length >= 3 && profitMethod !== 'manual') {
                             loadApiRateForPair(val, toCurrency)
@@ -567,6 +729,10 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         onChange={(e) => {
                           const val = e.target.value.toUpperCase()
                           setToCurrency(val)
+                          // Обновляем доступные источники
+                          if (fromCurrency.length >= 3 && val.length >= 3) {
+                            updateAvailableSources(fromCurrency, val)
+                          }
                           // Автозагрузка курса при заполнении обеих валют
                           if (fromCurrency.length >= 3 && val.length >= 3 && profitMethod !== 'manual') {
                             loadApiRateForPair(fromCurrency, val)
@@ -625,61 +791,128 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                           }
                         }}
                       >
-                        <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                        <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'fixed_percent' ? 'text-amber-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Фикс %</span>
                         <p className="text-xs text-muted-foreground mt-1">Базовый + %</p>
                       </div>
                     </div>
                   </div>
                   
-                  {/* Блок курса API с кнопкой обновления */}
+                  {/* Блок выбора источника и загрузки курса */}
                   {(profitMethod === 'auto' || profitMethod === 'fixed_percent') && fromCurrency && toCurrency && (
-                    <div className={`p-3 rounded-lg border ${
-                      apiRate 
-                        ? 'bg-cyan-500/10 border-cyan-500/20' 
-                        : apiRateError 
-                        ? 'bg-red-500/10 border-red-500/20'
-                        : 'bg-secondary/30 border-border'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex-1">
-                          {isLoadingApiRate ? (
-                            <div className="flex items-center gap-2">
-                              <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
-                              <span className="text-sm text-muted-foreground">Загрузка курса...</span>
-                            </div>
-                          ) : apiRate ? (
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <Check className="h-4 w-4 text-green-400" />
-                                <span className="text-sm text-muted-foreground">Курс API найден:</span>
-                              </div>
-                              <p className="font-mono font-bold text-cyan-400 mt-1">
-                                1 {fromCurrency} = {apiRate.toFixed(4)} {toCurrency}
-                              </p>
-                            </div>
-                          ) : apiRateError ? (
-                            <div className="flex items-center gap-2">
-                              <X className="h-4 w-4 text-red-400" />
-                              <span className="text-sm text-red-400">{apiRateError}</span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              Нажмите "Обновить" для загрузки курса из API
-                            </span>
-                          )}
+                    <div className="space-y-3">
+                      {/* Доступные источники */}
+                      {(availableSourcesForPair.from.length > 0 || availableSourcesForPair.to.length > 0) && (
+                        <div className="space-y-2">
+                          <Label className="text-sm">Источник курса</Label>
+                          <Select 
+                            value={selectedSourceId} 
+                            onValueChange={(v) => {
+                              setSelectedSourceId(v)
+                              loadApiRateForPair(fromCurrency, toCurrency, v)
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Выберите источник" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableSourcesForPair.from.map(source => (
+                                <SelectItem key={source.id} value={source.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${
+                                      source.source_type === 'crypto' ? 'bg-orange-400' : 
+                                      source.source_type === 'api' ? 'bg-blue-400' : 'bg-gray-400'
+                                    }`} />
+                                    <span>{source.source_name}</span>
+                                    <span className="text-xs text-muted-foreground">({source.currency_code})</span>
+                                    {source.is_default && <Badge variant="outline" className="text-xs">По умолч.</Badge>}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                              {availableSourcesForPair.to.map(source => (
+                                <SelectItem key={source.id} value={source.id}>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`w-2 h-2 rounded-full ${
+                                      source.source_type === 'crypto' ? 'bg-orange-400' : 
+                                      source.source_type === 'api' ? 'bg-blue-400' : 'bg-gray-400'
+                                    }`} />
+                                    <span>{source.source_name}</span>
+                                    <span className="text-xs text-muted-foreground">({source.currency_code})</span>
+                                    {source.is_default && <Badge variant="outline" className="text-xs">По умолч.</Badge>}
+                                  </div>
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="auto">
+                                <div className="flex items-center gap-2">
+                                  <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                                  <span>Автоматический поиск</span>
+                                </div>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => loadApiRateForPair(fromCurrency, toCurrency)}
-                          disabled={isLoadingApiRate || !fromCurrency || !toCurrency}
-                          className="ml-2 bg-transparent"
-                        >
-                          <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingApiRate ? 'animate-spin' : ''}`} />
-                          Обновить
-                        </Button>
+                      )}
+                      
+                      {/* Статус курса */}
+                      <div className={`p-3 rounded-lg border ${
+                        apiRate 
+                          ? 'bg-cyan-500/10 border-cyan-500/20' 
+                          : apiRateError 
+                          ? 'bg-red-500/10 border-red-500/20'
+                          : 'bg-secondary/30 border-border'
+                      }`}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            {isLoadingApiRate ? (
+                              <div className="flex items-center gap-2">
+                                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                                <span className="text-sm text-muted-foreground">Поиск курса в источниках...</span>
+                              </div>
+                            ) : apiRate ? (
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Check className="h-4 w-4 text-green-400" />
+                                  <span className="text-sm text-muted-foreground">Курс найден:</span>
+                                </div>
+                                <p className="font-mono font-bold text-cyan-400 mt-1">
+                                  1 {fromCurrency} = {apiRate.toFixed(4)} {toCurrency}
+                                </p>
+                              </div>
+                            ) : apiRateError ? (
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <X className="h-4 w-4 text-red-400" />
+                                  <span className="text-sm text-red-400">{apiRateError}</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Добавьте источник для {fromCurrency} или {toCurrency} в <a href="/settings?tab=exchange" className="text-cyan-400 hover:underline">настройках</a>
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">
+                                Нажмите "Обновить" для загрузки курса
+                              </span>
+                            )}
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => loadApiRateForPair(fromCurrency, toCurrency, selectedSourceId || undefined)}
+                            disabled={isLoadingApiRate || !fromCurrency || !toCurrency}
+                            className="ml-2 bg-transparent"
+                          >
+                            <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingApiRate ? 'animate-spin' : ''}`} />
+                            Обновить
+                          </Button>
+                        </div>
                       </div>
+                      
+                      {/* Подсказка если нет источников */}
+                      {availableSourcesForPair.from.length === 0 && availableSourcesForPair.to.length === 0 && (
+                        <p className="text-xs text-amber-400">
+                          Источники для {fromCurrency} и {toCurrency} не настроены. Будет использован стандартный API.
+                        </p>
+                      )}
                     </div>
                   )}
                   
