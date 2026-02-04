@@ -557,82 +557,6 @@ export default function ExchangePage() {
           </TabsList>
           
           <TabsContent value="exchange" className="space-y-6">
-            {/* Панель текущих курсов и методов расчета */}
-            <Card className="bg-card border-border">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-cyan-400" />
-                    Активные курсы и методы расчета
-                  </CardTitle>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={loadData}
-                    className="text-muted-foreground hover:text-foreground"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {exchangeRates.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Нет активных курсов. Настройте курсы во вкладке "Курсы"
-                  </p>
-                ) : (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                    {exchangeRates.filter(r => r.is_active).map(rate => {
-                      const margin = rate.buy_rate && rate.sell_rate 
-                        ? ((rate.sell_rate - rate.buy_rate) / rate.buy_rate * 100).toFixed(2)
-                        : '0'
-                      return (
-                        <div 
-                          key={rate.id} 
-                          className={`p-3 rounded-lg border transition-colors ${
-                            rate.is_popular 
-                              ? 'border-cyan-500/30 bg-cyan-500/5' 
-                              : 'border-border hover:border-muted-foreground'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium text-sm text-foreground">
-                              {CURRENCY_FLAGS[rate.from_currency] || ''} {rate.from_currency} → {CURRENCY_FLAGS[rate.to_currency] || ''} {rate.to_currency}
-                            </span>
-                            {rate.is_popular && (
-                              <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
-                            )}
-                          </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                            <div>
-                              <span className="text-muted-foreground">Покупка: </span>
-                              <span className="font-mono text-green-400">{rate.buy_rate.toFixed(4)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Продажа: </span>
-                              <span className="font-mono text-red-400">{rate.sell_rate.toFixed(4)}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center justify-between text-xs">
-                            <span className={`px-1.5 py-0.5 rounded ${
-                              rate.profit_calculation_method === 'auto' 
-                                ? 'bg-cyan-500/20 text-cyan-400' 
-                                : rate.profit_calculation_method === 'fixed_percent'
-                                ? 'bg-amber-500/20 text-amber-400'
-                                : 'bg-secondary text-muted-foreground'
-                            }`}>
-                              {getMethodDescription(rate.profit_calculation_method || 'manual')}
-                            </span>
-                            <span className="font-mono text-emerald-400">+{margin}%</span>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            
             {/* Статистика за день */}
             <div className="grid grid-cols-3 gap-4">
               <Card className="bg-card border-border">
@@ -983,6 +907,82 @@ export default function ExchangePage() {
                     </Button>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+            
+            {/* Панель текущих курсов и методов расчета */}
+            <Card className="bg-card border-border">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-cyan-400" />
+                    Активные курсы и методы расчета
+                  </CardTitle>
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    onClick={loadData}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {exchangeRates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Нет активных курсов. Настройте курсы во вкладке "Курсы"
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                    {exchangeRates.filter(r => r.is_active).map(rate => {
+                      const margin = rate.buy_rate && rate.sell_rate 
+                        ? ((rate.sell_rate - rate.buy_rate) / rate.buy_rate * 100).toFixed(2)
+                        : '0'
+                      return (
+                        <div 
+                          key={rate.id} 
+                          className={`p-3 rounded-lg border transition-colors ${
+                            rate.is_popular 
+                              ? 'border-cyan-500/30 bg-cyan-500/5' 
+                              : 'border-border hover:border-muted-foreground'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium text-sm text-foreground">
+                              {CURRENCY_FLAGS[rate.from_currency] || ''} {rate.from_currency} → {CURRENCY_FLAGS[rate.to_currency] || ''} {rate.to_currency}
+                            </span>
+                            {rate.is_popular && (
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                            <div>
+                              <span className="text-muted-foreground">Покупка: </span>
+                              <span className="font-mono text-green-400">{rate.buy_rate.toFixed(4)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Продажа: </span>
+                              <span className="font-mono text-red-400">{rate.sell_rate.toFixed(4)}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between text-xs">
+                            <span className={`px-1.5 py-0.5 rounded ${
+                              rate.profit_calculation_method === 'auto' 
+                                ? 'bg-cyan-500/20 text-cyan-400' 
+                                : rate.profit_calculation_method === 'fixed_percent'
+                                ? 'bg-amber-500/20 text-amber-400'
+                                : 'bg-secondary text-muted-foreground'
+                            }`}>
+                              {getMethodDescription(rate.profit_calculation_method || 'manual')}
+                            </span>
+                            <span className="font-mono text-emerald-400">+{margin}%</span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
