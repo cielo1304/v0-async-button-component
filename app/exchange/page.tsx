@@ -14,7 +14,7 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -258,7 +258,7 @@ function CustomCalendar({
             </button>
           )
         })}
-        
+
         {Array.from({ length: 42 - startOffset - daysInMonth }).map((_, i) => (
           <div key={`next-${i}`} className="text-center py-2 text-muted-foreground/40 text-sm">
             {i + 1}
@@ -1009,88 +1009,86 @@ export default function ExchangePage() {
                         </p>
                       </div>
                     </div>
-                    <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-                      <DropdownMenu>
-                        <PopoverTrigger asChild>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
-                              <Calendar className="h-4 w-4 mr-2" />
-                              {getPeriodLabel(statsPeriod)}
-                            </Button>
-                          </DropdownMenuTrigger>
-                        </PopoverTrigger>
-                        <DropdownMenuContent align="end" className="w-48">
-                          <DropdownMenuItem onClick={() => setStatsPeriod('today')}>
-                            {statsPeriod === 'today' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'today' ? 'ml-6' : ''}>Сегодня</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('this_week')}>
-                            {statsPeriod === 'this_week' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('this_month')}>
-                            {statsPeriod === 'this_month' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('this_year')}>
-                            {statsPeriod === 'this_year' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
-                          </DropdownMenuItem>
-                          
-                          <DropdownMenuSeparator />
-                          
-                          <DropdownMenuItem onClick={() => setStatsPeriod('yesterday')}>
-                            {statsPeriod === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('last_week')}>
-                            {statsPeriod === 'last_week' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('last_month')}>
-                            {statsPeriod === 'last_month' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => setStatsPeriod('last_year')}>
-                            {statsPeriod === 'last_year' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
-                          </DropdownMenuItem>
-                          
-                          <DropdownMenuSeparator />
-                          
-                          <DropdownMenuItem onClick={() => setStatsPeriod('all')}>
-                            {statsPeriod === 'all' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'all' ? 'ml-6' : ''}>Все время</span>
-                          </DropdownMenuItem>
-                          
-                          <DropdownMenuSeparator />
-                          
-                          <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
-                            {statsPeriod === 'custom' && <Check className="h-4 w-4 mr-2" />}
-                            <span className={statsPeriod !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <PopoverContent 
-                        align="end" 
-                        side="bottom" 
-                        className="w-auto p-0"
-                        onOpenAutoFocus={(e) => e.preventDefault()}
-                      >
-                        <CustomCalendar
-                          selected={customDateRange}
-                          onSelect={(range) => {
-                            setCustomDateRange(range)
-                            setStatsPeriod('custom')
-                          }}
-                          onClose={() => setIsDatePickerOpen(false)}
-                        />
-                      </PopoverContent>
-                    </Popover>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                          <Calendar className="h-4 w-4 mr-2" />
+                          {getPeriodLabel(statsPeriod)}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => setStatsPeriod('today')}>
+                          {statsPeriod === 'today' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_week')}>
+                          {statsPeriod === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_month')}>
+                          {statsPeriod === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_year')}>
+                          {statsPeriod === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('yesterday')}>
+                          {statsPeriod === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_week')}>
+                          {statsPeriod === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_month')}>
+                          {statsPeriod === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_year')}>
+                          {statsPeriod === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('all')}>
+                          {statsPeriod === 'all' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'all' ? 'ml-6' : ''}>Все время</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                          {statsPeriod === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
             </div>
+            
+            {/* Date Picker Dialog */}
+            <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Выбрать даты</DialogTitle>
+                </DialogHeader>
+                <CustomCalendar
+                  selected={customDateRange}
+                  onSelect={(range) => {
+                    setCustomDateRange(range)
+                    setStatsPeriod('custom')
+                  }}
+                  onClose={() => setIsDatePickerOpen(false)}
+                />
+              </DialogContent>
+            </Dialog>
             
             {/* Форма мультивалютного обмена */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative">
