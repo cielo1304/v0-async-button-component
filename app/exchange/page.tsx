@@ -1292,9 +1292,9 @@ export default function ExchangePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>
-                      {editProfitMethod === 'auto' ? 'Курс продажи (вручную)' : 
-                       editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'Курс покупки (из API)' :
-                       'Курс покупки'}
+                      {editProfitMethod === 'auto' ? 'Клиенту (вручную)' : 
+                       editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'Рынок (из API)' :
+                       'Рынок'}
                     </Label>
                     <Input
                       type="number"
@@ -1307,9 +1307,9 @@ export default function ExchangePage() {
                   </div>
                   <div className="space-y-2">
                     <Label>
-                      {editProfitMethod === 'auto' ? 'Курс покупки (из API)' : 
-                       editProfitMethod === 'fixed_percent' ? 'Курс продажи (авто)' :
-                       'Курс продажи'}
+                      {editProfitMethod === 'auto' ? 'Рынок (из API)' : 
+                       editProfitMethod === 'fixed_percent' ? 'Клиенту (авто)' :
+                       'Клиенту'}
                     </Label>
                     <Input
                       type="number"
