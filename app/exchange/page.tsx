@@ -386,8 +386,8 @@ export default function ExchangePage() {
     }
   }
   
-  // Расчет общей суммы в базовой валюте (USD)
-  const calculateTotalInBase = useCallback((lines: ExchangeLine[], direction: 'give' | 'receive'): number => {
+  // Расчет общей суммы в базовой валюте (USD) по рыночному курсу
+  const calculateTotalInBase = useCallback((lines: ExchangeLine[], _direction: 'give' | 'receive'): number => {
     let total = 0
     const baseCurrency = settings?.base_currency || 'USD'
     
@@ -398,18 +398,19 @@ export default function ExchangePage() {
       if (line.currency === baseCurrency) {
         total += amount
       } else {
-        // Конвертируем в базовую валюту
+        // Конвертируем в базовую валюту по рыночному/API курсу
         const rate = getRate(line.currency, baseCurrency)
         if (rate) {
-          // Используем buy_rate если клиент дает, sell_rate если получает
-          const useRate = direction === 'give' ? rate.buy_rate : rate.sell_rate
-          total += amount * useRate
+          // Используем market_rate или buy_rate (API курс) для конвертации
+          const marketRate = rate.market_rate || rate.buy_rate
+          total += amount * marketRate
         } else {
-          // Попробуем обратный курс
+          // Попробуем обратный курс (например USD/RUB для конвертации RUB в USD)
           const reverseRate = getRate(baseCurrency, line.currency)
           if (reverseRate) {
-            const useRate = direction === 'give' ? reverseRate.sell_rate : reverseRate.buy_rate
-            total += amount / useRate
+            // Для конвертации RUB->USD при курсе USD/RUB=76.9343: 7500 / 76.9343 = 97.48 USD
+            const marketRate = reverseRate.market_rate || reverseRate.buy_rate
+            total += amount / marketRate
           }
         }
       }
@@ -419,11 +420,16 @@ export default function ExchangePage() {
   }, [settings, getRate])
   
   // Расчет прибыли
+  // Прибыль = Рыночная стоимость того что дал клиент - Рыночная стоимость того что получил клиент
+  // Пример: Клиент дал 100 USD, получил 7500 RUB при курсе 76.9343
+  // givesInBase = 100 USD
+  // receivesInBase = 7500 / 76.9343 = 97.48 USD (рыночная стоимость RUB)
+  // profit = 100 - 97.48 = 2.52 USD (мы заработали, т.к. отдали меньше по рыночной стоимости)
   const calculatedProfit = useMemo(() => {
     const givesInBase = calculateTotalInBase(clientGives, 'give')
     const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
     
-    // Прибыль = то что клиент дал - то что клиент получил (в базовой валюте)
+    // Прибыль = то что клиент дал - то что клиент получил (в базовой валюте по рыночному курсу)
     return givesInBase - receivesInBase
   }, [clientGives, clientReceives, calculateTotalInBase])
   
