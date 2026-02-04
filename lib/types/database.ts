@@ -484,10 +484,13 @@ export interface AutoInspection {
 
 export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled'
 
+export type ProfitCalculationMethod = 'auto' | 'manual'
+
 export interface ExchangeSettings {
   id: string
   base_currency: string
   default_margin_percent: number
+  profit_calculation_method: ProfitCalculationMethod
   auto_update_rates: boolean
   rate_update_interval_minutes: number
   require_client_info: boolean
@@ -495,6 +498,26 @@ export interface ExchangeSettings {
   max_exchange_amount: number | null
   working_hours_start: string
   working_hours_end: string
+  created_at: string
+  updated_at: string
+}
+
+export type RateSourceType = 'api' | 'manual' | 'crypto'
+
+export interface CurrencyRateSource {
+  id: string
+  currency_code: string
+  source_type: RateSourceType
+  source_name: string
+  api_url: string | null
+  api_key: string | null
+  is_active: boolean
+  is_default: boolean
+  priority: number
+  last_rate: number | null
+  last_updated: string | null
+  update_interval_minutes: number
+  notes: string | null
   created_at: string
   updated_at: string
 }

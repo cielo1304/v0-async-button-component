@@ -1,5 +1,19 @@
 'use client'
 
+import { DialogFooter } from "@/components/ui/dialog"
+
+import { DialogDescription } from "@/components/ui/dialog"
+
+import { DialogTitle } from "@/components/ui/dialog"
+
+import { DialogHeader } from "@/components/ui/dialog"
+
+import { DialogContent } from "@/components/ui/dialog"
+
+import { DialogTrigger } from "@/components/ui/dialog"
+
+import { Dialog } from "@/components/ui/dialog"
+
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
@@ -100,6 +114,7 @@ export default function SettingsPage() {
   const [exchangeForm, setExchangeForm] = useState({
     base_currency: 'USD',
     default_margin_percent: '2.0',
+    profit_calculation_method: 'auto' as 'auto' | 'manual',
     auto_update_rates: true,
     rate_update_interval_minutes: '15',
     require_client_info: false,
@@ -107,6 +122,34 @@ export default function SettingsPage() {
     max_exchange_amount: '',
     working_hours_start: '09:00',
     working_hours_end: '21:00'
+  })
+  
+  // Источники курсов валют
+  interface RateSource {
+    id: string
+    currency_code: string
+    source_type: 'api' | 'manual' | 'crypto'
+    source_name: string
+    api_url: string | null
+    api_key: string | null
+    is_active: boolean
+    is_default: boolean
+    priority: number
+    last_rate: number | null
+    last_updated: string | null
+    update_interval_minutes: number
+    notes: string | null
+  }
+  const [rateSources, setRateSources] = useState<RateSource[]>([])
+  const [isAddSourceOpen, setIsAddSourceOpen] = useState(false)
+  const [newSource, setNewSource] = useState({
+    currency_code: '',
+    source_type: 'api' as 'api' | 'manual' | 'crypto',
+    source_name: '',
+    api_url: '',
+    api_key: '',
+    update_interval_minutes: '60',
+    notes: ''
   })
   
   const [settings, setSettings] = useState<SystemSettings>({
@@ -162,6 +205,7 @@ export default function SettingsPage() {
         setExchangeForm({
           base_currency: exData.base_currency || 'USD',
           default_margin_percent: exData.default_margin_percent?.toString() || '2.0',
+          profit_calculation_method: exData.profit_calculation_method || 'auto',
           auto_update_rates: exData.auto_update_rates ?? true,
           rate_update_interval_minutes: exData.rate_update_interval_minutes?.toString() || '15',
           require_client_info: exData.require_client_info ?? false,
@@ -171,6 +215,14 @@ export default function SettingsPage() {
           working_hours_end: exData.working_hours_end || '21:00'
         })
       }
+      
+      // Загружаем источники курсов
+      const { data: sourcesData } = await supabase
+        .from('currency_rate_sources')
+        .select('*')
+        .order('currency_code')
+        .order('priority')
+      setRateSources(sourcesData || [])
 
       
     } catch (error) {
@@ -240,6 +292,7 @@ export default function SettingsPage() {
       const data = {
         base_currency: exchangeForm.base_currency,
         default_margin_percent: parseFloat(exchangeForm.default_margin_percent) || 2.0,
+        profit_calculation_method: exchangeForm.profit_calculation_method,
         auto_update_rates: exchangeForm.auto_update_rates,
         rate_update_interval_minutes: parseInt(exchangeForm.rate_update_interval_minutes) || 15,
         require_client_info: exchangeForm.require_client_info,
@@ -271,6 +324,74 @@ export default function SettingsPage() {
       toast.error('Ошибка сохранения настроек обмена')
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleAddRateSource = async () => {
+    if (!newSource.currency_code || !newSource.source_name) {
+      toast.error('Заполните обязательные поля')
+      return
+    }
+    
+    try {
+      const { error } = await supabase.from('currency_rate_sources').insert({
+        currency_code: newSource.currency_code.toUpperCase(),
+        source_type: newSource.source_type,
+        source_name: newSource.source_name,
+        api_url: newSource.api_url || null,
+        api_key: newSource.api_key || null,
+        update_interval_minutes: parseInt(newSource.update_interval_minutes) || 60,
+        notes: newSource.notes || null,
+        is_active: true,
+        is_default: false,
+        priority: 10
+      })
+      
+      if (error) throw error
+      
+      toast.success('Источник добавлен')
+      setIsAddSourceOpen(false)
+      setNewSource({
+        currency_code: '',
+        source_type: 'api',
+        source_name: '',
+        api_url: '',
+        api_key: '',
+        update_interval_minutes: '60',
+        notes: ''
+      })
+      loadData()
+    } catch {
+      toast.error('Ошибка добавления источника')
+    }
+  }
+  
+  const handleToggleRateSource = async (id: string, field: 'is_active' | 'is_default', value: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('currency_rate_sources')
+        .update({ [field]: value })
+        .eq('id', id)
+      
+      if (error) throw error
+      loadData()
+    } catch {
+      toast.error('Ошибка обновления')
+    }
+  }
+  
+  const handleDeleteRateSource = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('currency_rate_sources')
+        .delete()
+        .eq('id', id)
+      
+      if (error) throw error
+      toast.success('Источник удален')
+      loadData()
+    } catch {
+      toast.error('Ошибка удаления')
     }
   }
 
@@ -546,7 +667,54 @@ export default function SettingsPage() {
                 <CardDescription>Параметры модуля обмена валют для клиентов</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Базовая валюта */}
+                {/* Метод расчета прибыли */}
+                <div className="space-y-3">
+                  <Label className="text-base font-medium">Метод расчета курса и прибыли</Label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div 
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        exchangeForm.profit_calculation_method === 'auto' 
+                          ? 'border-cyan-500 bg-cyan-500/10' 
+                          : 'border-border hover:border-muted-foreground'
+                      }`}
+                      onClick={() => setExchangeForm({ ...exchangeForm, profit_calculation_method: 'auto' })}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-4 h-4 rounded-full border-2 ${
+                          exchangeForm.profit_calculation_method === 'auto' 
+                            ? 'border-cyan-500 bg-cyan-500' 
+                            : 'border-muted-foreground'
+                        }`} />
+                        <span className="font-medium text-foreground">Авто (от биржи + маржа)</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Курс берется из API источника + автоматически добавляется маржа
+                      </p>
+                    </div>
+                    <div 
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        exchangeForm.profit_calculation_method === 'manual' 
+                          ? 'border-cyan-500 bg-cyan-500/10' 
+                          : 'border-border hover:border-muted-foreground'
+                      }`}
+                      onClick={() => setExchangeForm({ ...exchangeForm, profit_calculation_method: 'manual' })}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className={`w-4 h-4 rounded-full border-2 ${
+                          exchangeForm.profit_calculation_method === 'manual' 
+                            ? 'border-cyan-500 bg-cyan-500' 
+                            : 'border-muted-foreground'
+                        }`} />
+                        <span className="font-medium text-foreground">Ручной</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Оператор вводит курс вручную. Прибыль = разница с рыночным
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Базовая валюта и маржа */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Базовая валюта для расчета прибыли</Label>
@@ -568,13 +736,22 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>Маржа по умолчанию (%)</Label>
+                    <Label>
+                      {exchangeForm.profit_calculation_method === 'auto' 
+                        ? 'Маржа по умолчанию (%)' 
+                        : 'Маржа для сравнения с рынком (%)'}
+                    </Label>
                     <Input
                       type="number"
                       step="0.1"
                       value={exchangeForm.default_margin_percent}
                       onChange={(e) => setExchangeForm({ ...exchangeForm, default_margin_percent: e.target.value })}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {exchangeForm.profit_calculation_method === 'auto'
+                        ? 'Добавляется к курсу биржи автоматически'
+                        : 'Используется для сравнения ручного курса с рыночным'}
+                    </p>
                   </div>
                 </div>
                 
@@ -661,6 +838,197 @@ export default function SettingsPage() {
                   {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                   Сохранить настройки обмена
                 </Button>
+              </CardContent>
+            </Card>
+            
+            {/* Источники курсов валют */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Database className="h-5 w-5 text-cyan-400" />
+                      Источники курсов валют
+                    </CardTitle>
+                    <CardDescription>
+                      Настройка API для получения курсов каждой валюты и криптовалюты
+                    </CardDescription>
+                  </div>
+                  <Dialog open={isAddSourceOpen} onOpenChange={setIsAddSourceOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="h-4 w-4 mr-2" />
+                        Добавить источник
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Добавить источник курсов</DialogTitle>
+                        <DialogDescription>
+                          Укажите API или ручной источник для получения курсов валюты
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label>Код валюты</Label>
+                            <Input
+                              value={newSource.currency_code}
+                              onChange={(e) => setNewSource({ ...newSource, currency_code: e.target.value.toUpperCase() })}
+                              placeholder="USD, BTC, USDT..."
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Тип источника</Label>
+                            <Select 
+                              value={newSource.source_type}
+                              onValueChange={(v: 'api' | 'manual' | 'crypto') => setNewSource({ ...newSource, source_type: v })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="api">API (фиат)</SelectItem>
+                                <SelectItem value="crypto">Крипто API</SelectItem>
+                                <SelectItem value="manual">Ручной ввод</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Название источника</Label>
+                          <Input
+                            value={newSource.source_name}
+                            onChange={(e) => setNewSource({ ...newSource, source_name: e.target.value })}
+                            placeholder="Exchange Rate API, Binance, CBR..."
+                          />
+                        </div>
+                        {newSource.source_type !== 'manual' && (
+                          <>
+                            <div className="space-y-2">
+                              <Label>URL API</Label>
+                              <Input
+                                value={newSource.api_url}
+                                onChange={(e) => setNewSource({ ...newSource, api_url: e.target.value })}
+                                placeholder="https://api.example.com/rates"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>API ключ (опционально)</Label>
+                              <Input
+                                value={newSource.api_key}
+                                onChange={(e) => setNewSource({ ...newSource, api_key: e.target.value })}
+                                placeholder="Если требуется"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Интервал обновления (мин)</Label>
+                              <Input
+                                type="number"
+                                value={newSource.update_interval_minutes}
+                                onChange={(e) => setNewSource({ ...newSource, update_interval_minutes: e.target.value })}
+                              />
+                            </div>
+                          </>
+                        )}
+                        <div className="space-y-2">
+                          <Label>Заметки</Label>
+                          <Input
+                            value={newSource.notes}
+                            onChange={(e) => setNewSource({ ...newSource, notes: e.target.value })}
+                            placeholder="Описание источника"
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsAddSourceOpen(false)} className="bg-transparent">
+                          Отмена
+                        </Button>
+                        <Button onClick={handleAddRateSource}>
+                          Добавить
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {rateSources.length === 0 ? (
+                  <p className="text-muted-foreground text-center py-8">
+                    Нет настроенных источников курсов
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Группировка по валютам */}
+                    {Object.entries(
+                      rateSources.reduce((acc, s) => {
+                        if (!acc[s.currency_code]) acc[s.currency_code] = []
+                        acc[s.currency_code].push(s)
+                        return acc
+                      }, {} as Record<string, typeof rateSources>)
+                    ).map(([currency, sources]) => (
+                      <div key={currency} className="border rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="font-medium text-foreground">{currency}</span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-secondary text-muted-foreground">
+                            {sources[0]?.source_type === 'crypto' ? 'Крипто' : 'Фиат'}
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {sources.map((source) => (
+                            <div 
+                              key={source.id} 
+                              className="flex items-center justify-between py-2 px-3 rounded bg-secondary/30"
+                            >
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-medium text-foreground">{source.source_name}</span>
+                                  {source.is_default && (
+                                    <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">
+                                      Основной
+                                    </span>
+                                  )}
+                                </div>
+                                {source.api_url && (
+                                  <p className="text-xs text-muted-foreground truncate max-w-md">
+                                    {source.api_url}
+                                  </p>
+                                )}
+                                {source.last_rate && (
+                                  <p className="text-xs text-muted-foreground">
+                                    Последний курс: {source.last_rate}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={source.is_active}
+                                  onCheckedChange={(v) => handleToggleRateSource(source.id, 'is_active', v)}
+                                />
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleToggleRateSource(source.id, 'is_default', !source.is_default)}
+                                  className={source.is_default ? 'text-cyan-400' : 'text-muted-foreground'}
+                                >
+                                  <Bell className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleDeleteRateSource(source.id)}
+                                  className="text-destructive hover:text-destructive"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
