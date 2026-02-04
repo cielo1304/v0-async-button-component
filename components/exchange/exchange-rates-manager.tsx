@@ -39,6 +39,7 @@ import { Plus, Pencil, Trash2, RefreshCw, Star, TrendingUp, ArrowRight, Wifi, Wi
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
+import { EditRateDialog } from './edit-rate-dialog'
 
 interface Props {
   onUpdate?: () => void

@@ -192,7 +192,6 @@ export function EditRateDialog({ rate, open, onOpenChange, onSave }: EditRateDia
 
   // Initialize form when rate changes
   useEffect(() => {
-    console.log('[v0] EditRateDialog effect triggered:', { rate: rate?.id, open })
     if (rate && open) {
       setFromCurrency(rate.from_currency)
       setToCurrency(rate.to_currency)
@@ -221,7 +220,6 @@ export function EditRateDialog({ rate, open, onOpenChange, onSave }: EditRateDia
 
   // Handle save
   const handleSave = async () => {
-    console.log('[v0] EditRateDialog handleSave called', { rate: rate?.id, profitMethod, buyRate, sellRate, apiRate })
     if (!rate) return
     
     setIsSaving(true)
@@ -583,26 +581,17 @@ export function EditRateDialog({ rate, open, onOpenChange, onSave }: EditRateDia
             </div>
           </div>
 
-          {/* Margin calculation */}
-          {((profitMethod === 'auto' && apiRate && parseFloat(buyRate) > 0) ||
-            (profitMethod !== 'auto' && parseFloat(buyRate) > 0 && parseFloat(sellRate) > 0)) && (
+          {/* Margin calculation - only for manual and fixed_percent */}
+          {profitMethod !== 'auto' && parseFloat(buyRate) > 0 && parseFloat(sellRate) > 0 && (
             <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
                 {(() => {
+                  const marketRate = parseFloat(buyRate) || 0
+                  const clientRate = parseFloat(sellRate) || 0
                   let marginVal = 0
-                  if (profitMethod === 'auto') {
-                    const marketRate = apiRate || 0
-                    const clientRate = parseFloat(buyRate) || 0
-                    if (marketRate && clientRate) {
-                      marginVal = (marketRate - clientRate) / marketRate * 100
-                    }
-                  } else {
-                    const marketRate = parseFloat(buyRate) || 0
-                    const clientRate = parseFloat(sellRate) || 0
-                    if (marketRate && clientRate) {
-                      marginVal = (marketRate - clientRate) / marketRate * 100
-                    }
+                  if (marketRate && clientRate) {
+                    marginVal = (marketRate - clientRate) / marketRate * 100
                   }
                   const marginStr = Math.abs(marginVal).toFixed(2)
                   const marginSign = marginVal >= 0 ? '+' : '-'
