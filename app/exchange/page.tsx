@@ -1,5 +1,7 @@
 'use client'
 
+import { useRef } from "react"
+
 import { DialogDescription } from "@/components/ui/dialog"
 import { DialogTitle } from "@/components/ui/dialog"
 import { DialogHeader } from "@/components/ui/dialog"
@@ -210,30 +212,9 @@ export default function ExchangePage() {
     }])
   }
   
-  // Функция пересчета суммы получения на основе всех валют клиента
-  const recalculateReceiveAmount = useCallback((gives: ExchangeLine[]) => {
-    if (clientReceives.length !== 1) return
-    const receiveCurrency = clientReceives[0].currency
-    
-    let totalReceiveAmount = 0
-    for (const giveLine of gives) {
-      const giveAmount = parseFloat(giveLine.amount) || 0
-      if (giveAmount > 0 && giveLine.currency !== receiveCurrency) {
-        totalReceiveAmount += calculateReceiveAmount(giveAmount, giveLine.currency, receiveCurrency)
-      } else if (giveAmount > 0 && giveLine.currency === receiveCurrency) {
-        totalReceiveAmount += giveAmount
-      }
-    }
-    
-    if (totalReceiveAmount > 0) {
-      setClientReceives(prev => prev.map((l, i) => 
-        i === 0 ? { ...l, amount: totalReceiveAmount.toFixed(2) } : l
-      ))
-    }
-  }, [clientReceives, calculateReceiveAmount])
-  
   // Удалить строку валюты
   const removeGiveLine = (id: string) => {
+    if (clientGives.length <= 1) return
     const newGives = clientGives.filter(l => l.id !== id)
     setClientGives(newGives)
     // Пересчитать сумму получения после удаления
@@ -288,6 +269,28 @@ export default function ExchangePage() {
       return giveAmount * rate.sell_rate
     }
   }, [findRateForPair])
+  
+  // Функция пересчета суммы получения на основе всех валют клиента
+  const recalculateReceiveAmount = useCallback((gives: ExchangeLine[]) => {
+    if (clientReceives.length !== 1) return
+    const receiveCurrency = clientReceives[0].currency
+    
+    let totalReceiveAmount = 0
+    for (const giveLine of gives) {
+      const giveAmount = parseFloat(giveLine.amount) || 0
+      if (giveAmount > 0 && giveLine.currency !== receiveCurrency) {
+        totalReceiveAmount += calculateReceiveAmount(giveAmount, giveLine.currency, receiveCurrency)
+      } else if (giveAmount > 0 && giveLine.currency === receiveCurrency) {
+        totalReceiveAmount += giveAmount
+      }
+    }
+    
+    if (totalReceiveAmount > 0) {
+      setClientReceives(prev => prev.map((l, i) => 
+        i === 0 ? { ...l, amount: totalReceiveAmount.toFixed(2) } : l
+      ))
+    }
+  }, [clientReceives, calculateReceiveAmount])
   
   // Обновить строку "Клиент отдает" + автоматически пересчитать "Клиент получает"
   const updateGiveLine = (id: string, field: keyof ExchangeLine, value: string) => {
