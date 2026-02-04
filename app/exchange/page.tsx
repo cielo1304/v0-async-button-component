@@ -334,7 +334,7 @@ export default function ExchangePage() {
   const getMethodDescription = (method: string) => {
     switch (method) {
       case 'auto': return 'Авто (API vs Ручной)'
-      case 'manual': return 'Ручной (Покупка vs Продажа)'
+      case 'manual': return 'Ручной (Рынок vs Клиенту)'
       case 'fixed_percent': return 'Фикс. процент'
       default: return method
     }
@@ -1133,16 +1133,16 @@ export default function ExchangePage() {
                               <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
                             )}
                           </div>
-                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                            <div>
-                              <span className="text-muted-foreground">Покупка: </span>
-                              <span className="font-mono text-green-400">{rate.buy_rate.toFixed(4)}</span>
-                            </div>
-                            <div>
-                              <span className="text-muted-foreground">Продажа: </span>
-                              <span className="font-mono text-red-400">{rate.sell_rate.toFixed(4)}</span>
-                            </div>
-                          </div>
+<div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                      <div>
+                        <span className="text-muted-foreground">Рынок: </span>
+                        <span className="font-mono text-cyan-400">{rate.buy_rate.toFixed(4)}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Клиенту: </span>
+                        <span className="font-mono text-amber-400">{rate.sell_rate.toFixed(4)}</span>
+                      </div>
+                    </div>
                           <div className="flex items-center justify-between text-xs">
                             <span className={`px-1.5 py-0.5 rounded ${
                               rate.profit_calculation_method === 'auto' 
@@ -1231,7 +1231,7 @@ export default function ExchangePage() {
                     >
                       <Pencil className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                       <span className="text-sm font-medium">Ручной</span>
-                      <p className="text-xs text-muted-foreground mt-1">Покупка vs Продажа</p>
+                      <p className="text-xs text-muted-foreground mt-1">Рынок vs Клиенту</p>
                     </div>
                     <div 
                       className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${

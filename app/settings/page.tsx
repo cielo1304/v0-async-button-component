@@ -703,7 +703,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="p-2 rounded bg-secondary/50">
                       <span className="font-medium text-foreground">Ручной</span>
-                      <p className="text-muted-foreground mt-1">Покупка vs Продажа вручную = маржа</p>
+                      <p className="text-muted-foreground mt-1">Рынок vs Клиенту вручную = маржа</p>
                     </div>
                     <div className="p-2 rounded bg-secondary/50">
                       <span className="font-medium text-foreground">Фикс. процент</span>

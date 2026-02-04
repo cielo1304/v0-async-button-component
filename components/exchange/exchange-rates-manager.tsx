@@ -796,7 +796,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                       >
                         <WifiOff className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                         <span className="text-sm font-medium text-foreground">Ручной</span>
-                        <p className="text-xs text-muted-foreground mt-1">Покупка vs Продажа</p>
+                        <p className="text-xs text-muted-foreground mt-1">Рынок vs Клиенту</p>
                       </div>
                       <div 
                         className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
@@ -1099,8 +1099,8 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
             <TableRow>
               <TableHead>Пара</TableHead>
               <TableHead className="text-center">Метод</TableHead>
-              <TableHead className="text-right">Покупка</TableHead>
-              <TableHead className="text-right">Продажа</TableHead>
+<TableHead className="text-right">Рынок</TableHead>
+                    <TableHead className="text-right">Клиенту</TableHead>
               <TableHead className="text-right">API курс</TableHead>
               <TableHead className="text-right">Маржа %</TableHead>
               <TableHead className="text-center">
