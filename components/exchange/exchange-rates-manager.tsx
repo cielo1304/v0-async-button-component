@@ -301,7 +301,7 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     
     let updated = false
     for (const rate of autoRates) {
-      const currentApiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+      const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
       if (currentApiRate) {
         let newBuyRate = rate.buy_rate
         let newSellRate = rate.sell_rate
@@ -454,7 +454,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setApiRate(rate.api_rate || null)
     
     // Подгружаем актуальный курс API
-    const currentApiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+    const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
     }
@@ -874,9 +874,9 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                                   <Check className="h-4 w-4 text-green-400" />
                                   <span className="text-sm text-muted-foreground">Курс найден:</span>
                                 </div>
-                                <p className="font-mono font-bold text-cyan-400 mt-1">
-                                  1 {fromCurrency} = {apiRate.toFixed(4)} {toCurrency}
-                                </p>
+<p className="font-mono font-bold text-cyan-400 mt-1">
+                                1 {fromCurrency} = {Number(apiRate).toFixed(4)} {toCurrency}
+                              </p>
                               </div>
                             ) : apiRateError ? (
                               <div>
