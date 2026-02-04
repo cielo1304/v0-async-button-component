@@ -126,7 +126,7 @@ export default function ExchangePage() {
   }, [cashboxes])
   
   // Функция для получения диапазона дат по периоду
-  const getDateRangeForPeriod = useCallback((period: string): { start: Date; end: Date } => {
+  const getDateRangeForPeriod = useCallback((period: string): { start: Date; end: Date } | null => {
     const now = new Date()
     switch (period) {
       case 'today':
@@ -144,6 +144,12 @@ export default function ExchangePage() {
       case 'last_month':
         const lastMonth = subMonths(now, 1)
         return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      case 'this_year':
+        return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
+      case 'last_year':
+        return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'all':
+        return null // null означает "все время" - без фильтра по дате
       default:
         return { start: startOfDay(now), end: endOfDay(now) }
     }
@@ -151,14 +157,21 @@ export default function ExchangePage() {
   
   // Загрузка статистики по периоду
   const loadPeriodStats = useCallback(async (period: string) => {
-    const { start, end } = getDateRangeForPeriod(period)
+    const dateRange = getDateRangeForPeriod(period)
     
-    const { data: periodOps } = await supabase
+    let query = supabase
       .from('client_exchange_operations')
       .select('profit_amount, total_client_gives_usd')
       .eq('status', 'completed')
-      .gte('completed_at', start.toISOString())
-      .lte('completed_at', end.toISOString())
+    
+    // Если dateRange не null - добавляем фильтр по дате
+    if (dateRange) {
+      query = query
+        .gte('completed_at', dateRange.start.toISOString())
+        .lte('completed_at', dateRange.end.toISOString())
+    }
+    
+    const { data: periodOps } = await query
     
     if (periodOps) {
       setPeriodStats({
@@ -219,9 +232,12 @@ export default function ExchangePage() {
       case 'today': return 'Сегодня'
       case 'this_week': return 'Эта неделя'
       case 'this_month': return 'Этот месяц'
+      case 'this_year': return 'Этот год'
       case 'yesterday': return 'Вчера'
       case 'last_week': return 'Прошлая неделя'
       case 'last_month': return 'Прошлый месяц'
+      case 'last_year': return 'Прошлый год'
+      case 'all': return 'Все время'
       default: return 'Сегодня'
     }
   }
@@ -773,6 +789,10 @@ export default function ExchangePage() {
                           {statsPeriod === 'this_month' && <Check className="h-4 w-4 mr-2" />}
                           <span className={statsPeriod !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_year')}>
+                          {statsPeriod === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                        </DropdownMenuItem>
                         
                         <DropdownMenuSeparator />
                         
@@ -787,6 +807,17 @@ export default function ExchangePage() {
                         <DropdownMenuItem onClick={() => setStatsPeriod('last_month')}>
                           {statsPeriod === 'last_month' && <Check className="h-4 w-4 mr-2" />}
                           <span className={statsPeriod !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_year')}>
+                          {statsPeriod === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('all')}>
+                          {statsPeriod === 'all' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'all' ? 'ml-6' : ''}>Все время</span>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
