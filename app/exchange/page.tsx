@@ -380,12 +380,29 @@ export default function ExchangePage() {
     setEditProfitMethod(rate.profit_calculation_method || 'auto')
     setEditFixedBaseSource(rate.fixed_base_source || 'api')
     setEditMarginPercent(rate.margin_percent?.toString() || '2.0')
-    setEditBuyRate(rate.buy_rate.toString())
-    setEditSellRate(rate.sell_rate.toString())
     
-    // Загрузим актуальный курс API
+    // Загрузка значений в зависимости от метода расчета
+    // В БД для всех методов: buy_rate = рынок/базовый, sell_rate = клиенту
+    if (rate.profit_calculation_method === 'auto') {
+      // Для Auto: editBuyRate = ручной курс клиенту (из sell_rate), apiRate показывает рынок
+      setEditBuyRate(rate.sell_rate.toString())
+      setEditSellRate(rate.buy_rate.toString())
+    } else {
+      // Для manual/fixed: buyRate = рынок, sellRate = клиенту
+      setEditBuyRate(rate.buy_rate.toString())
+      setEditSellRate(rate.sell_rate.toString())
+    }
+    
+    // Подгружаем актуальный курс API
     const apiRateValue = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     setEditApiRate(apiRateValue)
+    
+    // Для режима fixed_percent c источником API: обновляем базовый курс и пересчитываем
+    if (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api' && apiRateValue) {
+      setEditBuyRate(apiRateValue.toFixed(4))
+      const margin = rate.margin_percent || 2.0
+      setEditSellRate((apiRateValue * (1 + margin / 100)).toFixed(4))
+    }
     
     setIsRateDialogOpen(true)
   }
@@ -398,18 +415,25 @@ export default function ExchangePage() {
     try {
       let finalBuyRate = parseFloat(editBuyRate) || 0
       let finalSellRate = parseFloat(editSellRate) || 0
+      let finalMarketRate = editApiRate || finalBuyRate
       const margin = parseFloat(editMarginPercent) || 2.0
       
       // Расчет курсов в зависимости от метода
       if (editProfitMethod === 'auto') {
-        if (editApiRate) {
-          finalBuyRate = editApiRate
-        }
+        // Авто: editBuyRate = ручной курс клиенту (из правого поля UI)
+        // В БД: buy_rate = API (рынок), sell_rate = ручной (клиенту)
+        const manualClientRate = parseFloat(editBuyRate) || 0
+        finalBuyRate = editApiRate || 0 // Рыночный API курс
+        finalSellRate = manualClientRate // Ручной курс клиенту
+        finalMarketRate = editApiRate || 0
       } else if (editProfitMethod === 'fixed_percent') {
+        // Фикс процент: базовый курс + маржа%
         const baseRate = editFixedBaseSource === 'api' && editApiRate ? editApiRate : parseFloat(editBuyRate) || 0
         finalBuyRate = baseRate
         finalSellRate = baseRate * (1 + margin / 100)
+        finalMarketRate = baseRate
       }
+      // manual: используем введенные вручную значения как есть
       
       const { error } = await supabase
         .from('exchange_rates')
@@ -421,7 +445,7 @@ export default function ExchangePage() {
           margin_percent: margin,
           api_rate: editApiRate,
           api_rate_updated_at: editApiRate ? new Date().toISOString() : null,
-          market_rate: editApiRate || finalBuyRate,
+          market_rate: finalMarketRate,
           last_updated: new Date().toISOString()
         })
         .eq('id', selectedRate.id)
@@ -1234,7 +1258,17 @@ export default function ExchangePage() {
                           ? 'border-cyan-500 bg-cyan-500/10' 
                           : 'border-border hover:border-muted-foreground'
                       }`}
-                      onClick={() => setEditProfitMethod('auto')}
+                      onClick={() => {
+                        // При смене на Auto: editBuyRate = ручной клиенту, editSellRate = рынок
+                        const prevMethod = editProfitMethod
+                        if (prevMethod !== 'auto') {
+                          const tempBuy = editBuyRate
+                          const tempSell = editSellRate
+                          setEditBuyRate(tempSell) // клиенту
+                          setEditSellRate(tempBuy) // рынок
+                        }
+                        setEditProfitMethod('auto')
+                      }}
                     >
                       <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                       <span className="text-sm font-medium">Авто</span>
@@ -1246,7 +1280,17 @@ export default function ExchangePage() {
                           ? 'border-cyan-500 bg-cyan-500/10' 
                           : 'border-border hover:border-muted-foreground'
                       }`}
-                      onClick={() => setEditProfitMethod('manual')}
+                      onClick={() => {
+                        // При смене на Manual: editBuyRate = рынок, editSellRate = клиенту
+                        const prevMethod = editProfitMethod
+                        if (prevMethod === 'auto') {
+                          const tempBuy = editBuyRate // был клиенту
+                          const tempSell = editSellRate // был рынок
+                          setEditBuyRate(tempSell) // рынок
+                          setEditSellRate(tempBuy) // клиенту
+                        }
+                        setEditProfitMethod('manual')
+                      }}
                     >
                       <Pencil className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                       <span className="text-sm font-medium">Ручной</span>
@@ -1258,7 +1302,17 @@ export default function ExchangePage() {
                           ? 'border-cyan-500 bg-cyan-500/10' 
                           : 'border-border hover:border-muted-foreground'
                       }`}
-                      onClick={() => setEditProfitMethod('fixed_percent')}
+                      onClick={() => {
+                        // При смене на Fixed: editBuyRate = рынок, editSellRate = клиенту
+                        const prevMethod = editProfitMethod
+                        if (prevMethod === 'auto') {
+                          const tempBuy = editBuyRate // был клиенту
+                          const tempSell = editSellRate // был рынок
+                          setEditBuyRate(tempSell) // рынок
+                          setEditSellRate(tempBuy) // клиенту
+                        }
+                        setEditProfitMethod('fixed_percent')
+                      }}
                     >
                       <Calculator className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
                       <span className="text-sm font-medium">Фикс %</span>
@@ -1311,52 +1365,79 @@ export default function ExchangePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>
-                      {editProfitMethod === 'auto' ? 'Клиенту (вручную)' : 
+                      {editProfitMethod === 'auto' ? 'Рынок (из API)' : 
                        editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'Рынок (из API)' :
                        'Рынок'}
                     </Label>
                     <Input
                       type="number"
                       step="0.0001"
-                      value={editBuyRate}
-                      onChange={(e) => setEditBuyRate(e.target.value)}
-                      disabled={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api'}
-                      className={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'opacity-50' : ''}
+                      value={editProfitMethod === 'auto' ? (editApiRate?.toString() || editSellRate) : editBuyRate}
+                      onChange={(e) => editProfitMethod === 'auto' ? setEditSellRate(e.target.value) : setEditBuyRate(e.target.value)}
+                      disabled={editProfitMethod === 'auto' || (editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api')}
+                      className={editProfitMethod === 'auto' || (editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api') ? 'opacity-50' : ''}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {editProfitMethod === 'auto' ? 'Рыночный курс из API' :
+                       editProfitMethod === 'manual' ? 'Рыночный/API курс валюты' :
+                       editFixedBaseSource === 'api' ? 'Берется из API автоматически' : 'Базовый курс вручную'}
+                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label>
-                      {editProfitMethod === 'auto' ? 'Рынок (из API)' : 
+                      {editProfitMethod === 'auto' ? 'Клиенту (вручную)' : 
                        editProfitMethod === 'fixed_percent' ? 'Клиенту (авто)' :
                        'Клиенту'}
                     </Label>
                     <Input
                       type="number"
                       step="0.0001"
-                      value={editSellRate}
-                      onChange={(e) => setEditSellRate(e.target.value)}
-                      disabled={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent'}
-                      className={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent' ? 'opacity-50' : ''}
+                      value={editProfitMethod === 'auto' ? editBuyRate : editSellRate}
+                      onChange={(e) => editProfitMethod === 'auto' ? setEditBuyRate(e.target.value) : setEditSellRate(e.target.value)}
+                      disabled={editProfitMethod === 'fixed_percent'}
+                      className={editProfitMethod === 'fixed_percent' ? 'opacity-50' : ''}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {editProfitMethod === 'auto' ? 'Курс который вы даете клиенту' :
+                       editProfitMethod === 'manual' ? 'Курс который вы даете клиенту' :
+                       `Базовый + ${editMarginPercent}% = курс клиенту`}
+                    </p>
                   </div>
                 </div>
                 
                 {/* Расчет маржи */}
-                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
-                    <span className="font-mono font-bold text-emerald-400">
+                {((editProfitMethod === 'auto' && editApiRate && parseFloat(editBuyRate) > 0) ||
+                  (editProfitMethod !== 'auto' && parseFloat(editBuyRate) > 0 && parseFloat(editSellRate) > 0)) && (
+                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
                       {(() => {
-                        const buy = editProfitMethod === 'auto' ? (editApiRate || 0) : parseFloat(editBuyRate) || 0
-                        const sell = parseFloat(editSellRate) || 0
-                        if (buy && sell && buy > 0) {
-                          return `${((sell - buy) / buy * 100).toFixed(2)}%`
+                        // Маржа = (Рынок - Клиенту) / Рынок * 100
+                        // Положительная = мы в плюсе (даем клиенту меньше чем рынок)
+                        let marginVal = 0
+                        if (editProfitMethod === 'auto') {
+                          // Для Auto: editApiRate = рынок, editBuyRate = клиенту (ручной)
+                          const marketRate = editApiRate || 0
+                          const clientRate = parseFloat(editBuyRate) || 0
+                          if (marketRate && clientRate) {
+                            marginVal = (marketRate - clientRate) / marketRate * 100
+                          }
+                        } else {
+                          // Для manual/fixed: editBuyRate = рынок, editSellRate = клиенту
+                          const marketRate = parseFloat(editBuyRate) || 0
+                          const clientRate = parseFloat(editSellRate) || 0
+                          if (marketRate && clientRate) {
+                            marginVal = (marketRate - clientRate) / marketRate * 100
+                          }
                         }
-                        return '—'
+                        const marginStr = Math.abs(marginVal).toFixed(2)
+                        const marginSign = marginVal >= 0 ? '+' : '-'
+                        const marginColor = marginVal >= 0 ? 'text-emerald-400' : 'text-red-400'
+                        return <span className={`font-mono font-bold ${marginColor}`}>{marginSign}{marginStr}%</span>
                       })()}
-                    </span>
+                    </div>
                   </div>
-                </div>
+                )}
                 
                 {/* Кнопки */}
                 <div className="flex gap-2 pt-2">
