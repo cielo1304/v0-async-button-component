@@ -1040,10 +1040,12 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                       return `${margin}%`
                     }
                   } else {
+                    // Маржа = (buy - sell) / buy * 100
+                    // Если покупаем по 1.0 и продаем по 0.95 - маржа +5% (мы зарабатываем)
                     const buy = parseFloat(buyRate) || 0
                     const sell = parseFloat(sellRate) || 0
                     if (buy && sell) {
-                      const margin = ((sell - buy) / buy * 100).toFixed(2)
+                      const margin = ((buy - sell) / buy * 100).toFixed(2)
                       return `${margin}%`
                     }
                   }
@@ -1151,16 +1153,17 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                 </TableCell>
                 <TableCell className="text-right">
                   {(() => {
-                    const buy = rate.buy_rate
-                    const sell = rate.sell_rate
-                    if (buy && sell && buy > 0) {
-                      const margin = ((sell - buy) / buy * 100).toFixed(2)
-                      return (
-                        <span className={`font-mono ${parseFloat(margin) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {margin}%
-                        </span>
-                      )
-                    }
+const buy = rate.buy_rate
+                  const sell = rate.sell_rate
+                  if (buy && sell && buy > 0) {
+                    // Маржа = (buy - sell) / buy * 100
+                    const margin = ((buy - sell) / buy * 100).toFixed(2)
+                    return (
+                      <span className={`font-mono ${parseFloat(margin) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {parseFloat(margin) >= 0 ? '+' : ''}{margin}%
+                      </span>
+                    )
+                  }
                     return '-'
                   })()}
                 </TableCell>
