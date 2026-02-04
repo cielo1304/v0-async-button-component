@@ -14,12 +14,18 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Wifi, WifiOff, Calendar, ChevronDown
+  Wifi, WifiOff, Calendar
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -90,7 +96,6 @@ export default function ExchangePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
-  const [isPeriodPopoverOpen, setIsPeriodPopoverOpen] = useState(false)
   
   // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
@@ -212,10 +217,10 @@ export default function ExchangePage() {
   const getPeriodLabel = (period: string): string => {
     switch (period) {
       case 'today': return 'Сегодня'
-      case 'yesterday': return 'Вчера'
       case 'this_week': return 'Эта неделя'
-      case 'last_week': return 'Прошлая неделя'
       case 'this_month': return 'Этот месяц'
+      case 'yesterday': return 'Вчера'
+      case 'last_week': return 'Прошлая неделя'
       case 'last_month': return 'Прошлый месяц'
       default: return 'Сегодня'
     }
@@ -748,40 +753,43 @@ export default function ExchangePage() {
                         </p>
                       </div>
                     </div>
-                    <Popover open={isPeriodPopoverOpen} onOpenChange={setIsPeriodPopoverOpen}>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="bg-transparent text-xs h-7 px-2">
-                          <Calendar className="h-3 w-3 mr-1" />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                          <Calendar className="h-4 w-4 mr-2" />
                           {getPeriodLabel(statsPeriod)}
-                          <ChevronDown className="h-3 w-3 ml-1" />
                         </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="end" className="w-40 p-1">
-                        <div className="space-y-0.5">
-                          {[
-                            { value: 'today', label: 'Сегодня' },
-                            { value: 'yesterday', label: 'Вчера' },
-                            { value: 'this_week', label: 'Эта неделя' },
-                            { value: 'last_week', label: 'Прошлая неделя' },
-                            { value: 'this_month', label: 'Этот месяц' },
-                            { value: 'last_month', label: 'Прошлый месяц' },
-                          ].map(p => (
-                            <Button
-                              key={p.value}
-                              variant={statsPeriod === p.value ? 'secondary' : 'ghost'}
-                              size="sm"
-                              className="w-full justify-start text-xs h-7"
-                              onClick={() => {
-                                setStatsPeriod(p.value)
-                                setIsPeriodPopoverOpen(false)
-                              }}
-                            >
-                              {p.label}
-                            </Button>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => setStatsPeriod('today')}>
+                          {statsPeriod === 'today' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_week')}>
+                          {statsPeriod === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_month')}>
+                          {statsPeriod === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('yesterday')}>
+                          {statsPeriod === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_week')}>
+                          {statsPeriod === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_month')}>
+                          {statsPeriod === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
