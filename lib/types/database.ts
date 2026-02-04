@@ -484,7 +484,8 @@ export interface AutoInspection {
 
 export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled'
 
-export type ProfitCalculationMethod = 'auto' | 'manual'
+export type ProfitCalculationMethod = 'auto' | 'manual' | 'fixed_percent'
+export type FixedBaseSource = 'api' | 'manual'
 
 export interface ExchangeSettings {
   id: string
@@ -533,6 +534,12 @@ export interface ExchangeRate {
   market_rate: number | null
   is_active: boolean
   is_popular: boolean
+  is_auto_rate: boolean
+  profit_calculation_method: ProfitCalculationMethod
+  fixed_base_source: FixedBaseSource
+  margin_percent: number
+  api_rate: number | null
+  api_rate_updated_at: string | null
   sort_order: number
   last_updated: string
   updated_by: string | null

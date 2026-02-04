@@ -62,7 +62,8 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const [isLoading, setIsLoading] = useState(true)
   const [editingRate, setEditingRate] = useState<ExtendedExchangeRate | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  
+  const [isAutoRate, setIsAutoRate] = useState(false) // Declared here
+
   // Форма
   const [fromCurrency, setFromCurrency] = useState('')
   const [toCurrency, setToCurrency] = useState('')
@@ -71,7 +72,10 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
   const [marketRate, setMarketRate] = useState('')
   const [isPopular, setIsPopular] = useState(false)
   const [isActive, setIsActive] = useState(true)
-  const [isAutoRate, setIsAutoRate] = useState(true)
+  const [profitMethod, setProfitMethod] = useState<'auto' | 'manual' | 'fixed_percent'>('auto')
+  const [fixedBaseSource, setFixedBaseSource] = useState<'api' | 'manual'>('api')
+  const [marginPercent, setMarginPercent] = useState('2.0')
+  const [apiRate, setApiRate] = useState<number | null>(null)
 
   // Получить курс из API для валютной пары
   const fetchRateFromAPI = useCallback(async (fromCurr: string, toCurr: string): Promise<number | null> => {
@@ -147,26 +151,40 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     }
   }, [supabase])
 
-  // Автоматическое обновление курсов из API
+  // Автоматическое обновление курсов из API для пар с методами auto и fixed_percent
   const updateAutoRates = useCallback(async () => {
-    const autoRates = rates.filter(r => r.is_auto_rate)
+    // Обновляем пары с методами auto и fixed_percent (с источником api)
+    const autoRates = rates.filter(r => 
+      r.profit_calculation_method === 'auto' || 
+      (r.profit_calculation_method === 'fixed_percent' && r.fixed_base_source === 'api')
+    )
     if (autoRates.length === 0) return
     
     let updated = false
     for (const rate of autoRates) {
-      const apiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
-      if (apiRate) {
-        // Применяем маржу
-        const margin = exchangeSettings?.default_margin_percent || rate.buy_margin_percent || 2
-        const newBuyRate = apiRate * (1 - margin / 100)
-        const newSellRate = apiRate * (1 + margin / 100)
+      const currentApiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+      if (currentApiRate) {
+        let newBuyRate = rate.buy_rate
+        let newSellRate = rate.sell_rate
+        
+        if (rate.profit_calculation_method === 'auto') {
+          // Авто: API курс = покупка, ручной курс продажи остается
+          newBuyRate = currentApiRate
+        } else if (rate.profit_calculation_method === 'fixed_percent') {
+          // Фикс процент: базовый = API, продажа = базовый + маржа%
+          const margin = rate.margin_percent || 2
+          newBuyRate = currentApiRate
+          newSellRate = currentApiRate * (1 + margin / 100)
+        }
         
         await supabase
           .from('exchange_rates')
           .update({
             buy_rate: newBuyRate,
             sell_rate: newSellRate,
-            market_rate: apiRate,
+            api_rate: currentApiRate,
+            api_rate_updated_at: new Date().toISOString(),
+            market_rate: currentApiRate,
             last_updated: new Date().toISOString()
           })
           .eq('id', rate.id)
@@ -178,7 +196,7 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     if (updated) {
       loadRates()
     }
-  }, [rates, fetchRateFromAPI, supabase, loadRates, exchangeSettings])
+  }, [rates, fetchRateFromAPI, supabase, loadRates])
 
   useEffect(() => {
     loadRates()
@@ -205,7 +223,7 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     }
   }, [exchangeSettings?.rate_update_interval_minutes, updateAutoRates])
   
-  const resetForm = () => {
+const resetForm = () => {
     setFromCurrency('')
     setToCurrency('')
     setBuyRate('')
@@ -213,11 +231,14 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     setMarketRate('')
     setIsPopular(false)
     setIsActive(true)
-    setIsAutoRate(true)
+    setProfitMethod('auto')
+    setFixedBaseSource('api')
+    setMarginPercent(exchangeSettings?.default_margin_percent?.toString() || '2.0')
+    setApiRate(null)
     setEditingRate(null)
   }
   
-  const openEditDialog = (rate: ExtendedExchangeRate) => {
+const openEditDialog = async (rate: ExtendedExchangeRate) => {
     setEditingRate(rate)
     setFromCurrency(rate.from_currency)
     setToCurrency(rate.to_currency)
@@ -226,7 +247,17 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     setMarketRate(rate.market_rate?.toString() || '')
     setIsPopular(rate.is_popular)
     setIsActive(rate.is_active)
-    setIsAutoRate(rate.is_auto_rate ?? true)
+    setProfitMethod(rate.profit_calculation_method || 'auto')
+    setFixedBaseSource(rate.fixed_base_source || 'api')
+    setMarginPercent(rate.margin_percent?.toString() || '2.0')
+    setApiRate(rate.api_rate || null)
+    
+    // Подгружаем актуальный курс API
+    const currentApiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+    if (currentApiRate) {
+      setApiRate(currentApiRate)
+    }
+    
     setIsDialogOpen(true)
   }
   
@@ -236,26 +267,48 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
       return
     }
     
-    // Для авто-режима курсы необязательны, они загрузятся из API
-    if (!isAutoRate && (!buyRate || !sellRate)) {
+    // Для ручного режима курсы обязательны
+    if (profitMethod === 'manual' && (!buyRate || !sellRate)) {
       toast.error('Заполните курсы покупки и продажи')
       return
     }
     
     try {
-      const newBuyRate = parseFloat(buyRate) || 0
-      const newSellRate = parseFloat(sellRate) || 0
-      const newMarketRate = marketRate ? parseFloat(marketRate) : null
+      let finalBuyRate = parseFloat(buyRate) || 0
+      let finalSellRate = parseFloat(sellRate) || 0
+      let finalMarketRate = marketRate ? parseFloat(marketRate) : apiRate
+      const margin = parseFloat(marginPercent) || 2.0
+      
+      // Расчет курсов в зависимости от метода
+      if (profitMethod === 'auto') {
+        // Авто: курс API = покупка у клиента, курс вручную = продажа клиенту
+        // Разница = маржа
+        if (apiRate && finalSellRate) {
+          finalBuyRate = apiRate // Курс API для покупки
+          finalMarketRate = apiRate
+        }
+      } else if (profitMethod === 'fixed_percent') {
+        // Фикс процент: базовый курс + маржа%
+        const baseRate = fixedBaseSource === 'api' && apiRate ? apiRate : parseFloat(buyRate) || 0
+        finalBuyRate = baseRate
+        finalSellRate = baseRate * (1 + margin / 100)
+        finalMarketRate = baseRate
+      }
+      // manual: используем введенные вручную значения как есть
       
       const data = {
         from_currency: fromCurrency.toUpperCase(),
         to_currency: toCurrency.toUpperCase(),
-        buy_rate: newBuyRate,
-        sell_rate: newSellRate,
-        market_rate: newMarketRate,
+        buy_rate: finalBuyRate,
+        sell_rate: finalSellRate,
+        market_rate: finalMarketRate,
         is_popular: isPopular,
         is_active: isActive,
-        is_auto_rate: isAutoRate,
+        profit_calculation_method: profitMethod,
+        fixed_base_source: fixedBaseSource,
+        margin_percent: margin,
+        api_rate: apiRate,
+        api_rate_updated_at: apiRate ? new Date().toISOString() : null,
         last_updated: new Date().toISOString()
       }
       
@@ -268,9 +321,9 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
           old_buy_rate: editingRate.buy_rate,
           old_sell_rate: editingRate.sell_rate,
           old_market_rate: editingRate.market_rate,
-          new_buy_rate: newBuyRate,
-          new_sell_rate: newSellRate,
-          new_market_rate: newMarketRate
+          new_buy_rate: finalBuyRate,
+          new_sell_rate: finalSellRate,
+          new_market_rate: finalMarketRate
         })
         
         const { error } = await supabase
@@ -287,11 +340,6 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
         
         if (error) throw error
         toast.success('Курс добавлен')
-        
-        // Если авто-режим - сразу обновляем курс из API
-        if (isAutoRate) {
-          setTimeout(() => updateAutoRates(), 500)
-        }
       }
       
       setIsDialogOpen(false)
@@ -350,39 +398,52 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
     }
   }
 
-  const toggleAutoRate = async (rate: ExtendedExchangeRate) => {
+  const refreshApiRateForPair = async (rate: ExtendedExchangeRate) => {
     try {
-      const newIsAuto = !rate.is_auto_rate
+      const currentApiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+      if (!currentApiRate) {
+        toast.error('Не удалось получить курс из API')
+        return
+      }
+      
+      const margin = rate.margin_percent || exchangeSettings?.default_margin_percent || 2
+      let newBuyRate = currentApiRate
+      let newSellRate = currentApiRate
+      
+      if (rate.profit_calculation_method === 'fixed_percent') {
+        newSellRate = currentApiRate * (1 + margin / 100)
+      }
       
       const { error } = await supabase
         .from('exchange_rates')
-        .update({ is_auto_rate: newIsAuto })
+        .update({
+          api_rate: currentApiRate,
+          api_rate_updated_at: new Date().toISOString(),
+          buy_rate: newBuyRate,
+          sell_rate: newSellRate,
+          market_rate: currentApiRate,
+          last_updated: new Date().toISOString()
+        })
         .eq('id', rate.id)
       
       if (error) throw error
-      
-      // Если включили авто - сразу обновляем курс из API
-      if (newIsAuto) {
-        const apiRate = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
-        if (apiRate) {
-          const margin = exchangeSettings?.default_margin_percent || rate.buy_margin_percent || 2
-          await supabase
-            .from('exchange_rates')
-            .update({
-              buy_rate: apiRate * (1 - margin / 100),
-              sell_rate: apiRate * (1 + margin / 100),
-              market_rate: apiRate,
-              last_updated: new Date().toISOString()
-            })
-            .eq('id', rate.id)
-        }
-        toast.success('Курс из API включен')
-      } else {
-        toast.success('Ручной режим включен')
-      }
-      
+      toast.success('Курс обновлен из API')
       loadRates()
       onUpdate?.()
+    } catch {
+      toast.error('Ошибка обновления')
+    }
+  }
+  
+  const toggleAutoRate = async (rate: ExtendedExchangeRate) => {
+    try {
+      const { error } = await supabase
+        .from('exchange_rates')
+        .update({ is_auto_rate: !rate.is_auto_rate })
+        .eq('id', rate.id)
+      
+      if (error) throw error
+      loadRates()
     } catch {
       toast.error('Ошибка обновления')
     }
@@ -459,75 +520,162 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
                     </div>
                   </div>
                   
-                  {/* Выбор режима: вручную / из API */}
-                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30 border border-border">
-                    <div className="flex items-center gap-3">
-                      {isAutoRate ? (
-                        <Wifi className="h-5 w-5 text-green-400" />
-                      ) : (
-                        <WifiOff className="h-5 w-5 text-muted-foreground" />
-                      )}
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {isAutoRate ? 'Курс из API' : 'Ручной курс'}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {isAutoRate 
-                            ? 'Автоматически обновляется из настроенных источников' 
-                            : 'Курс задается вручную'}
-                        </p>
+                  {/* Выбор метода расчета */}
+                  <div className="space-y-2">
+                    <Label>Метод расчета прибыли</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div 
+                        className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                          profitMethod === 'auto' 
+                            ? 'border-cyan-500 bg-cyan-500/10' 
+                            : 'border-border hover:border-muted-foreground'
+                        }`}
+                        onClick={() => setProfitMethod('auto')}
+                      >
+                        <Wifi className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                        <span className="text-sm font-medium text-foreground">Авто</span>
+                        <p className="text-xs text-muted-foreground mt-1">API vs Ручной</p>
+                      </div>
+                      <div 
+                        className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                          profitMethod === 'manual' 
+                            ? 'border-cyan-500 bg-cyan-500/10' 
+                            : 'border-border hover:border-muted-foreground'
+                        }`}
+                        onClick={() => setProfitMethod('manual')}
+                      >
+                        <WifiOff className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                        <span className="text-sm font-medium text-foreground">Ручной</span>
+                        <p className="text-xs text-muted-foreground mt-1">Покупка vs Продажа</p>
+                      </div>
+                      <div 
+                        className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                          profitMethod === 'fixed_percent' 
+                            ? 'border-cyan-500 bg-cyan-500/10' 
+                            : 'border-border hover:border-muted-foreground'
+                        }`}
+                        onClick={() => setProfitMethod('fixed_percent')}
+                      >
+                        <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${profitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                        <span className="text-sm font-medium text-foreground">Фикс %</span>
+                        <p className="text-xs text-muted-foreground mt-1">Базовый + %</p>
                       </div>
                     </div>
-                    <Switch
-                      checked={isAutoRate}
-                      onCheckedChange={setIsAutoRate}
-                    />
                   </div>
                   
+                  {/* Показ курса API */}
+                  {apiRate && (
+                    <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Текущий курс API:</span>
+                        <span className="font-mono font-bold text-cyan-400">{apiRate.toFixed(4)}</span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Настройки для fixed_percent */}
+                  {profitMethod === 'fixed_percent' && (
+                    <div className="space-y-3 p-3 rounded-lg bg-secondary/30">
+                      <div className="space-y-2">
+                        <Label>Источник базового курса</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div 
+                            className={`p-2 rounded border cursor-pointer text-center ${
+                              fixedBaseSource === 'api' 
+                                ? 'border-cyan-500 bg-cyan-500/10' 
+                                : 'border-border'
+                            }`}
+                            onClick={() => setFixedBaseSource('api')}
+                          >
+                            <span className="text-sm">Из API</span>
+                          </div>
+                          <div 
+                            className={`p-2 rounded border cursor-pointer text-center ${
+                              fixedBaseSource === 'manual' 
+                                ? 'border-cyan-500 bg-cyan-500/10' 
+                                : 'border-border'
+                            }`}
+                            onClick={() => setFixedBaseSource('manual')}
+                          >
+                            <span className="text-sm">Вручную</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Процент маржи (%)</Label>
+                        <Input
+                          type="number"
+                          step="0.1"
+                          value={marginPercent}
+                          onChange={(e) => setMarginPercent(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Поля курсов */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className={isAutoRate ? 'text-muted-foreground' : ''}>Курс покупки</Label>
+                      <Label className={profitMethod === 'auto' && fixedBaseSource === 'api' ? '' : ''}>
+                        {profitMethod === 'auto' ? 'Курс продажи (вручную)' : 
+                         profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'Курс покупки (из API)' :
+                         'Курс покупки'}
+                      </Label>
                       <Input
                         type="number"
                         step="0.0001"
-                        placeholder={isAutoRate ? 'Авто' : '89.50'}
+                        placeholder="89.50"
                         value={buyRate}
                         onChange={(e) => setBuyRate(e.target.value)}
-                        disabled={isAutoRate}
-                        className={isAutoRate ? 'opacity-50' : ''}
+                        disabled={profitMethod === 'fixed_percent' && fixedBaseSource === 'api'}
+                        className={profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {isAutoRate ? 'Устанавливается автоматически' : 'Мы покупаем у клиента'}
+                        {profitMethod === 'auto' ? 'Вы задаете курс по которому продаете клиенту' :
+                         profitMethod === 'manual' ? 'Мы покупаем у клиента по этому курсу' :
+                         fixedBaseSource === 'api' ? 'Берется из API автоматически' : 'Базовый курс вручную'}
                       </p>
                     </div>
                     <div className="space-y-2">
-                      <Label className={isAutoRate ? 'text-muted-foreground' : ''}>Курс продажи</Label>
+                      <Label>
+                        {profitMethod === 'auto' ? 'Курс покупки (из API)' : 
+                         profitMethod === 'fixed_percent' ? 'Курс продажи (авто)' :
+                         'Курс продажи'}
+                      </Label>
                       <Input
                         type="number"
                         step="0.0001"
-                        placeholder={isAutoRate ? 'Авто' : '91.50'}
+                        placeholder="91.50"
                         value={sellRate}
                         onChange={(e) => setSellRate(e.target.value)}
-                        disabled={isAutoRate}
-                        className={isAutoRate ? 'opacity-50' : ''}
+                        disabled={profitMethod === 'auto' || profitMethod === 'fixed_percent'}
+                        className={profitMethod === 'auto' || profitMethod === 'fixed_percent' ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {isAutoRate ? 'Устанавливается автоматически' : 'Мы продаем клиенту'}
+                        {profitMethod === 'auto' ? 'Берется из настроенных API источников' :
+                         profitMethod === 'manual' ? 'Мы продаем клиенту по этому курсу' :
+                         `Базовый + ${marginPercent}% = курс продажи`}
                       </p>
                     </div>
                   </div>
                   
-                  {!isAutoRate && (
-                    <div className="space-y-2">
-                      <Label>Рыночный курс (опционально)</Label>
-                      <Input
-                        type="number"
-                        step="0.0001"
-                        placeholder="90.50"
-                        value={marketRate}
-                        onChange={(e) => setMarketRate(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">Для расчета маржи</p>
+                  {/* Расчет маржи */}
+                  {(buyRate || apiRate) && sellRate && (
+                    <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
+                        <span className="font-mono font-bold text-emerald-400">
+                          {(() => {
+                            const buy = profitMethod === 'auto' ? (apiRate || 0) : parseFloat(buyRate) || 0
+                            const sell = parseFloat(sellRate) || 0
+                            if (buy && sell) {
+                              const margin = ((sell - buy) / buy * 100).toFixed(2)
+                              return `${margin}%`
+                            }
+                            return '—'
+                          })()}
+                        </span>
+                      </div>
                     </div>
                   )}
                   
@@ -573,11 +721,11 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
           <TableHeader>
             <TableRow>
               <TableHead>Пара</TableHead>
-              <TableHead className="text-center">Режим</TableHead>
+              <TableHead className="text-center">Метод</TableHead>
               <TableHead className="text-right">Покупка</TableHead>
               <TableHead className="text-right">Продажа</TableHead>
-              <TableHead className="text-right">Рыночный</TableHead>
-              <TableHead className="text-right">Маржа</TableHead>
+              <TableHead className="text-right">API курс</TableHead>
+              <TableHead className="text-right">Маржа %</TableHead>
               <TableHead className="text-center">
                 <Star className="h-4 w-4 mx-auto text-muted-foreground" />
               </TableHead>
@@ -598,39 +746,48 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
                   </div>
                 </TableCell>
                 <TableCell className="text-center">
-                  <button
-                    onClick={() => toggleAutoRate(rate)}
-                    className="flex items-center justify-center gap-1.5 mx-auto px-2 py-1 rounded hover:bg-secondary/50 transition-colors"
-                    title={rate.is_auto_rate ? 'Переключить на ручной режим' : 'Переключить на API'}
+                  <div 
+                    className="flex items-center justify-center gap-1.5 mx-auto px-2 py-1 rounded cursor-pointer hover:bg-secondary/50 transition-colors"
+                    onClick={() => openEditDialog(rate)}
+                    title="Нажмите для настройки метода"
                   >
-                    {rate.is_auto_rate ? (
+                    {rate.profit_calculation_method === 'auto' ? (
                       <>
-                        <Wifi className="h-4 w-4 text-green-400" />
-                        <span className="text-xs text-green-400">API</span>
+                        <Wifi className="h-4 w-4 text-cyan-400" />
+                        <span className="text-xs text-cyan-400">Авто</span>
+                      </>
+                    ) : rate.profit_calculation_method === 'fixed_percent' ? (
+                      <>
+                        <TrendingUp className="h-4 w-4 text-amber-400" />
+                        <span className="text-xs text-amber-400">{rate.margin_percent || 2}%</span>
                       </>
                     ) : (
                       <>
                         <WifiOff className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Ручной</span>
+                        <span className="text-xs text-muted-foreground">Ручн.</span>
                       </>
                     )}
-                  </button>
+                  </div>
                 </TableCell>
                 <TableCell className="text-right font-mono text-green-400">{rate.buy_rate.toFixed(4)}</TableCell>
                 <TableCell className="text-right font-mono text-red-400">{rate.sell_rate.toFixed(4)}</TableCell>
                 <TableCell className="text-right font-mono text-muted-foreground">
-                  {rate.market_rate?.toFixed(4) || '-'}
+                  {rate.api_rate?.toFixed(4) || rate.market_rate?.toFixed(4) || '-'}
                 </TableCell>
                 <TableCell className="text-right">
-                  {rate.market_rate ? (
-                    <span className={`font-mono ${
-                      parseFloat(calculateMargin(rate.buy_rate, rate.sell_rate, rate.market_rate) || '0') > 0 
-                        ? 'text-emerald-400' 
-                        : 'text-red-400'
-                    }`}>
-                      {calculateMargin(rate.buy_rate, rate.sell_rate, rate.market_rate)}%
-                    </span>
-                  ) : '-'}
+                  {(() => {
+                    const buy = rate.buy_rate
+                    const sell = rate.sell_rate
+                    if (buy && sell && buy > 0) {
+                      const margin = ((sell - buy) / buy * 100).toFixed(2)
+                      return (
+                        <span className={`font-mono ${parseFloat(margin) > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {margin}%
+                        </span>
+                      )
+                    }
+                    return '-'
+                  })()}
                 </TableCell>
                 <TableCell className="text-center">
                   <Button

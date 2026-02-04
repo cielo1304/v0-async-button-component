@@ -696,54 +696,30 @@ export default function SettingsPage() {
                 <CardDescription>Параметры модуля обмена валют для клиентов</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/* Метод расчета прибыли */}
-                <div className="space-y-3">
-                  <Label className="text-base font-medium">Метод расчета курса и прибыли</Label>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div 
-                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        exchangeForm.profit_calculation_method === 'auto' 
-                          ? 'border-cyan-500 bg-cyan-500/10' 
-                          : 'border-border hover:border-muted-foreground'
-                      }`}
-                      onClick={() => setExchangeForm({ ...exchangeForm, profit_calculation_method: 'auto' })}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-4 h-4 rounded-full border-2 ${
-                          exchangeForm.profit_calculation_method === 'auto' 
-                            ? 'border-cyan-500 bg-cyan-500' 
-                            : 'border-muted-foreground'
-                        }`} />
-                        <span className="font-medium text-foreground">Авто (от биржи + маржа)</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Курс берется из API источника + автоматически добавляется маржа
-                      </p>
+                {/* Информация о методах расчета */}
+                <div className="p-4 rounded-lg bg-cyan-500/5 border border-cyan-500/20">
+                  <h4 className="font-medium text-foreground mb-2">Методы расчета курса и прибыли</h4>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Метод расчета настраивается индивидуально для каждой валютной пары в разделе 
+                    <strong className="text-foreground"> Обмен валют → Курсы</strong>
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 text-xs">
+                    <div className="p-2 rounded bg-secondary/50">
+                      <span className="font-medium text-foreground">Автоматический</span>
+                      <p className="text-muted-foreground mt-1">Курс API vs Курс вручную = маржа</p>
                     </div>
-                    <div 
-                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
-                        exchangeForm.profit_calculation_method === 'manual' 
-                          ? 'border-cyan-500 bg-cyan-500/10' 
-                          : 'border-border hover:border-muted-foreground'
-                      }`}
-                      onClick={() => setExchangeForm({ ...exchangeForm, profit_calculation_method: 'manual' })}
-                    >
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-4 h-4 rounded-full border-2 ${
-                          exchangeForm.profit_calculation_method === 'manual' 
-                            ? 'border-cyan-500 bg-cyan-500' 
-                            : 'border-muted-foreground'
-                        }`} />
-                        <span className="font-medium text-foreground">Ручной</span>
-                      </div>
-                      <p className="text-sm text-muted-foreground">
-                        Оператор вводит курс вручную. Прибыль = разница с рыночным
-                      </p>
+                    <div className="p-2 rounded bg-secondary/50">
+                      <span className="font-medium text-foreground">Ручной</span>
+                      <p className="text-muted-foreground mt-1">Покупка vs Продажа вручную = маржа</p>
+                    </div>
+                    <div className="p-2 rounded bg-secondary/50">
+                      <span className="font-medium text-foreground">Фикс. процент</span>
+                      <p className="text-muted-foreground mt-1">Базовый курс + % маржи = прибыль</p>
                     </div>
                   </div>
                 </div>
                 
-                {/* Базовая валюта и маржа */}
+                {/* Базовая валюта и маржа по умолчанию */}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>Базовая валюта для расчета прибыли</Label>
@@ -765,11 +741,7 @@ export default function SettingsPage() {
                     </p>
                   </div>
                   <div className="space-y-2">
-                    <Label>
-                      {exchangeForm.profit_calculation_method === 'auto' 
-                        ? 'Маржа по умолчанию (%)' 
-                        : 'Маржа для сравнения с рынком (%)'}
-                    </Label>
+                    <Label>Маржа по умолчанию для новых пар (%)</Label>
                     <Input
                       type="number"
                       step="0.1"
@@ -777,9 +749,7 @@ export default function SettingsPage() {
                       onChange={(e) => setExchangeForm({ ...exchangeForm, default_margin_percent: e.target.value })}
                     />
                     <p className="text-xs text-muted-foreground">
-                      {exchangeForm.profit_calculation_method === 'auto'
-                        ? 'Добавляется к курсу биржи автоматически'
-                        : 'Используется для сравнения ручного курса с рыночным'}
+                      Применяется при создании новой валютной пары
                     </p>
                   </div>
                 </div>
