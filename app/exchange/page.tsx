@@ -250,24 +250,42 @@ export default function ExchangePage() {
     if (giveAmount <= 0) return 0
     
     const { rate, isReverse } = findRateForPair(giveCurrency, receiveCurrency)
-    if (!rate) return 0
     
-    // Логика курсов:
-    // - Прямой курс USD→USDT: buy_rate = курс покупки USD у клиента, sell_rate = курс продажи USDT клиенту
-    // - Клиент дает USD, получает USDT. Мы продаем USDT по sell_rate.
-    // - Пример: buy_rate=1.0, sell_rate=0.95. Клиент дает 1000 USD -> получает 1000*0.95=950 USDT
-    
-    if (isReverse) {
-      // Обратный курс: rate.from_currency = receiveCurrency, rate.to_currency = giveCurrency
-      // Пример: курс USDT→USD, клиент дает USD, получает USDT
-      // Нужно делить на buy_rate (курс покупки USDT за USD)
-      return giveAmount / rate.buy_rate
-    } else {
-      // Прямой курс: rate.from_currency = giveCurrency, rate.to_currency = receiveCurrency
-      // Пример: курс USD→USDT, клиент дает USD, получает USDT
-      // sell_rate = сколько USDT за 1 USD при продаже клиенту
-      return giveAmount * rate.sell_rate
+    // Если прямой курс найден - используем его
+    if (rate) {
+      if (isReverse) {
+        // Обратный курс: делим на buy_rate
+        return giveAmount / rate.buy_rate
+      } else {
+        // Прямой курс: умножаем на sell_rate
+        return giveAmount * rate.sell_rate
+      }
     }
+    
+    // Если прямой курс не найден - пробуем кросс-конвертацию через USD
+    // Например: RUB→USDT = RUB→USD→USDT
+    const crossCurrencies = ['USD', 'EUR', 'USDT']
+    for (const crossCurrency of crossCurrencies) {
+      if (crossCurrency === giveCurrency || crossCurrency === receiveCurrency) continue
+      
+      const { rate: rate1, isReverse: isReverse1 } = findRateForPair(giveCurrency, crossCurrency)
+      const { rate: rate2, isReverse: isReverse2 } = findRateForPair(crossCurrency, receiveCurrency)
+      
+      if (rate1 && rate2) {
+        // Конвертируем give → cross → receive
+        let crossAmount = isReverse1 
+          ? giveAmount / rate1.buy_rate 
+          : giveAmount * rate1.sell_rate
+        
+        let finalAmount = isReverse2 
+          ? crossAmount / rate2.buy_rate 
+          : crossAmount * rate2.sell_rate
+        
+        return finalAmount
+      }
+    }
+    
+    return 0
   }, [findRateForPair])
   
   // Функция пересчета суммы получения на основе всех валют клиента
