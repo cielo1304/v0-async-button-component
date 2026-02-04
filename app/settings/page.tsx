@@ -142,6 +142,7 @@ export default function SettingsPage() {
   }
   const [rateSources, setRateSources] = useState<RateSource[]>([])
   const [isAddSourceOpen, setIsAddSourceOpen] = useState(false)
+  const [editingSource, setEditingSource] = useState<RateSource | null>(null)
   const [newSource, setNewSource] = useState({
     currency_code: '',
     source_type: 'api' as 'api' | 'manual' | 'crypto',
@@ -389,9 +390,37 @@ export default function SettingsPage() {
       
       if (error) throw error
       toast.success('Источник удален')
+      setEditingSource(null)
       loadData()
     } catch {
       toast.error('Ошибка удаления')
+    }
+  }
+  
+  const handleUpdateRateSource = async () => {
+    if (!editingSource) return
+    
+    try {
+      const { error } = await supabase
+        .from('currency_rate_sources')
+        .update({
+          source_name: editingSource.source_name,
+          api_url: editingSource.api_url,
+          api_key: editingSource.api_key,
+          update_interval_minutes: editingSource.update_interval_minutes,
+          notes: editingSource.notes,
+          is_active: editingSource.is_active,
+          is_default: editingSource.is_default,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingSource.id)
+      
+      if (error) throw error
+      toast.success('Источник обновлен')
+      setEditingSource(null)
+      loadData()
+    } catch {
+      toast.error('Ошибка обновления')
     }
   }
 
@@ -958,79 +987,184 @@ export default function SettingsPage() {
                     Нет настроенных источников курсов
                   </p>
                 ) : (
-                  <div className="space-y-2">
-                    {/* Группировка по валютам */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {/* Группировка по валютам - кликабельные карточки */}
                     {Object.entries(
                       rateSources.reduce((acc, s) => {
                         if (!acc[s.currency_code]) acc[s.currency_code] = []
                         acc[s.currency_code].push(s)
                         return acc
                       }, {} as Record<string, typeof rateSources>)
-                    ).map(([currency, sources]) => (
-                      <div key={currency} className="border rounded-lg p-3">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-medium text-foreground">{currency}</span>
-                          <span className="text-xs px-2 py-0.5 rounded bg-secondary text-muted-foreground">
-                            {sources[0]?.source_type === 'crypto' ? 'Крипто' : 'Фиат'}
-                          </span>
+                    ).map(([currency, sources]) => {
+                      const defaultSource = sources.find(s => s.is_default) || sources[0]
+                      const activeCount = sources.filter(s => s.is_active).length
+                      return (
+                        <div 
+                          key={currency} 
+                          className="border rounded-lg p-4 cursor-pointer hover:border-cyan-500/50 hover:bg-secondary/30 transition-all"
+                          onClick={() => setEditingSource(defaultSource)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-lg font-bold text-foreground">{currency}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              defaultSource?.source_type === 'crypto' 
+                                ? 'bg-orange-500/20 text-orange-400' 
+                                : 'bg-blue-500/20 text-blue-400'
+                            }`}>
+                              {defaultSource?.source_type === 'crypto' ? 'Крипто' : 'Фиат'}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-1">
+                            {defaultSource?.source_name}
+                          </p>
+                          {defaultSource?.last_rate && (
+                            <p className="text-xs text-cyan-400">
+                              Курс: {defaultSource.last_rate}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
+                            <span className="text-xs text-muted-foreground">
+                              {activeCount} из {sources.length} активно
+                            </span>
+                            <div className={`w-2 h-2 rounded-full ${
+                              defaultSource?.is_active ? 'bg-green-500' : 'bg-gray-500'
+                            }`} />
+                          </div>
                         </div>
-                        <div className="space-y-2">
-                          {sources.map((source) => (
-                            <div 
-                              key={source.id} 
-                              className="flex items-center justify-between py-2 px-3 rounded bg-secondary/30"
-                            >
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-sm font-medium text-foreground">{source.source_name}</span>
-                                  {source.is_default && (
-                                    <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">
-                                      Основной
-                                    </span>
-                                  )}
-                                </div>
-                                {source.api_url && (
-                                  <p className="text-xs text-muted-foreground truncate max-w-md">
-                                    {source.api_url}
-                                  </p>
-                                )}
-                                {source.last_rate && (
-                                  <p className="text-xs text-muted-foreground">
-                                    Последний курс: {source.last_rate}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  checked={source.is_active}
-                                  onCheckedChange={(v) => handleToggleRateSource(source.id, 'is_active', v)}
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleToggleRateSource(source.id, 'is_default', !source.is_default)}
-                                  className={source.is_default ? 'text-cyan-400' : 'text-muted-foreground'}
-                                >
-                                  <Bell className="h-4 w-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  onClick={() => handleDeleteRateSource(source.id)}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </CardContent>
             </Card>
+            
+            {/* Диалог редактирования источника */}
+            <Dialog open={!!editingSource} onOpenChange={(open) => !open && setEditingSource(null)}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center gap-2">
+                    <span className="text-2xl font-bold">{editingSource?.currency_code}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      editingSource?.source_type === 'crypto' 
+                        ? 'bg-orange-500/20 text-orange-400' 
+                        : 'bg-blue-500/20 text-blue-400'
+                    }`}>
+                      {editingSource?.source_type === 'crypto' ? 'Криптовалюта' : 'Фиатная валюта'}
+                    </span>
+                  </DialogTitle>
+                  <DialogDescription>
+                    Настройка источника курсов для {editingSource?.currency_code}
+                  </DialogDescription>
+                </DialogHeader>
+                
+                {editingSource && (
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label>Название источника</Label>
+                      <Input
+                        value={editingSource.source_name}
+                        onChange={(e) => setEditingSource({ ...editingSource, source_name: e.target.value })}
+                      />
+                    </div>
+                    
+                    {editingSource.source_type !== 'manual' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>URL API</Label>
+                          <Input
+                            value={editingSource.api_url || ''}
+                            onChange={(e) => setEditingSource({ ...editingSource, api_url: e.target.value })}
+                            placeholder="https://api.example.com/rates"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>API ключ (если требуется)</Label>
+                          <Input
+                            value={editingSource.api_key || ''}
+                            onChange={(e) => setEditingSource({ ...editingSource, api_key: e.target.value })}
+                            placeholder="Оставьте пустым если не нужен"
+                            type="password"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Интервал обновления (минуты)</Label>
+                          <Input
+                            type="number"
+                            value={editingSource.update_interval_minutes}
+                            onChange={(e) => setEditingSource({ 
+                              ...editingSource, 
+                              update_interval_minutes: parseInt(e.target.value) || 60 
+                            })}
+                          />
+                        </div>
+                      </>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <Label>Заметки</Label>
+                      <Input
+                        value={editingSource.notes || ''}
+                        onChange={(e) => setEditingSource({ ...editingSource, notes: e.target.value })}
+                        placeholder="Описание или комментарий"
+                      />
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                      <div>
+                        <p className="font-medium text-foreground">Активен</p>
+                        <p className="text-sm text-muted-foreground">Использовать этот источник для получения курсов</p>
+                      </div>
+                      <Switch
+                        checked={editingSource.is_active}
+                        onCheckedChange={(v) => setEditingSource({ ...editingSource, is_active: v })}
+                      />
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                      <div>
+                        <p className="font-medium text-foreground">Основной источник</p>
+                        <p className="text-sm text-muted-foreground">Использовать как основной для этой валюты</p>
+                      </div>
+                      <Switch
+                        checked={editingSource.is_default}
+                        onCheckedChange={(v) => setEditingSource({ ...editingSource, is_default: v })}
+                      />
+                    </div>
+                    
+                    {editingSource.last_rate && (
+                      <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                        <p className="text-sm text-muted-foreground">Последний полученный курс</p>
+                        <p className="text-xl font-bold text-cyan-400">{editingSource.last_rate}</p>
+                        {editingSource.last_updated && (
+                          <p className="text-xs text-muted-foreground">
+                            Обновлено: {new Date(editingSource.last_updated).toLocaleString('ru')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <DialogFooter className="flex justify-between">
+                  <Button 
+                    variant="destructive" 
+                    onClick={() => editingSource && handleDeleteRateSource(editingSource.id)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Удалить
+                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setEditingSource(null)} className="bg-transparent">
+                      Отмена
+                    </Button>
+                    <Button onClick={handleUpdateRateSource}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Сохранить
+                    </Button>
+                  </div>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* HR - управление сотрудниками */}
