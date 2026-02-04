@@ -187,3 +187,89 @@ export async function getCurrencyRates() {
 
   return data
 }
+
+// Получить курс валюты из внешнего API (Server Action для обхода CORS)
+export async function fetchExternalRate(fromCurrency: string, toCurrency: string, sourceType?: string, apiUrl?: string, apiPath?: string): Promise<{ rate: number | null; error: string | null }> {
+  try {
+    const cryptoCurrencies = ['BTC', 'ETH', 'USDT', 'USDC']
+    
+    // Крипто через Binance
+    if (cryptoCurrencies.includes(fromCurrency) || cryptoCurrencies.includes(toCurrency)) {
+      if (fromCurrency === 'USDT' || toCurrency === 'USDT') {
+        const otherCurrency = fromCurrency === 'USDT' ? toCurrency : fromCurrency
+        const symbol = `${otherCurrency}USDT`
+        try {
+          const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, {
+            next: { revalidate: 60 }
+          })
+          if (response.ok) {
+            const data = await response.json()
+            const price = parseFloat(data.price)
+            return { rate: fromCurrency === 'USDT' ? 1 / price : price, error: null }
+          }
+        } catch (e) {
+          // Продолжаем к следующему источнику
+        }
+      }
+      
+      // Попробуем через пару к USDT
+      if (cryptoCurrencies.includes(fromCurrency)) {
+        try {
+          const symbol = `${fromCurrency}USDT`
+          const response = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbol}`, {
+            next: { revalidate: 60 }
+          })
+          if (response.ok) {
+            const data = await response.json()
+            return { rate: parseFloat(data.price), error: null }
+          }
+        } catch (e) {
+          // Продолжаем
+        }
+      }
+    }
+    
+    // Кастомный API источник
+    if (sourceType === 'api' && apiUrl) {
+      try {
+        const url = apiUrl
+          .replace('{from}', fromCurrency)
+          .replace('{to}', toCurrency)
+        const response = await fetch(url, { next: { revalidate: 60 } })
+        if (response.ok) {
+          const data = await response.json()
+          if (apiPath) {
+            const path = apiPath.replace('{to}', toCurrency)
+            const value = path.split('.').reduce((obj: Record<string, unknown>, key: string) => obj?.[key] as Record<string, unknown>, data as Record<string, unknown>)
+            if (typeof value === 'number') {
+              return { rate: value, error: null }
+            }
+          }
+          return { rate: data.rate || data.price || data.result || null, error: null }
+        }
+      } catch (e) {
+        // Продолжаем к дефолтному API
+      }
+    }
+    
+    // Дефолтный Exchange Rate API
+    try {
+      const response = await fetch(`https://api.exchangerate-api.com/v4/latest/${fromCurrency}`, {
+        next: { revalidate: 300 } // кэш на 5 минут
+      })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.rates && data.rates[toCurrency]) {
+          return { rate: data.rates[toCurrency], error: null }
+        }
+      }
+    } catch (e) {
+      // Продолжаем
+    }
+    
+    return { rate: null, error: 'Курс не найден для этой пары валют' }
+  } catch (error) {
+    console.error('Error fetching external rate:', error)
+    return { rate: null, error: 'Ошибка загрузки курса' }
+  }
+}
