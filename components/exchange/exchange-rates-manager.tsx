@@ -980,8 +980,8 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                   {/* Поля курсов */}
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label className={profitMethod === 'auto' && fixedBaseSource === 'api' ? '' : ''}>
-                        {profitMethod === 'auto' ? 'Клиенту (вручную)' : 
+                      <Label>
+                        {profitMethod === 'auto' ? 'Рынок (из API)' : 
                          profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'Рынок (из API)' :
                          'Рынок'}
                       </Label>
@@ -989,20 +989,20 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         type="number"
                         step="0.0001"
                         placeholder="89.50"
-                        value={buyRate}
-                        onChange={(e) => setBuyRate(e.target.value)}
-                        disabled={profitMethod === 'fixed_percent' && fixedBaseSource === 'api'}
-                        className={profitMethod === 'fixed_percent' && fixedBaseSource === 'api' ? 'opacity-50' : ''}
+                        value={profitMethod === 'auto' ? (apiRate?.toString() || sellRate) : buyRate}
+                        onChange={(e) => profitMethod === 'auto' ? setSellRate(e.target.value) : setBuyRate(e.target.value)}
+                        disabled={profitMethod === 'auto' || (profitMethod === 'fixed_percent' && fixedBaseSource === 'api')}
+                        className={profitMethod === 'auto' || (profitMethod === 'fixed_percent' && fixedBaseSource === 'api') ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {profitMethod === 'auto' ? 'Курс который вы даете клиенту' :
+                        {profitMethod === 'auto' ? 'Рыночный курс из API' :
                          profitMethod === 'manual' ? 'Рыночный/API курс валюты' :
                          fixedBaseSource === 'api' ? 'Берется из API автоматически' : 'Базовый курс вручную'}
                       </p>
                     </div>
                     <div className="space-y-2">
                       <Label>
-                        {profitMethod === 'auto' ? 'Рынок (из API)' : 
+                        {profitMethod === 'auto' ? 'Клиенту (вручную)' : 
                          profitMethod === 'fixed_percent' ? 'Клиенту (авто)' :
                          'Клиенту'}
                       </Label>
@@ -1010,13 +1010,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                         type="number"
                         step="0.0001"
                         placeholder="91.50"
-                        value={sellRate}
-                        onChange={(e) => setSellRate(e.target.value)}
-                        disabled={profitMethod === 'auto' || profitMethod === 'fixed_percent'}
-                        className={profitMethod === 'auto' || profitMethod === 'fixed_percent' ? 'opacity-50' : ''}
+                        value={profitMethod === 'auto' ? buyRate : sellRate}
+                        onChange={(e) => profitMethod === 'auto' ? setBuyRate(e.target.value) : setSellRate(e.target.value)}
+                        disabled={profitMethod === 'fixed_percent'}
+                        className={profitMethod === 'fixed_percent' ? 'opacity-50' : ''}
                       />
                       <p className="text-xs text-muted-foreground">
-                        {profitMethod === 'auto' ? 'Рыночный курс из API' :
+                        {profitMethod === 'auto' ? 'Курс который вы даете клиенту' :
                          profitMethod === 'manual' ? 'Курс который вы даете клиенту' :
                          `Базовый + ${marginPercent}% = курс клиенту`}
                       </p>
