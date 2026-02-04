@@ -1,12 +1,6 @@
 'use client'
 
 import { useRef } from "react"
-
-import { DialogDescription } from "@/components/ui/dialog"
-import { DialogTitle } from "@/components/ui/dialog"
-import { DialogHeader } from "@/components/ui/dialog"
-import { DialogContent } from "@/components/ui/dialog"
-import { Dialog } from "@/components/ui/dialog"
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -21,16 +15,26 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
-  Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator
+  Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
+  Wifi, WifiOff, Calendar
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths, format } from 'date-fns'
 import { toast } from 'sonner'
 import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
 import { ExchangeHistoryList } from '@/components/exchange/exchange-history-list'
+import { EditRateDialog } from '@/components/exchange/edit-rate-dialog'
 import { nanoid } from 'nanoid'
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -84,7 +88,8 @@ export default function ExchangePage() {
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [settings, setSettings] = useState<ExchangeSettings | null>(null)
-  const [todayStats, setTodayStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
+  const [periodStats, setPeriodStats] = useState<{ count: number; volume: number; profit: number }>({ count: 0, volume: 0, profit: 0 })
+  const [statsPeriod, setStatsPeriod] = useState<string>('today')
   
   // Состояние UI
   const [isLoading, setIsLoading] = useState(true)
@@ -92,16 +97,9 @@ export default function ExchangePage() {
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
   
-  // Для редактирования курса из панели
+  // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
   const [isRateDialogOpen, setIsRateDialogOpen] = useState(false)
-  const [editProfitMethod, setEditProfitMethod] = useState<'auto' | 'manual' | 'fixed_percent'>('auto')
-  const [editFixedBaseSource, setEditFixedBaseSource] = useState<'api' | 'manual'>('api')
-  const [editMarginPercent, setEditMarginPercent] = useState('2.0')
-  const [editBuyRate, setEditBuyRate] = useState('')
-  const [editSellRate, setEditSellRate] = useState('')
-  const [editApiRate, setEditApiRate] = useState<number | null>(null)
-  const [isSavingRate, setIsSavingRate] = useState(false)
   
   // Доступные валюты
   const availableCurrencies = useMemo(() => {
@@ -126,6 +124,63 @@ export default function ExchangePage() {
   const getCashboxesForCurrency = useCallback((currency: string) => {
     return cashboxes.filter(c => c.currency === currency && !c.is_archived)
   }, [cashboxes])
+  
+  // Функция для получения диапазона дат по периоду
+  const getDateRangeForPeriod = useCallback((period: string): { start: Date; end: Date } | null => {
+    const now = new Date()
+    switch (period) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) }
+      case 'yesterday':
+        const yesterday = subDays(now, 1)
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) }
+      case 'this_week':
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) }
+      case 'last_week':
+        const lastWeek = subWeeks(now, 1)
+        return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      case 'this_month':
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+      case 'last_month':
+        const lastMonth = subMonths(now, 1)
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      case 'this_year':
+        return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
+      case 'last_year':
+        return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'all':
+        return null // null означает "все время" - без фильтра по дате
+      default:
+        return { start: startOfDay(now), end: endOfDay(now) }
+    }
+  }, [])
+  
+  // Загрузка статистики по периоду
+  const loadPeriodStats = useCallback(async (period: string) => {
+    const dateRange = getDateRangeForPeriod(period)
+    
+    let query = supabase
+      .from('client_exchange_operations')
+      .select('profit_amount, total_client_gives_usd')
+      .eq('status', 'completed')
+    
+    // Если dateRange не null - добавляем фильтр по дате
+    if (dateRange) {
+      query = query
+        .gte('completed_at', dateRange.start.toISOString())
+        .lte('completed_at', dateRange.end.toISOString())
+    }
+    
+    const { data: periodOps } = await query
+    
+    if (periodOps) {
+      setPeriodStats({
+        count: periodOps.length,
+        volume: periodOps.reduce((sum, e) => sum + Number(e.total_client_gives_usd || 0), 0),
+        profit: periodOps.reduce((sum, e) => sum + Number(e.profit_amount || 0), 0)
+      })
+    }
+  }, [supabase, getDateRangeForPeriod])
   
   // Загрузка данных
   const loadData = useCallback(async () => {
@@ -153,33 +208,39 @@ export default function ExchangePage() {
       if (cashboxesResult.data) setCashboxes(cashboxesResult.data)
       if (settingsResult.data) setSettings(settingsResult.data)
       
-      // Загрузка статистики за сегодня
-      const startOfDay = new Date()
-      startOfDay.setHours(0, 0, 0, 0)
-      
-      const { data: todayOps } = await supabase
-        .from('client_exchange_operations')
-        .select('profit_amount, total_client_gives_usd')
-        .eq('status', 'completed')
-        .gte('completed_at', startOfDay.toISOString())
-      
-      if (todayOps) {
-        setTodayStats({
-          count: todayOps.length,
-          volume: todayOps.reduce((sum, e) => sum + Number(e.total_client_gives_usd || 0), 0),
-          profit: todayOps.reduce((sum, e) => sum + Number(e.profit_amount || 0), 0)
-        })
-      }
+      // Загрузка статистики за выбранный период
+      await loadPeriodStats(statsPeriod)
     } catch {
       toast.error('Ошибка загрузки данных')
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [supabase, loadPeriodStats, statsPeriod])
   
   useEffect(() => {
     loadData()
   }, [loadData])
+  
+  // Обновление статистики при смене периода
+  useEffect(() => {
+    loadPeriodStats(statsPeriod)
+  }, [statsPeriod, loadPeriodStats])
+  
+  // Хелпер для получения лейбла периода
+  const getPeriodLabel = (period: string): string => {
+    switch (period) {
+      case 'today': return 'Сегодня'
+      case 'this_week': return 'Эта неделя'
+      case 'this_month': return 'Этот месяц'
+      case 'this_year': return 'Этот год'
+      case 'yesterday': return 'Вчера'
+      case 'last_week': return 'Прошлая неделя'
+      case 'last_month': return 'Прошлый месяц'
+      case 'last_year': return 'Прошлый год'
+      case 'all': return 'Все время'
+      default: return 'Сегодня'
+    }
+  }
   
   // Добавить строку валюты
   const addGiveLine = () => {
@@ -374,69 +435,10 @@ export default function ExchangePage() {
     }
   }
   
-  // Открыть диалог редактирования курса
-  const openRateDialog = async (rate: ExchangeRate) => {
+  // Открыть диалог редактирования курса (используем EditRateDialog)
+  const openRateDialog = (rate: ExchangeRate) => {
     setSelectedRate(rate)
-    setEditProfitMethod(rate.profit_calculation_method || 'auto')
-    setEditFixedBaseSource(rate.fixed_base_source || 'api')
-    setEditMarginPercent(rate.margin_percent?.toString() || '2.0')
-    setEditBuyRate(rate.buy_rate.toString())
-    setEditSellRate(rate.sell_rate.toString())
-    
-    // Загрузим актуальный курс API
-    const apiRateValue = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
-    setEditApiRate(apiRateValue)
-    
     setIsRateDialogOpen(true)
-  }
-  
-  // Сохранить изменения курса
-  const saveRateChanges = async () => {
-    if (!selectedRate) return
-    
-    setIsSavingRate(true)
-    try {
-      let finalBuyRate = parseFloat(editBuyRate) || 0
-      let finalSellRate = parseFloat(editSellRate) || 0
-      const margin = parseFloat(editMarginPercent) || 2.0
-      
-      // Расчет курсов в зависимости от метода
-      if (editProfitMethod === 'auto') {
-        if (editApiRate) {
-          finalBuyRate = editApiRate
-        }
-      } else if (editProfitMethod === 'fixed_percent') {
-        const baseRate = editFixedBaseSource === 'api' && editApiRate ? editApiRate : parseFloat(editBuyRate) || 0
-        finalBuyRate = baseRate
-        finalSellRate = baseRate * (1 + margin / 100)
-      }
-      
-      const { error } = await supabase
-        .from('exchange_rates')
-        .update({
-          buy_rate: finalBuyRate,
-          sell_rate: finalSellRate,
-          profit_calculation_method: editProfitMethod,
-          fixed_base_source: editFixedBaseSource,
-          margin_percent: margin,
-          api_rate: editApiRate,
-          api_rate_updated_at: editApiRate ? new Date().toISOString() : null,
-          market_rate: editApiRate || finalBuyRate,
-          last_updated: new Date().toISOString()
-        })
-        .eq('id', selectedRate.id)
-      
-      if (error) throw error
-      
-      toast.success('Курс обновлен')
-      setIsRateDialogOpen(false)
-      setSelectedRate(null)
-      loadData()
-    } catch (err) {
-      toast.error('Ошибка сохранения курса')
-    } finally {
-      setIsSavingRate(false)
-    }
   }
   
   // Расчет общей суммы в базовой валюте (USD) по рыночному курсу
@@ -721,7 +723,7 @@ export default function ExchangePage() {
           </TabsList>
           
           <TabsContent value="exchange" className="space-y-6">
-            {/* Статистика за день */}
+            {/* Статистика за период */}
             <div className="grid grid-cols-3 gap-4">
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
@@ -730,8 +732,8 @@ export default function ExchangePage() {
                       <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Операций сегодня</p>
-                      <p className="text-2xl font-bold font-mono">{todayStats.count}</p>
+                      <p className="text-xs text-muted-foreground">Операций {statsPeriod === 'today' ? 'сегодня' : ''}</p>
+                      <p className="text-2xl font-bold font-mono">{periodStats.count}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -746,7 +748,7 @@ export default function ExchangePage() {
                     <div>
                       <p className="text-xs text-muted-foreground">Оборот ({settings?.base_currency || 'USD'})</p>
                       <p className="text-2xl font-bold font-mono">
-                        {todayStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
+                        {periodStats.volume.toLocaleString('ru-RU', { minimumFractionDigits: 0 })}
                       </p>
                     </div>
                   </div>
@@ -755,16 +757,70 @@ export default function ExchangePage() {
               
               <Card className="bg-card border-border">
                 <CardContent className="p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-emerald-500/20">
-                      <TrendingUp className="h-5 w-5 text-emerald-400" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-emerald-500/20">
+                        <TrendingUp className="h-5 w-5 text-emerald-400" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
+                        <p className={`text-xl font-bold font-mono ${periodStats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {periodStats.profit >= 0 ? '+' : ''}{periodStats.profit.toFixed(2)} {settings?.base_currency || 'USD'}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
-                      <p className={`text-xl font-bold font-mono ${calculatedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {calculatedProfit >= 0 ? '+' : ''}{calculatedProfit.toFixed(2)} {settings?.base_currency || 'USD'}
-                      </p>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                          <Calendar className="h-4 w-4 mr-2" />
+                          {getPeriodLabel(statsPeriod)}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem onClick={() => setStatsPeriod('today')}>
+                          {statsPeriod === 'today' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_week')}>
+                          {statsPeriod === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_month')}>
+                          {statsPeriod === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('this_year')}>
+                          {statsPeriod === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('yesterday')}>
+                          {statsPeriod === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_week')}>
+                          {statsPeriod === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_month')}>
+                          {statsPeriod === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setStatsPeriod('last_year')}>
+                          {statsPeriod === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                        </DropdownMenuItem>
+                        
+                        <DropdownMenuSeparator />
+                        
+                        <DropdownMenuItem onClick={() => setStatsPeriod('all')}>
+                          {statsPeriod === 'all' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'all' ? 'ml-6' : ''}>Все время</span>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
@@ -1152,16 +1208,16 @@ export default function ExchangePage() {
                               <span className="text-xs px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-400">TOP</span>
                             )}
                           </div>
-<div className="grid grid-cols-2 gap-2 text-xs mb-2">
-                      <div>
-                        <span className="text-muted-foreground">Рынок: </span>
-                        <span className="font-mono text-cyan-400">{rate.buy_rate.toFixed(4)}</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Клиенту: </span>
-                        <span className="font-mono text-amber-400">{rate.sell_rate.toFixed(4)}</span>
-                      </div>
-                    </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                            <div>
+                              <span className="text-muted-foreground">Рынок: </span>
+                              <span className="font-mono text-cyan-400">{rate.buy_rate.toFixed(4)}</span>
+                            </div>
+                            <div>
+                              <span className="text-muted-foreground">Клиенту: </span>
+                              <span className="font-mono text-amber-400">{rate.sell_rate.toFixed(4)}</span>
+                            </div>
+                          </div>
                           <div className="flex items-center justify-between text-xs">
                             <span className={`px-1.5 py-0.5 rounded ${
                               rate.profit_calculation_method === 'auto' 
@@ -1192,198 +1248,13 @@ export default function ExchangePage() {
           </TabsContent>
         </Tabs>
         
-        {/* Диалог редактирования курса */}
-        <Dialog open={isRateDialogOpen} onOpenChange={setIsRateDialogOpen}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {selectedRate && (
-                  <>
-                    <span>{CURRENCY_FLAGS[selectedRate.from_currency] || ''}</span>
-                    <span className="font-mono">{selectedRate.from_currency}</span>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                    <span>{CURRENCY_FLAGS[selectedRate.to_currency] || ''}</span>
-                    <span className="font-mono">{selectedRate.to_currency}</span>
-                  </>
-                )}
-              </DialogTitle>
-              <DialogDescription>
-                Настройка метода расчета и курсов для валютной пары
-              </DialogDescription>
-            </DialogHeader>
-            
-            {selectedRate && (
-              <div className="space-y-4 py-2">
-                {/* Текущий курс API */}
-                {editApiRate && (
-                  <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Текущий курс API:</span>
-                      <span className="font-mono font-bold text-cyan-400">{editApiRate.toFixed(4)}</span>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Выбор метода расчета */}
-                <div className="space-y-2">
-                  <Label>Метод расчета прибыли</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div 
-                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
-                        editProfitMethod === 'auto' 
-                          ? 'border-cyan-500 bg-cyan-500/10' 
-                          : 'border-border hover:border-muted-foreground'
-                      }`}
-                      onClick={() => setEditProfitMethod('auto')}
-                    >
-                      <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Авто</span>
-                      <p className="text-xs text-muted-foreground mt-1">API vs Ручной</p>
-                    </div>
-                    <div 
-                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
-                        editProfitMethod === 'manual' 
-                          ? 'border-cyan-500 bg-cyan-500/10' 
-                          : 'border-border hover:border-muted-foreground'
-                      }`}
-                      onClick={() => setEditProfitMethod('manual')}
-                    >
-                      <Pencil className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Ручной</span>
-                      <p className="text-xs text-muted-foreground mt-1">Рынок vs Клиенту</p>
-                    </div>
-                    <div 
-                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
-                        editProfitMethod === 'fixed_percent' 
-                          ? 'border-cyan-500 bg-cyan-500/10' 
-                          : 'border-border hover:border-muted-foreground'
-                      }`}
-                      onClick={() => setEditProfitMethod('fixed_percent')}
-                    >
-                      <Calculator className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Фикс %</span>
-                      <p className="text-xs text-muted-foreground mt-1">Базовый + %</p>
-                    </div>
-                  </div>
-                </div>
-                
-                {/* Настройки для fixed_percent */}
-                {editProfitMethod === 'fixed_percent' && (
-                  <div className="space-y-3 p-3 rounded-lg bg-secondary/30">
-                    <div className="space-y-2">
-                      <Label>Источник базового курса</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div 
-                          className={`p-2 rounded border cursor-pointer text-center ${
-                            editFixedBaseSource === 'api' 
-                              ? 'border-cyan-500 bg-cyan-500/10' 
-                              : 'border-border'
-                          }`}
-                          onClick={() => setEditFixedBaseSource('api')}
-                        >
-                          <span className="text-sm">Из API</span>
-                        </div>
-                        <div 
-                          className={`p-2 rounded border cursor-pointer text-center ${
-                            editFixedBaseSource === 'manual' 
-                              ? 'border-cyan-500 bg-cyan-500/10' 
-                              : 'border-border'
-                          }`}
-                          onClick={() => setEditFixedBaseSource('manual')}
-                        >
-                          <span className="text-sm">Вручную</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Процент маржи (%)</Label>
-                      <Input
-                        type="number"
-                        step="0.1"
-                        value={editMarginPercent}
-                        onChange={(e) => setEditMarginPercent(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                )}
-                
-                {/* Поля курсов */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>
-                      {editProfitMethod === 'auto' ? 'Клиенту (вручную)' : 
-                       editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'Рынок (из API)' :
-                       'Рынок'}
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      value={editBuyRate}
-                      onChange={(e) => setEditBuyRate(e.target.value)}
-                      disabled={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api'}
-                      className={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'opacity-50' : ''}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>
-                      {editProfitMethod === 'auto' ? 'Рынок (из API)' : 
-                       editProfitMethod === 'fixed_percent' ? 'Клиенту (авто)' :
-                       'Клиенту'}
-                    </Label>
-                    <Input
-                      type="number"
-                      step="0.0001"
-                      value={editSellRate}
-                      onChange={(e) => setEditSellRate(e.target.value)}
-                      disabled={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent'}
-                      className={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent' ? 'opacity-50' : ''}
-                    />
-                  </div>
-                </div>
-                
-                {/* Расчет маржи */}
-                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
-                    <span className="font-mono font-bold text-emerald-400">
-                      {(() => {
-                        const buy = editProfitMethod === 'auto' ? (editApiRate || 0) : parseFloat(editBuyRate) || 0
-                        const sell = parseFloat(editSellRate) || 0
-                        if (buy && sell && buy > 0) {
-                          return `${((sell - buy) / buy * 100).toFixed(2)}%`
-                        }
-                        return '—'
-                      })()}
-                    </span>
-                  </div>
-                </div>
-                
-                {/* Кнопки */}
-                <div className="flex gap-2 pt-2">
-                  <Button 
-                    variant="outline" 
-                    className="flex-1 bg-transparent"
-                    onClick={() => setIsRateDialogOpen(false)}
-                  >
-                    Отмена
-                  </Button>
-                  <Button 
-                    className="flex-1"
-                    onClick={saveRateChanges}
-                    disabled={isSavingRate}
-                  >
-                    {isSavingRate ? (
-                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                    ) : (
-                      <Check className="h-4 w-4 mr-2" />
-                    )}
-                    Сохранить
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+        {/* Диалог редактирования курса (переиспользуемый компонент) */}
+        <EditRateDialog
+          rate={selectedRate}
+          open={isRateDialogOpen}
+          onOpenChange={setIsRateDialogOpen}
+          onSave={loadData}
+        />
       </main>
     </div>
   )
