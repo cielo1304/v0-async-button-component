@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -26,11 +26,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, ChevronUp, ChevronDown } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
-import { format } from 'date-fns'
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths, getMonth, getYear } from 'date-fns'
 import { ru } from 'date-fns/locale'
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -50,6 +57,231 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   cancelled: { label: 'Отменен', color: 'bg-red-500/20 text-red-400' },
 }
 
+type DateFilterType = 'today' | 'this_week' | 'this_month' | 'this_year' | 'yesterday' | 'last_week' | 'last_month' | 'last_year' | 'all' | 'custom'
+
+interface DateRange {
+  from: Date | undefined
+  to: Date | undefined
+}
+
+const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+const WEEKDAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+// Custom Calendar Component - 1 в 1 как в transaction-list.tsx
+function CustomCalendar({ 
+  selected, 
+  onSelect,
+  onClose
+}: { 
+  selected: DateRange
+  onSelect: (range: DateRange) => void
+  onClose: () => void
+}) {
+  const today = new Date()
+  const [viewMonth, setViewMonth] = useState(selected.from ? getMonth(selected.from) : getMonth(today))
+  const [viewYear, setViewYear] = useState(selected.from ? getYear(selected.from) : getYear(today))
+  const [selectingStart, setSelectingStart] = useState(true)
+  const [tempRange, setTempRange] = useState<DateRange>(selected)
+  const [monthDropdownOpen, setMonthDropdownOpen] = useState(false)
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
+  const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate()
+  
+  const handleDayClick = (day: number) => {
+    const clickedDate = new Date(viewYear, viewMonth, day)
+    
+    if (selectingStart) {
+      setTempRange({ from: clickedDate, to: undefined })
+      setSelectingStart(false)
+    } else {
+      if (tempRange.from && clickedDate < tempRange.from) {
+        setTempRange({ from: clickedDate, to: tempRange.from })
+      } else {
+        setTempRange({ from: tempRange.from, to: clickedDate })
+      }
+      setSelectingStart(true)
+    }
+  }
+
+  const handleApply = () => {
+    if (tempRange.from && tempRange.to) {
+      onSelect(tempRange)
+      onClose()
+    }
+  }
+
+  const isInRange = (day: number) => {
+    if (!tempRange.from) return false
+    const date = new Date(viewYear, viewMonth, day)
+    if (tempRange.to) {
+      return date >= tempRange.from && date <= tempRange.to
+    }
+    return date.getTime() === tempRange.from.getTime()
+  }
+
+  const isRangeStart = (day: number) => {
+    if (!tempRange.from) return false
+    const date = new Date(viewYear, viewMonth, day)
+    return date.getTime() === tempRange.from.getTime()
+  }
+
+  const isRangeEnd = (day: number) => {
+    if (!tempRange.to) return false
+    const date = new Date(viewYear, viewMonth, day)
+    return date.getTime() === tempRange.to.getTime()
+  }
+
+  const isToday = (day: number) => {
+    const date = new Date(viewYear, viewMonth, day)
+    return date.toDateString() === today.toDateString()
+  }
+
+  return (
+    <div className="p-4 min-w-[320px]">
+      <div className="flex items-center justify-between mb-4">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-8 w-8"
+          onClick={() => {
+            if (viewMonth === 0) {
+              setViewMonth(11)
+              setViewYear(viewYear - 1)
+            } else {
+              setViewMonth(viewMonth - 1)
+            }
+          }}
+        >
+          <ChevronDown className="h-4 w-4 rotate-90" />
+        </Button>
+        
+        <div className="flex items-center gap-2">
+          <DropdownMenu open={monthDropdownOpen} onOpenChange={setMonthDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 px-2 font-medium bg-transparent">
+                {MONTHS_RU[viewMonth]}
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" className="max-h-[300px] overflow-y-auto">
+              {MONTHS_RU.map((month, idx) => (
+                <DropdownMenuItem 
+                  key={month} 
+                  onClick={() => { setViewMonth(idx); setMonthDropdownOpen(false) }}
+                  className="flex items-center gap-2"
+                >
+                  {viewMonth === idx && <Check className="h-4 w-4" />}
+                  <span className={viewMonth === idx ? 'font-medium' : ''}>{month}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <div className="flex items-center border rounded-md">
+            <span className="px-2 font-mono text-sm">{viewYear}</span>
+            <div className="flex flex-col border-l">
+              <button 
+                className="px-1 py-0.5 hover:bg-secondary/50 transition-colors"
+                onClick={() => setViewYear(viewYear + 1)}
+              >
+                <ChevronUp className="h-3 w-3" />
+              </button>
+              <button 
+                className="px-1 py-0.5 hover:bg-secondary/50 transition-colors border-t"
+                onClick={() => setViewYear(viewYear - 1)}
+              >
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-8 w-8"
+          onClick={() => {
+            if (viewMonth === 11) {
+              setViewMonth(0)
+              setViewYear(viewYear + 1)
+            } else {
+              setViewMonth(viewMonth + 1)
+            }
+          }}
+        >
+          <ChevronDown className="h-4 w-4 -rotate-90" />
+        </Button>
+      </div>
+      
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {WEEKDAYS_RU.map(day => (
+          <div key={day} className="text-center text-xs text-muted-foreground font-medium py-1">
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: startOffset }).map((_, i) => (
+          <div key={`prev-${i}`} className="text-center py-2 text-muted-foreground/40 text-sm">
+            {prevMonthDays - startOffset + i + 1}
+          </div>
+        ))}
+        
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1
+          const inRange = isInRange(day)
+          const isStart = isRangeStart(day)
+          const isEnd = isRangeEnd(day)
+          const isTodayDate = isToday(day)
+          
+          return (
+            <button
+              key={day}
+              onClick={() => handleDayClick(day)}
+              className={`
+                text-center py-2 text-sm rounded-md transition-colors
+                ${inRange ? 'bg-primary/20' : 'hover:bg-secondary/50'}
+                ${isStart || isEnd ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}
+                ${isTodayDate && !inRange ? 'ring-1 ring-primary' : ''}
+              `}
+            >
+              {day}
+            </button>
+          )
+        })}
+        
+        {Array.from({ length: 42 - startOffset - daysInMonth }).map((_, i) => (
+          <div key={`next-${i}`} className="text-center py-2 text-muted-foreground/40 text-sm">
+            {i + 1}
+          </div>
+        ))}
+      </div>
+      
+      <div className="mt-4 flex items-center justify-between text-sm">
+        <div className="text-muted-foreground">
+          {tempRange.from && tempRange.to ? (
+            `${format(tempRange.from, 'dd.MM.yyyy')} — ${format(tempRange.to, 'dd.MM.yyyy')}`
+          ) : tempRange.from ? (
+            `${format(tempRange.from, 'dd.MM.yyyy')} — выберите конец`
+          ) : (
+            'Выберите начало периода'
+          )}
+        </div>
+        <Button 
+          size="sm" 
+          onClick={handleApply}
+          disabled={!tempRange.from || !tempRange.to}
+        >
+          Применить
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 interface ExchangeHistoryListProps {
   refreshKey?: number
 }
@@ -64,9 +296,67 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [dateFilter, setDateFilter] = useState<string>('today')
+  const [dateFilter, setDateFilter] = useState<DateFilterType>('today')
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({ from: undefined, to: undefined })
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   
-  const loadOperations = async () => {
+  // Получение лейбла периода
+  const getPeriodLabel = (p: DateFilterType): string => {
+    switch (p) {
+      case 'today': return 'Сегодня'
+      case 'this_week': return 'Эта неделя'
+      case 'this_month': return 'Этот месяц'
+      case 'this_year': return 'Этот год'
+      case 'yesterday': return 'Вчера'
+      case 'last_week': return 'Прошлая неделя'
+      case 'last_month': return 'Прошлый месяц'
+      case 'last_year': return 'Прошлый год'
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return `${format(customDateRange.from, 'dd.MM.yy')} - ${format(customDateRange.to, 'dd.MM.yy')}`
+        }
+        return 'Выбрать даты'
+      case 'all': return 'Все время'
+      default: return 'Сегодня'
+    }
+  }
+
+  // Получение диапазона дат по периоду
+  const getDateRangeForPeriod = useCallback((p: DateFilterType): { start: Date; end: Date } | null => {
+    const now = new Date()
+    switch (p) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) }
+      case 'yesterday':
+        const yesterday = subDays(now, 1)
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) }
+      case 'this_week':
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) }
+      case 'last_week':
+        const lastWeek = subWeeks(now, 1)
+        return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      case 'this_month':
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+      case 'last_month':
+        const lastMonth = subMonths(now, 1)
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      case 'this_year':
+        return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
+      case 'last_year':
+        return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return { start: startOfDay(customDateRange.from), end: endOfDay(customDateRange.to) }
+        }
+        return null
+      case 'all':
+        return null
+      default:
+        return { start: startOfDay(now), end: endOfDay(now) }
+    }
+  }, [customDateRange])
+  
+  const loadOperations = useCallback(async () => {
     setIsLoading(true)
     try {
       let query = supabase
@@ -81,19 +371,10 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
       }
       
       // Фильтр по дате
-      const now = new Date()
-      if (dateFilter === 'today') {
-        const startOfDay = new Date(now)
-        startOfDay.setHours(0, 0, 0, 0)
-        query = query.gte('created_at', startOfDay.toISOString())
-      } else if (dateFilter === 'week') {
-        const weekAgo = new Date(now)
-        weekAgo.setDate(weekAgo.getDate() - 7)
-        query = query.gte('created_at', weekAgo.toISOString())
-      } else if (dateFilter === 'month') {
-        const monthAgo = new Date(now)
-        monthAgo.setMonth(monthAgo.getMonth() - 1)
-        query = query.gte('created_at', monthAgo.toISOString())
+      const dateRange = getDateRangeForPeriod(dateFilter)
+      if (dateRange) {
+        query = query.gte('created_at', dateRange.start.toISOString())
+        query = query.lte('created_at', dateRange.end.toISOString())
       }
       
       const { data, error } = await query
@@ -105,11 +386,11 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [supabase, statusFilter, dateFilter, getDateRangeForPeriod])
   
   useEffect(() => {
     loadOperations()
-  }, [statusFilter, dateFilter, refreshKey])
+  }, [loadOperations, refreshKey])
   
   // Фильтрация по поиску
   const filteredOperations = useMemo(() => {
@@ -209,25 +490,89 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
               </SelectContent>
             </Select>
             
-            <Select value={dateFilter} onValueChange={setDateFilter}>
-              <SelectTrigger className="w-[140px]">
-                <Calendar className="h-4 w-4 mr-2" />
-                <SelectValue placeholder="Период" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="today">Сегодня</SelectItem>
-                <SelectItem value="week">Неделя</SelectItem>
-                <SelectItem value="month">Месяц</SelectItem>
-                <SelectItem value="all">Все время</SelectItem>
-              </SelectContent>
-            </Select>
-            
-            <Button variant="outline" size="icon" onClick={loadOperations} className="bg-transparent">
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            </Button>
+<DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                    <Calendar className="h-4 w-4 mr-2" />
+                    {getPeriodLabel(dateFilter)}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={() => setDateFilter('today')}>
+                    {dateFilter === 'today' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('this_week')}>
+                    {dateFilter === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('this_month')}>
+                    {dateFilter === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('this_year')}>
+                    {dateFilter === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                  </DropdownMenuItem>
+                  
+                  <DropdownMenuSeparator />
+                  
+                  <DropdownMenuItem onClick={() => setDateFilter('yesterday')}>
+                    {dateFilter === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('last_week')}>
+                    {dateFilter === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('last_month')}>
+                    {dateFilter === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setDateFilter('last_year')}>
+                    {dateFilter === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                  </DropdownMenuItem>
+                  
+                  <DropdownMenuSeparator />
+                  
+                  <DropdownMenuItem onClick={() => setDateFilter('all')}>
+                    {dateFilter === 'all' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'all' ? 'ml-6' : ''}>Все время</span>
+                  </DropdownMenuItem>
+                  
+                  <DropdownMenuSeparator />
+                  
+                  <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                    {dateFilter === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                    <span className={dateFilter !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              
+              <Button variant="outline" size="icon" onClick={loadOperations} className="bg-transparent">
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
+        
+        {/* Date Picker Dialog */}
+        <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Выбрать даты</DialogTitle>
+            </DialogHeader>
+            <CustomCalendar
+              selected={customDateRange}
+              onSelect={(range) => {
+                setCustomDateRange(range)
+                setDateFilter('custom')
+              }}
+              onClose={() => setIsDatePickerOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
       <CardContent>
         <Table>
           <TableHeader>

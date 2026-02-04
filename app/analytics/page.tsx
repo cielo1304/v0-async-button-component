@@ -1,13 +1,30 @@
 'use client'
 
+import { SelectItem } from "@/components/ui/select"
+
+import { SelectContent } from "@/components/ui/select"
+
+import { SelectValue } from "@/components/ui/select"
+
+import { SelectTrigger } from "@/components/ui/select"
+
+import { Select } from "@/components/ui/select"
+
 import { useEffect, useState, useCallback } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { TrendingUp, TrendingDown, DollarSign, Car, Package, Briefcase, Users, ArrowLeft, RefreshCw, Loader2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { TrendingUp, TrendingDown, DollarSign, Car, Package, Briefcase, Users, ArrowLeft, RefreshCw, Loader2, Calendar, Check, ChevronUp, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { format, subDays, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfWeek, endOfWeek, subWeeks, subYears, startOfDay, endOfDay, getMonth, getYear } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
   BarChart,
@@ -25,7 +42,230 @@ import {
   Legend,
 } from 'recharts'
 
-type Period = '7d' | '30d' | '90d' | 'month' | 'year'
+type Period = 'today' | 'this_week' | 'this_month' | 'this_year' | 'yesterday' | 'last_week' | 'last_month' | 'last_year' | 'all' | 'custom'
+
+interface DateRange {
+  from: Date | undefined
+  to: Date | undefined
+}
+
+const MONTHS_RU = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь']
+const WEEKDAYS_RU = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+
+// Custom Calendar Component - 1 в 1 как в transaction-list.tsx
+function CustomCalendar({ 
+  selected, 
+  onSelect,
+  onClose
+}: { 
+  selected: DateRange
+  onSelect: (range: DateRange) => void
+  onClose: () => void
+}) {
+  const today = new Date()
+  const [viewMonth, setViewMonth] = useState(selected.from ? getMonth(selected.from) : getMonth(today))
+  const [viewYear, setViewYear] = useState(selected.from ? getYear(selected.from) : getYear(today))
+  const [selectingStart, setSelectingStart] = useState(true)
+  const [tempRange, setTempRange] = useState<DateRange>(selected)
+  const [monthDropdownOpen, setMonthDropdownOpen] = useState(false)
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDayOfMonth = new Date(viewYear, viewMonth, 1).getDay()
+  const startOffset = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1
+  const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate()
+  
+  const handleDayClick = (day: number) => {
+    const clickedDate = new Date(viewYear, viewMonth, day)
+    
+    if (selectingStart) {
+      setTempRange({ from: clickedDate, to: undefined })
+      setSelectingStart(false)
+    } else {
+      if (tempRange.from && clickedDate < tempRange.from) {
+        setTempRange({ from: clickedDate, to: tempRange.from })
+      } else {
+        setTempRange({ from: tempRange.from, to: clickedDate })
+      }
+      setSelectingStart(true)
+    }
+  }
+
+  const handleApply = () => {
+    if (tempRange.from && tempRange.to) {
+      onSelect(tempRange)
+      onClose()
+    }
+  }
+
+  const isInRange = (day: number) => {
+    if (!tempRange.from) return false
+    const date = new Date(viewYear, viewMonth, day)
+    if (tempRange.to) {
+      return date >= tempRange.from && date <= tempRange.to
+    }
+    return date.getTime() === tempRange.from.getTime()
+  }
+
+  const isRangeStart = (day: number) => {
+    if (!tempRange.from) return false
+    const date = new Date(viewYear, viewMonth, day)
+    return date.getTime() === tempRange.from.getTime()
+  }
+
+  const isRangeEnd = (day: number) => {
+    if (!tempRange.to) return false
+    const date = new Date(viewYear, viewMonth, day)
+    return date.getTime() === tempRange.to.getTime()
+  }
+
+  const isToday = (day: number) => {
+    const date = new Date(viewYear, viewMonth, day)
+    return date.toDateString() === today.toDateString()
+  }
+
+  return (
+    <div className="p-4 min-w-[320px]">
+      <div className="flex items-center justify-between mb-4">
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-8 w-8"
+          onClick={() => {
+            if (viewMonth === 0) {
+              setViewMonth(11)
+              setViewYear(viewYear - 1)
+            } else {
+              setViewMonth(viewMonth - 1)
+            }
+          }}
+        >
+          <ChevronDown className="h-4 w-4 rotate-90" />
+        </Button>
+        
+        <div className="flex items-center gap-2">
+          <DropdownMenu open={monthDropdownOpen} onOpenChange={setMonthDropdownOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="h-8 px-2 font-medium bg-transparent">
+                {MONTHS_RU[viewMonth]}
+                <ChevronDown className="h-3 w-3 ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" className="max-h-[300px] overflow-y-auto">
+              {MONTHS_RU.map((month, idx) => (
+                <DropdownMenuItem 
+                  key={month} 
+                  onClick={() => { setViewMonth(idx); setMonthDropdownOpen(false) }}
+                  className="flex items-center gap-2"
+                >
+                  {viewMonth === idx && <Check className="h-4 w-4" />}
+                  <span className={viewMonth === idx ? 'font-medium' : ''}>{month}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          
+          <div className="flex items-center border rounded-md">
+            <span className="px-2 font-mono text-sm">{viewYear}</span>
+            <div className="flex flex-col border-l">
+              <button 
+                className="px-1 py-0.5 hover:bg-secondary/50 transition-colors"
+                onClick={() => setViewYear(viewYear + 1)}
+              >
+                <ChevronUp className="h-3 w-3" />
+              </button>
+              <button 
+                className="px-1 py-0.5 hover:bg-secondary/50 transition-colors border-t"
+                onClick={() => setViewYear(viewYear - 1)}
+              >
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          className="h-8 w-8"
+          onClick={() => {
+            if (viewMonth === 11) {
+              setViewMonth(0)
+              setViewYear(viewYear + 1)
+            } else {
+              setViewMonth(viewMonth + 1)
+            }
+          }}
+        >
+          <ChevronDown className="h-4 w-4 -rotate-90" />
+        </Button>
+      </div>
+      
+      <div className="grid grid-cols-7 gap-1 mb-2">
+        {WEEKDAYS_RU.map(day => (
+          <div key={day} className="text-center text-xs text-muted-foreground font-medium py-1">
+            {day}
+          </div>
+        ))}
+      </div>
+      
+      <div className="grid grid-cols-7 gap-1">
+        {Array.from({ length: startOffset }).map((_, i) => (
+          <div key={`prev-${i}`} className="text-center py-2 text-muted-foreground/40 text-sm">
+            {prevMonthDays - startOffset + i + 1}
+          </div>
+        ))}
+        
+        {Array.from({ length: daysInMonth }).map((_, i) => {
+          const day = i + 1
+          const inRange = isInRange(day)
+          const isStart = isRangeStart(day)
+          const isEnd = isRangeEnd(day)
+          const isTodayDate = isToday(day)
+          
+          return (
+            <button
+              key={day}
+              onClick={() => handleDayClick(day)}
+              className={`
+                text-center py-2 text-sm rounded-md transition-colors
+                ${inRange ? 'bg-primary/20' : 'hover:bg-secondary/50'}
+                ${isStart || isEnd ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}
+                ${isTodayDate && !inRange ? 'ring-1 ring-primary' : ''}
+              `}
+            >
+              {day}
+            </button>
+          )
+        })}
+        
+        {Array.from({ length: 42 - startOffset - daysInMonth }).map((_, i) => (
+          <div key={`next-${i}`} className="text-center py-2 text-muted-foreground/40 text-sm">
+            {i + 1}
+          </div>
+        ))}
+      </div>
+      
+      <div className="mt-4 flex items-center justify-between text-sm">
+        <div className="text-muted-foreground">
+          {tempRange.from && tempRange.to ? (
+            `${format(tempRange.from, 'dd.MM.yyyy')} — ${format(tempRange.to, 'dd.MM.yyyy')}`
+          ) : tempRange.from ? (
+            `${format(tempRange.from, 'dd.MM.yyyy')} — выберите конец`
+          ) : (
+            'Выберите начало периода'
+          )}
+        </div>
+        <Button 
+          size="sm" 
+          onClick={handleApply}
+          disabled={!tempRange.from || !tempRange.to}
+        >
+          Применить
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 interface AnalyticsData {
   // Финансы
@@ -92,38 +332,80 @@ const PIE_COLORS = [COLORS.emerald, COLORS.blue, COLORS.amber, COLORS.red, COLOR
 export default function AnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [period, setPeriod] = useState<Period>('30d')
+  const [period, setPeriod] = useState<Period>('this_month')
+  const [customDateRange, setCustomDateRange] = useState<DateRange>({ from: undefined, to: undefined })
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   const supabase = createClient()
+
+  // Получение лейбла периода
+  const getPeriodLabel = (p: Period): string => {
+    switch (p) {
+      case 'today': return 'Сегодня'
+      case 'this_week': return 'Эта неделя'
+      case 'this_month': return 'Этот месяц'
+      case 'this_year': return 'Этот год'
+      case 'yesterday': return 'Вчера'
+      case 'last_week': return 'Прошлая неделя'
+      case 'last_month': return 'Прошлый месяц'
+      case 'last_year': return 'Прошлый год'
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return `${format(customDateRange.from, 'dd.MM.yy')} - ${format(customDateRange.to, 'dd.MM.yy')}`
+        }
+        return 'Выбрать даты'
+      case 'all': return 'Все время'
+      default: return 'Этот месяц'
+    }
+  }
+
+  // Получение диапазона дат по периоду
+  const getDateRangeForPeriod = useCallback((p: Period): { start: Date; end: Date } | null => {
+    const now = new Date()
+    switch (p) {
+      case 'today':
+        return { start: startOfDay(now), end: endOfDay(now) }
+      case 'yesterday':
+        const yesterday = subDays(now, 1)
+        return { start: startOfDay(yesterday), end: endOfDay(yesterday) }
+      case 'this_week':
+        return { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) }
+      case 'last_week':
+        const lastWeek = subWeeks(now, 1)
+        return { start: startOfWeek(lastWeek, { weekStartsOn: 1 }), end: endOfWeek(lastWeek, { weekStartsOn: 1 }) }
+      case 'this_month':
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+      case 'last_month':
+        const lastMonth = subMonths(now, 1)
+        return { start: startOfMonth(lastMonth), end: endOfMonth(lastMonth) }
+      case 'this_year':
+        return { start: new Date(now.getFullYear(), 0, 1), end: new Date(now.getFullYear(), 11, 31, 23, 59, 59) }
+      case 'last_year':
+        return { start: new Date(now.getFullYear() - 1, 0, 1), end: new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59) }
+      case 'custom':
+        if (customDateRange.from && customDateRange.to) {
+          return { start: startOfDay(customDateRange.from), end: endOfDay(customDateRange.to) }
+        }
+        return null
+      case 'all':
+        return null
+      default:
+        return { start: startOfMonth(now), end: endOfMonth(now) }
+    }
+  }, [customDateRange])
 
   const loadAnalytics = useCallback(async () => {
     setIsLoading(true)
     
     try {
       // Определяем даты периода
-      const now = new Date()
-      let startDate: Date
-      
-      switch (period) {
-        case '7d':
-          startDate = subDays(now, 7)
-          break
-        case '30d':
-          startDate = subDays(now, 30)
-          break
-        case '90d':
-          startDate = subDays(now, 90)
-          break
-        case 'month':
-          startDate = startOfMonth(now)
-          break
-        case 'year':
-          startDate = subMonths(now, 12)
-          break
-        default:
-          startDate = subDays(now, 30)
-      }
+      const dateRange = getDateRangeForPeriod(period)
+      const startDateStr = dateRange ? format(dateRange.start, 'yyyy-MM-dd') : null
 
-      const startDateStr = format(startDate, 'yyyy-MM-dd')
+      // Базовые запросы
+      let transactionsQuery = supabase.from('transactions').select('*').order('created_at', { ascending: true })
+      if (startDateStr) {
+        transactionsQuery = transactionsQuery.gte('created_at', startDateStr)
+      }
 
       // Параллельные запросы
       const [
@@ -137,7 +419,7 @@ export default function AnalyticsPage() {
         autoDealsRes,
       ] = await Promise.all([
         supabase.from('cashboxes').select('*').eq('is_archived', false),
-        supabase.from('transactions').select('*').gte('created_at', startDateStr).order('created_at', { ascending: true }),
+        transactionsQuery,
         supabase.from('cars').select('*'),
         supabase.from('deals').select('*'),
         supabase.from('stock_items').select('*').eq('is_active', true),
@@ -314,7 +596,7 @@ export default function AnalyticsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, period])
+  }, [supabase, period, getDateRangeForPeriod])
 
   useEffect(() => {
     loadAnalytics()
@@ -355,23 +637,87 @@ export default function AnalyticsPage() {
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
-                <SelectTrigger className="w-40 bg-secondary border-border">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7d">7 дней</SelectItem>
-                  <SelectItem value="30d">30 дней</SelectItem>
-                  <SelectItem value="90d">90 дней</SelectItem>
-                  <SelectItem value="month">Текущий месяц</SelectItem>
-                  <SelectItem value="year">Год</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="icon" onClick={loadAnalytics} className="border-border bg-transparent">
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
+<div className="flex items-center gap-3">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="h-9 px-3 bg-transparent border-border">
+                      <Calendar className="h-4 w-4 mr-2" />
+                      {getPeriodLabel(period)}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem onClick={() => setPeriod('today')}>
+                      {period === 'today' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'today' ? 'ml-6' : ''}>Сегодня</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('this_week')}>
+                      {period === 'this_week' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'this_week' ? 'ml-6' : ''}>Эта неделя</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('this_month')}>
+                      {period === 'this_month' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'this_month' ? 'ml-6' : ''}>Этот месяц</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('this_year')}>
+                      {period === 'this_year' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'this_year' ? 'ml-6' : ''}>Этот год</span>
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem onClick={() => setPeriod('yesterday')}>
+                      {period === 'yesterday' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'yesterday' ? 'ml-6' : ''}>Вчера</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('last_week')}>
+                      {period === 'last_week' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'last_week' ? 'ml-6' : ''}>Прошлая неделя</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('last_month')}>
+                      {period === 'last_month' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'last_month' ? 'ml-6' : ''}>Прошлый месяц</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setPeriod('last_year')}>
+                      {period === 'last_year' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'last_year' ? 'ml-6' : ''}>Прошлый год</span>
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem onClick={() => setPeriod('all')}>
+                      {period === 'all' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'all' ? 'ml-6' : ''}>Все время</span>
+                    </DropdownMenuItem>
+                    
+                    <DropdownMenuSeparator />
+                    
+                    <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                      {period === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                      <span className={period !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="outline" size="icon" onClick={loadAnalytics} className="border-border bg-transparent">
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+              
+              {/* Date Picker Dialog */}
+              <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Выбрать даты</DialogTitle>
+                  </DialogHeader>
+                  <CustomCalendar
+                    selected={customDateRange}
+                    onSelect={(range) => {
+                      setCustomDateRange(range)
+                      setPeriod('custom')
+                    }}
+                    onClose={() => setIsDatePickerOpen(false)}
+                  />
+                </DialogContent>
+              </Dialog>
           </div>
         </div>
       </header>
