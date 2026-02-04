@@ -44,7 +44,7 @@ const modules = [
     title: 'HR',
     description: 'Зарплаты, бонусы, сотрудники',
     icon: Users,
-    href: '/hr',
+    href: '/settings?tab=hr',
     color: 'text-violet-400',
   },
   {

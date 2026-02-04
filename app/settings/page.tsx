@@ -20,11 +20,14 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { 
   Settings, ArrowLeft, Building, Wallet, Package, 
-  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight
+  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
 import { UserRolesManager } from '@/components/settings/user-roles-manager'
+import { SalaryBalanceList } from '@/components/hr/salary-balance-list'
+import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
+import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
 
 interface SystemSettings {
   company_name: string
@@ -320,7 +323,7 @@ export default function SettingsPage() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue={defaultTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-4xl grid-cols-7">
+          <TabsList className="grid w-full max-w-5xl grid-cols-8">
             <TabsTrigger value="general" className="flex items-center gap-1">
               <Building className="h-4 w-4" />
               Общие
@@ -332,6 +335,10 @@ export default function SettingsPage() {
             <TabsTrigger value="exchange" className="flex items-center gap-1">
               <ArrowLeftRight className="h-4 w-4" />
               Обмен
+            </TabsTrigger>
+            <TabsTrigger value="hr" className="flex items-center gap-1">
+              <Users className="h-4 w-4" />
+              HR
             </TabsTrigger>
             <TabsTrigger value="stock" className="flex items-center gap-1">
               <Package className="h-4 w-4" />
@@ -626,6 +633,28 @@ export default function SettingsPage() {
                   {isSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
                   Сохранить настройки обмена
                 </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* HR - управление сотрудниками */}
+          <TabsContent value="hr" className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-violet-400" />
+                    HR и Зарплаты
+                  </CardTitle>
+                  <CardDescription>Управление сотрудниками и начислениями</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <AddEmployeeDialog />
+                  <AddBonusDialog />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <SalaryBalanceList />
               </CardContent>
             </Card>
           </TabsContent>
