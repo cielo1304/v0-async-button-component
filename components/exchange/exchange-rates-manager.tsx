@@ -1024,24 +1024,24 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                   </div>
                   
                   {/* Расчет маржи */}
-                  {(buyRate || apiRate) && sellRate && (
+                  {((profitMethod === 'auto' && apiRate && buyRate) || 
+                    (profitMethod !== 'auto' && buyRate && sellRate)) && (
                     <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <div className="flex items-center justify-between">
                         <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
                         {(() => {
-                  // Для AUTO: buyRate = ручной курс клиенту, sellRate/apiRate = рыночный API курс
                   // Маржа = (Рынок - Клиенту) / Рынок * 100
-                  // Если даем клиенту меньше чем рынок - мы в плюсе
+                  // Положительная = мы в плюсе (даем клиенту меньше чем рынок)
                   let marginVal = 0
                   if (profitMethod === 'auto') {
-                    const clientRate = parseFloat(buyRate) || 0 // Курс клиенту (ручной)
-                    const marketRate = apiRate || parseFloat(sellRate) || 0 // Рыночный API курс
-                    if (clientRate && marketRate) {
+                    // Для Auto: apiRate = рынок, buyRate = клиенту (ручной)
+                    const marketRate = apiRate || 0
+                    const clientRate = parseFloat(buyRate) || 0
+                    if (marketRate && clientRate) {
                       marginVal = (marketRate - clientRate) / marketRate * 100
                     }
                   } else {
-                    // Для manual/fixed: Рынок = buyRate, Клиенту = sellRate
-                    // Маржа = (Рынок - Клиенту) / Рынок * 100
+                    // Для manual/fixed: buyRate = рынок, sellRate = клиенту
                     const marketRate = parseFloat(buyRate) || 0
                     const clientRate = parseFloat(sellRate) || 0
                     if (marketRate && clientRate) {
