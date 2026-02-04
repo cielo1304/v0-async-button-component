@@ -14,6 +14,7 @@ import {
   SelectValue 
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,7 +31,6 @@ import {
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear, subDays, subWeeks, subMonths, subYears, format, getMonth, getYear } from 'date-fns'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { toast } from 'sonner'
 import { ExchangeRate, ExchangeSettings, Cashbox } from '@/lib/types/database'
 import { ExchangeRatesManager } from '@/components/exchange/exchange-rates-manager'
@@ -1062,35 +1062,33 @@ export default function ExchangePage() {
                         
                         <DropdownMenuSeparator />
                         
-                        <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-                          <PopoverTrigger asChild>
-                            <DropdownMenuItem 
-                              onSelect={(e) => {
-                                e.preventDefault()
-                                setIsDatePickerOpen(true)
-                              }}
-                            >
-                              {statsPeriod === 'custom' && <Check className="h-4 w-4 mr-2" />}
-                              <span className={statsPeriod !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
-                            </DropdownMenuItem>
-                          </PopoverTrigger>
-                          <PopoverContent align="end" className="w-auto p-0" side="left">
-                            <CustomCalendar
-                              selected={customDateRange}
-                              onSelect={(range) => {
-                                setCustomDateRange(range)
-                                setStatsPeriod('custom')
-                              }}
-                              onClose={() => setIsDatePickerOpen(false)}
-                            />
-                          </PopoverContent>
-                        </Popover>
+                        <DropdownMenuItem onClick={() => setIsDatePickerOpen(true)}>
+                          {statsPeriod === 'custom' && <Check className="h-4 w-4 mr-2" />}
+                          <span className={statsPeriod !== 'custom' ? 'ml-6' : ''}>Выбрать даты</span>
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
             </div>
+            
+            {/* Date Picker Dialog */}
+            <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Выбрать даты</DialogTitle>
+                </DialogHeader>
+                <CustomCalendar
+                  selected={customDateRange}
+                  onSelect={(range) => {
+                    setCustomDateRange(range)
+                    setStatsPeriod('custom')
+                  }}
+                  onClose={() => setIsDatePickerOpen(false)}
+                />
+              </DialogContent>
+            </Dialog>
             
             {/* Форма мультивалютного обмена */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative">
