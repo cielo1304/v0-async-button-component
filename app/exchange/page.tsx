@@ -1,5 +1,9 @@
 'use client'
 
+import { Switch } from "@/components/ui/switch"
+
+import { Badge } from "@/components/ui/badge"
+
 import { useRef } from "react"
 
 import { DialogDescription } from "@/components/ui/dialog"
@@ -23,7 +27,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
-  Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator
+  Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
+  Wifi, WifiOff
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -102,6 +107,9 @@ export default function ExchangePage() {
   const [editSellRate, setEditSellRate] = useState('')
   const [editApiRate, setEditApiRate] = useState<number | null>(null)
   const [isSavingRate, setIsSavingRate] = useState(false)
+  const [isLoadingApiRate, setIsLoadingApiRate] = useState(false)
+  const [editIsPopular, setEditIsPopular] = useState(false)
+  const [editIsActive, setEditIsActive] = useState(true)
   
   // Доступные валюты
   const availableCurrencies = useMemo(() => {
@@ -380,6 +388,8 @@ export default function ExchangePage() {
     setEditProfitMethod(rate.profit_calculation_method || 'auto')
     setEditFixedBaseSource(rate.fixed_base_source || 'api')
     setEditMarginPercent(rate.margin_percent?.toString() || '2.0')
+    setEditIsPopular(rate.is_popular)
+    setEditIsActive(rate.is_active)
     
     // Загрузка значений в зависимости от метода расчета
     // В БД для всех методов: buy_rate = рынок/базовый, sell_rate = клиенту
@@ -394,8 +404,10 @@ export default function ExchangePage() {
     }
     
     // Подгружаем актуальный курс API
+    setIsLoadingApiRate(true)
     const apiRateValue = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     setEditApiRate(apiRateValue)
+    setIsLoadingApiRate(false)
     
     // Для режима fixed_percent c источником API: обновляем базовый курс и пересчитываем
     if (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api' && apiRateValue) {
@@ -405,6 +417,15 @@ export default function ExchangePage() {
     }
     
     setIsRateDialogOpen(true)
+  }
+  
+  // Обновить курс API
+  const refreshApiRate = async () => {
+    if (!selectedRate) return
+    setIsLoadingApiRate(true)
+    const apiRateValue = await fetchRateFromAPI(selectedRate.from_currency, selectedRate.to_currency)
+    setEditApiRate(apiRateValue)
+    setIsLoadingApiRate(false)
   }
   
   // Сохранить изменения курса
@@ -446,6 +467,8 @@ export default function ExchangePage() {
           api_rate: editApiRate,
           api_rate_updated_at: editApiRate ? new Date().toISOString() : null,
           market_rate: finalMarketRate,
+          is_popular: editIsPopular,
+          is_active: editIsActive,
           last_updated: new Date().toISOString()
         })
         .eq('id', selectedRate.id)
@@ -1220,33 +1243,31 @@ export default function ExchangePage() {
         <Dialog open={isRateDialogOpen} onOpenChange={setIsRateDialogOpen}>
           <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {selectedRate && (
-                  <>
-                    <span>{CURRENCY_FLAGS[selectedRate.from_currency] || ''}</span>
-                    <span className="font-mono">{selectedRate.from_currency}</span>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                    <span>{CURRENCY_FLAGS[selectedRate.to_currency] || ''}</span>
-                    <span className="font-mono">{selectedRate.to_currency}</span>
-                  </>
-                )}
-              </DialogTitle>
+<DialogTitle>Редактировать курс</DialogTitle>
               <DialogDescription>
-                Настройка метода расчета и курсов для валютной пары
+                Настройте валютную пару и режим обновления курсов
               </DialogDescription>
             </DialogHeader>
             
             {selectedRate && (
               <div className="space-y-4 py-2">
-                {/* Текущий курс API */}
-                {editApiRate && (
-                  <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted-foreground">Текущий курс API:</span>
-                      <span className="font-mono font-bold text-cyan-400">{editApiRate.toFixed(4)}</span>
+                {/* Поля валют (readonly) */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Из валюты</Label>
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-secondary/50 border">
+                      <span>{CURRENCY_FLAGS[selectedRate.from_currency] || ''}</span>
+                      <span className="font-mono">{selectedRate.from_currency}</span>
                     </div>
                   </div>
-                )}
+                  <div className="space-y-2">
+                    <Label>В валюту</Label>
+                    <div className="flex items-center gap-2 p-2 rounded-md bg-secondary/50 border">
+                      <span>{CURRENCY_FLAGS[selectedRate.to_currency] || ''}</span>
+                      <span className="font-mono">{selectedRate.to_currency}</span>
+                    </div>
+                  </div>
+                </div>
                 
                 {/* Выбор метода расчета */}
                 <div className="space-y-2">
@@ -1270,8 +1291,8 @@ export default function ExchangePage() {
                         setEditProfitMethod('auto')
                       }}
                     >
-                      <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Авто</span>
+                      <Wifi className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium text-foreground">Авто</span>
                       <p className="text-xs text-muted-foreground mt-1">API vs Ручной</p>
                     </div>
                     <div 
@@ -1292,8 +1313,8 @@ export default function ExchangePage() {
                         setEditProfitMethod('manual')
                       }}
                     >
-                      <Pencil className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Ручной</span>
+                      <WifiOff className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium text-foreground">Ручной</span>
                       <p className="text-xs text-muted-foreground mt-1">Рынок vs Клиенту</p>
                     </div>
                     <div 
@@ -1314,12 +1335,69 @@ export default function ExchangePage() {
                         setEditProfitMethod('fixed_percent')
                       }}
                     >
-                      <Calculator className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
-                      <span className="text-sm font-medium">Фикс %</span>
+                      <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'fixed_percent' ? 'text-amber-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium text-foreground">Фикс %</span>
                       <p className="text-xs text-muted-foreground mt-1">Базовый + %</p>
                     </div>
                   </div>
                 </div>
+                
+                {/* Блок статуса курса */}
+                {(editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent') && (
+                  <div className="space-y-3">
+                    <Label className="text-sm">Источник курса</Label>
+                    <div className="p-3 rounded-lg border bg-secondary/30">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-blue-400" />
+                        <span className="text-sm">Exchange Rate API</span>
+                        <span className="text-xs text-muted-foreground">({selectedRate.from_currency})</span>
+                        <Badge variant="outline" className="text-xs">По умолч.</Badge>
+                      </div>
+                    </div>
+                    
+                    {/* Статус курса */}
+                    <div className={`p-3 rounded-lg border ${
+                      editApiRate 
+                        ? 'bg-cyan-500/10 border-cyan-500/20' 
+                        : 'bg-secondary/30 border-border'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          {isLoadingApiRate ? (
+                            <div className="flex items-center gap-2">
+                              <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />
+                              <span className="text-sm text-muted-foreground">Поиск курса в источниках...</span>
+                            </div>
+                          ) : editApiRate ? (
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Check className="h-4 w-4 text-green-400" />
+                                <span className="text-sm text-muted-foreground">Курс найден:</span>
+                              </div>
+                              <p className="font-mono font-bold text-cyan-400 mt-1">
+                                1 {selectedRate.from_currency} = {editApiRate.toFixed(4)} {selectedRate.to_currency}
+                              </p>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">
+                              Нажмите &quot;Обновить&quot; для загрузки курса
+                            </span>
+                          )}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={refreshApiRate}
+                          disabled={isLoadingApiRate}
+                          className="ml-2 bg-transparent"
+                        >
+                          <RefreshCw className={`h-4 w-4 mr-1 ${isLoadingApiRate ? 'animate-spin' : ''}`} />
+                          Обновить
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 
                 {/* Настройки для fixed_percent */}
                 {editProfitMethod === 'fixed_percent' && (
@@ -1438,6 +1516,30 @@ export default function ExchangePage() {
                     </div>
                   </div>
                 )}
+                
+                {/* Переключатели */}
+                <div className="flex items-center justify-between pt-2">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="edit-is-popular"
+                      checked={editIsPopular}
+                      onCheckedChange={setEditIsPopular}
+                    />
+                    <Label htmlFor="edit-is-popular" className="cursor-pointer">
+                      Популярная пара
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      id="edit-is-active"
+                      checked={editIsActive}
+                      onCheckedChange={setEditIsActive}
+                    />
+                    <Label htmlFor="edit-is-active" className="cursor-pointer">
+                      Активен
+                    </Label>
+                  </div>
+                </div>
                 
                 {/* Кнопки */}
                 <div className="flex gap-2 pt-2">
