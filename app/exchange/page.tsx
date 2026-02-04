@@ -247,18 +247,21 @@ export default function ExchangePage() {
     const { rate, isReverse } = findRateForPair(giveCurrency, receiveCurrency)
     if (!rate) return 0
     
-    // В зависимости от метода расчета
-    // Клиент отдает -> мы покупаем по buy_rate
-    // Клиент получает -> мы продаем по sell_rate
+    // Логика курсов:
+    // - Прямой курс USD→USDT: buy_rate = курс покупки USD у клиента, sell_rate = курс продажи USDT клиенту
+    // - Клиент дает USD, получает USDT. Мы продаем USDT по sell_rate.
+    // - Пример: buy_rate=1.0, sell_rate=0.95. Клиент дает 1000 USD -> получает 1000*0.95=950 USDT
+    
     if (isReverse) {
-      // Обратный курс: from_currency = receiveCurrency, to_currency = giveCurrency
-      // Клиент отдает giveCurrency, получает receiveCurrency
-      // sell_rate = сколько receiveCurrency за 1 giveCurrency при продаже нами
-      return giveAmount * rate.sell_rate
+      // Обратный курс: rate.from_currency = receiveCurrency, rate.to_currency = giveCurrency
+      // Пример: курс USDT→USD, клиент дает USD, получает USDT
+      // Нужно делить на buy_rate (курс покупки USDT за USD)
+      return giveAmount / rate.buy_rate
     } else {
-      // Прямой курс: from_currency = giveCurrency, to_currency = receiveCurrency  
-      // buy_rate = сколько receiveCurrency за 1 giveCurrency при покупке у клиента
-      return giveAmount * rate.buy_rate
+      // Прямой курс: rate.from_currency = giveCurrency, rate.to_currency = receiveCurrency
+      // Пример: курс USD→USDT, клиент дает USD, получает USDT
+      // sell_rate = сколько USDT за 1 USD при продаже клиенту
+      return giveAmount * rate.sell_rate
     }
   }, [findRateForPair])
   
@@ -709,8 +712,8 @@ export default function ExchangePage() {
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Прибыль ({settings?.base_currency || 'USD'})</p>
-                      <p className="text-2xl font-bold font-mono text-emerald-400">
-                        +{todayStats.profit.toLocaleString('ru-RU', { minimumFractionDigits: 2 })}
+                      <p className={`text-xl font-bold font-mono ${calculatedProfit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {calculatedProfit >= 0 ? '+' : ''}{calculatedProfit.toFixed(2)} {settings?.base_currency || 'USD'}
                       </p>
                     </div>
                   </div>
@@ -1074,9 +1077,11 @@ export default function ExchangePage() {
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                     {exchangeRates.filter(r => r.is_active).map(rate => {
-                      const margin = rate.buy_rate && rate.sell_rate 
-                        ? ((rate.sell_rate - rate.buy_rate) / rate.buy_rate * 100).toFixed(2)
-                        : '0'
+                      const marginValue = rate.buy_rate && rate.sell_rate && rate.buy_rate !== 0
+                        ? ((rate.sell_rate - rate.buy_rate) / rate.buy_rate * 100)
+                        : 0
+                      const marginStr = Math.abs(marginValue).toFixed(2)
+                      const marginSign = marginValue >= 0 ? '+' : '-'
                       return (
                         <div 
                           key={rate.id} 
@@ -1115,7 +1120,7 @@ export default function ExchangePage() {
                             }`}>
                               {getMethodDescription(rate.profit_calculation_method || 'manual')}
                             </span>
-                            <span className="font-mono text-emerald-400">+{margin}%</span>
+                            <span className={`font-mono ${marginValue >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>{marginSign}{marginStr}%</span>
                           </div>
                         </div>
                       )
