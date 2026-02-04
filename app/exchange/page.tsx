@@ -1,5 +1,10 @@
 'use client'
 
+import { DialogDescription } from "@/components/ui/dialog"
+import { DialogTitle } from "@/components/ui/dialog"
+import { DialogHeader } from "@/components/ui/dialog"
+import { DialogContent } from "@/components/ui/dialog"
+import { Dialog } from "@/components/ui/dialog"
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,8 +20,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   ArrowLeftRight, Settings, History, TrendingUp,
-  Calculator, RefreshCw, Plus, Trash2, Check,
-  Banknote, Home, ArrowDown, ArrowUp, X
+  RefreshCw, Plus, Trash2, Check,
+  Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -83,6 +88,17 @@ export default function ExchangePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
+  
+  // Для редактирования курса из панели
+  const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
+  const [isRateDialogOpen, setIsRateDialogOpen] = useState(false)
+  const [editProfitMethod, setEditProfitMethod] = useState<'auto' | 'manual' | 'fixed_percent'>('auto')
+  const [editFixedBaseSource, setEditFixedBaseSource] = useState<'api' | 'manual'>('api')
+  const [editMarginPercent, setEditMarginPercent] = useState('2.0')
+  const [editBuyRate, setEditBuyRate] = useState('')
+  const [editSellRate, setEditSellRate] = useState('')
+  const [editApiRate, setEditApiRate] = useState<number | null>(null)
+  const [isSavingRate, setIsSavingRate] = useState(false)
   
   // Доступные валюты
   const availableCurrencies = useMemo(() => {
@@ -286,6 +302,87 @@ export default function ExchangePage() {
       case 'manual': return 'Ручной (Покупка vs Продажа)'
       case 'fixed_percent': return 'Фикс. процент'
       default: return method
+    }
+  }
+  
+  // Получить курс из API
+  const fetchRateFromAPI = async (fromCurr: string, toCurr: string): Promise<number | null> => {
+    try {
+      const res = await fetch(`https://open.er-api.com/v6/latest/${fromCurr}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.rates?.[toCurr]) {
+          return data.rates[toCurr]
+        }
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+  
+  // Открыть диалог редактирования курса
+  const openRateDialog = async (rate: ExchangeRate) => {
+    setSelectedRate(rate)
+    setEditProfitMethod(rate.profit_calculation_method || 'auto')
+    setEditFixedBaseSource(rate.fixed_base_source || 'api')
+    setEditMarginPercent(rate.margin_percent?.toString() || '2.0')
+    setEditBuyRate(rate.buy_rate.toString())
+    setEditSellRate(rate.sell_rate.toString())
+    
+    // Загрузим актуальный курс API
+    const apiRateValue = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+    setEditApiRate(apiRateValue)
+    
+    setIsRateDialogOpen(true)
+  }
+  
+  // Сохранить изменения курса
+  const saveRateChanges = async () => {
+    if (!selectedRate) return
+    
+    setIsSavingRate(true)
+    try {
+      let finalBuyRate = parseFloat(editBuyRate) || 0
+      let finalSellRate = parseFloat(editSellRate) || 0
+      const margin = parseFloat(editMarginPercent) || 2.0
+      
+      // Расчет курсов в зависимости от метода
+      if (editProfitMethod === 'auto') {
+        if (editApiRate) {
+          finalBuyRate = editApiRate
+        }
+      } else if (editProfitMethod === 'fixed_percent') {
+        const baseRate = editFixedBaseSource === 'api' && editApiRate ? editApiRate : parseFloat(editBuyRate) || 0
+        finalBuyRate = baseRate
+        finalSellRate = baseRate * (1 + margin / 100)
+      }
+      
+      const { error } = await supabase
+        .from('exchange_rates')
+        .update({
+          buy_rate: finalBuyRate,
+          sell_rate: finalSellRate,
+          profit_calculation_method: editProfitMethod,
+          fixed_base_source: editFixedBaseSource,
+          margin_percent: margin,
+          api_rate: editApiRate,
+          api_rate_updated_at: editApiRate ? new Date().toISOString() : null,
+          market_rate: editApiRate || finalBuyRate,
+          last_updated: new Date().toISOString()
+        })
+        .eq('id', selectedRate.id)
+      
+      if (error) throw error
+      
+      toast.success('Курс обновлен')
+      setIsRateDialogOpen(false)
+      setSelectedRate(null)
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка сохранения курса')
+    } finally {
+      setIsSavingRate(false)
     }
   }
   
@@ -942,10 +1039,11 @@ export default function ExchangePage() {
                       return (
                         <div 
                           key={rate.id} 
-                          className={`p-3 rounded-lg border transition-colors ${
+                          onClick={() => openRateDialog(rate)}
+                          className={`p-3 rounded-lg border transition-all cursor-pointer hover:scale-[1.02] ${
                             rate.is_popular 
-                              ? 'border-cyan-500/30 bg-cyan-500/5' 
-                              : 'border-border hover:border-muted-foreground'
+                              ? 'border-cyan-500/30 bg-cyan-500/5 hover:border-cyan-500/50' 
+                              : 'border-border hover:border-cyan-500/30 hover:bg-cyan-500/5'
                           }`}
                         >
                           <div className="flex items-center justify-between mb-2">
@@ -995,6 +1093,199 @@ export default function ExchangePage() {
             <ExchangeHistoryList refreshKey={refreshKey} />
           </TabsContent>
         </Tabs>
+        
+        {/* Диалог редактирования курса */}
+        <Dialog open={isRateDialogOpen} onOpenChange={setIsRateDialogOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {selectedRate && (
+                  <>
+                    <span>{CURRENCY_FLAGS[selectedRate.from_currency] || ''}</span>
+                    <span className="font-mono">{selectedRate.from_currency}</span>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                    <span>{CURRENCY_FLAGS[selectedRate.to_currency] || ''}</span>
+                    <span className="font-mono">{selectedRate.to_currency}</span>
+                  </>
+                )}
+              </DialogTitle>
+              <DialogDescription>
+                Настройка метода расчета и курсов для валютной пары
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedRate && (
+              <div className="space-y-4 py-2">
+                {/* Текущий курс API */}
+                {editApiRate && (
+                  <div className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/20">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Текущий курс API:</span>
+                      <span className="font-mono font-bold text-cyan-400">{editApiRate.toFixed(4)}</span>
+                    </div>
+                  </div>
+                )}
+                
+                {/* Выбор метода расчета */}
+                <div className="space-y-2">
+                  <Label>Метод расчета прибыли</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div 
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                        editProfitMethod === 'auto' 
+                          ? 'border-cyan-500 bg-cyan-500/10' 
+                          : 'border-border hover:border-muted-foreground'
+                      }`}
+                      onClick={() => setEditProfitMethod('auto')}
+                    >
+                      <TrendingUp className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'auto' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium">Авто</span>
+                      <p className="text-xs text-muted-foreground mt-1">API vs Ручной</p>
+                    </div>
+                    <div 
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                        editProfitMethod === 'manual' 
+                          ? 'border-cyan-500 bg-cyan-500/10' 
+                          : 'border-border hover:border-muted-foreground'
+                      }`}
+                      onClick={() => setEditProfitMethod('manual')}
+                    >
+                      <Pencil className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'manual' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium">Ручной</span>
+                      <p className="text-xs text-muted-foreground mt-1">Покупка vs Продажа</p>
+                    </div>
+                    <div 
+                      className={`p-3 rounded-lg border-2 cursor-pointer transition-all text-center ${
+                        editProfitMethod === 'fixed_percent' 
+                          ? 'border-cyan-500 bg-cyan-500/10' 
+                          : 'border-border hover:border-muted-foreground'
+                      }`}
+                      onClick={() => setEditProfitMethod('fixed_percent')}
+                    >
+                      <Calculator className={`h-5 w-5 mx-auto mb-1 ${editProfitMethod === 'fixed_percent' ? 'text-cyan-400' : 'text-muted-foreground'}`} />
+                      <span className="text-sm font-medium">Фикс %</span>
+                      <p className="text-xs text-muted-foreground mt-1">Базовый + %</p>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Настройки для fixed_percent */}
+                {editProfitMethod === 'fixed_percent' && (
+                  <div className="space-y-3 p-3 rounded-lg bg-secondary/30">
+                    <div className="space-y-2">
+                      <Label>Источник базового курса</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div 
+                          className={`p-2 rounded border cursor-pointer text-center ${
+                            editFixedBaseSource === 'api' 
+                              ? 'border-cyan-500 bg-cyan-500/10' 
+                              : 'border-border'
+                          }`}
+                          onClick={() => setEditFixedBaseSource('api')}
+                        >
+                          <span className="text-sm">Из API</span>
+                        </div>
+                        <div 
+                          className={`p-2 rounded border cursor-pointer text-center ${
+                            editFixedBaseSource === 'manual' 
+                              ? 'border-cyan-500 bg-cyan-500/10' 
+                              : 'border-border'
+                          }`}
+                          onClick={() => setEditFixedBaseSource('manual')}
+                        >
+                          <span className="text-sm">Вручную</span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Процент маржи (%)</Label>
+                      <Input
+                        type="number"
+                        step="0.1"
+                        value={editMarginPercent}
+                        onChange={(e) => setEditMarginPercent(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+                
+                {/* Поля курсов */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>
+                      {editProfitMethod === 'auto' ? 'Курс продажи (вручную)' : 
+                       editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'Курс покупки (из API)' :
+                       'Курс покупки'}
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      value={editBuyRate}
+                      onChange={(e) => setEditBuyRate(e.target.value)}
+                      disabled={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api'}
+                      className={editProfitMethod === 'fixed_percent' && editFixedBaseSource === 'api' ? 'opacity-50' : ''}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>
+                      {editProfitMethod === 'auto' ? 'Курс покупки (из API)' : 
+                       editProfitMethod === 'fixed_percent' ? 'Курс продажи (авто)' :
+                       'Курс продажи'}
+                    </Label>
+                    <Input
+                      type="number"
+                      step="0.0001"
+                      value={editSellRate}
+                      onChange={(e) => setEditSellRate(e.target.value)}
+                      disabled={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent'}
+                      className={editProfitMethod === 'auto' || editProfitMethod === 'fixed_percent' ? 'opacity-50' : ''}
+                    />
+                  </div>
+                </div>
+                
+                {/* Расчет маржи */}
+                <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Расчетная маржа:</span>
+                    <span className="font-mono font-bold text-emerald-400">
+                      {(() => {
+                        const buy = editProfitMethod === 'auto' ? (editApiRate || 0) : parseFloat(editBuyRate) || 0
+                        const sell = parseFloat(editSellRate) || 0
+                        if (buy && sell && buy > 0) {
+                          return `${((sell - buy) / buy * 100).toFixed(2)}%`
+                        }
+                        return '—'
+                      })()}
+                    </span>
+                  </div>
+                </div>
+                
+                {/* Кнопки */}
+                <div className="flex gap-2 pt-2">
+                  <Button 
+                    variant="outline" 
+                    className="flex-1 bg-transparent"
+                    onClick={() => setIsRateDialogOpen(false)}
+                  >
+                    Отмена
+                  </Button>
+                  <Button 
+                    className="flex-1"
+                    onClick={saveRateChanges}
+                    disabled={isSavingRate}
+                  >
+                    {isSavingRate ? (
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    Сохранить
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   )

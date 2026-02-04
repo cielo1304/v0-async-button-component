@@ -735,7 +735,11 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
           </TableHeader>
           <TableBody>
             {rates.map(rate => (
-              <TableRow key={rate.id} className={!rate.is_active ? 'opacity-50' : ''}>
+              <TableRow 
+                key={rate.id} 
+                className={`cursor-pointer transition-colors hover:bg-muted/50 ${!rate.is_active ? 'opacity-50' : ''}`}
+                onClick={() => openEditDialog(rate)}
+              >
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span>{CURRENCY_FLAGS[rate.from_currency] || ''}</span>
@@ -746,11 +750,7 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                   </div>
                 </TableCell>
                 <TableCell className="text-center">
-                  <div 
-                    className="flex items-center justify-center gap-1.5 mx-auto px-2 py-1 rounded cursor-pointer hover:bg-secondary/50 transition-colors"
-                    onClick={() => openEditDialog(rate)}
-                    title="Нажмите для настройки метода"
-                  >
+                  <div className="flex items-center justify-center gap-1.5 mx-auto px-2 py-1 rounded">
                     {rate.profit_calculation_method === 'auto' ? (
                       <>
                         <Wifi className="h-4 w-4 text-cyan-400" />
@@ -789,35 +789,44 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                     return '-'
                   })()}
                 </TableCell>
-                <TableCell className="text-center">
+                <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => togglePopular(rate)}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      togglePopular(rate)
+                    }}
                     className={rate.is_popular ? 'text-amber-400' : 'text-muted-foreground'}
                   >
                     <Star className="h-4 w-4" fill={rate.is_popular ? 'currentColor' : 'none'} />
                   </Button>
                 </TableCell>
-                <TableCell className="text-center">
+                <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                   <Switch
                     checked={rate.is_active}
                     onCheckedChange={() => toggleActive(rate)}
                   />
                 </TableCell>
-                <TableCell>
+                <TableCell onClick={(e) => e.stopPropagation()}>
                   <div className="flex gap-1 justify-end">
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => openEditDialog(rate)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openEditDialog(rate)
+                      }}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      onClick={() => handleDelete(rate.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDelete(rate.id)
+                      }}
                       className="text-red-400 hover:text-red-300"
                     >
                       <Trash2 className="h-4 w-4" />
