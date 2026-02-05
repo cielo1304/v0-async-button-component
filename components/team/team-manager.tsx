@@ -17,7 +17,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   Select,
@@ -102,9 +101,8 @@ export function TeamManager() {
   // Диалоги
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<EmployeeWithUser | null>(null)
-  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
-  const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState('')
+  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false) // Declared the missing variable
   
   // Должности
   const [isPositionDialogOpen, setIsPositionDialogOpen] = useState(false)
@@ -283,42 +281,6 @@ export function TeamManager() {
       loadData()
     } catch {
       toast.error('Ошибка обновления')
-    }
-  }
-  
-  // Назначение роли сотруднику (через employee_roles)
-  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
-  
-  const assignRole = async () => {
-    if (!selectedEmployeeId || !selectedRoleId) {
-      toast.error('Выберите сотрудника и роль')
-      return
-    }
-    
-    try {
-      const { error } = await supabase
-        .from('employee_roles')
-        .insert({
-          employee_id: selectedEmployeeId,
-          role_id: selectedRoleId
-        })
-      
-      if (error) {
-        if (error.code === '23505') {
-          toast.error('У сотрудника уже есть эта роль')
-        } else {
-          throw error
-        }
-        return
-      }
-      
-      toast.success('Роль назначена')
-      setIsRoleDialogOpen(false)
-      setSelectedEmployeeId('')
-      setSelectedRoleId('')
-      loadData()
-    } catch {
-      toast.error('Ошибка назначения роли')
     }
   }
   
@@ -708,10 +670,6 @@ export function TeamManager() {
               <Users className="h-4 w-4" />
               Сотрудники
             </TabsTrigger>
-            <TabsTrigger value="roles" className="flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              Роли
-            </TabsTrigger>
             <TabsTrigger value="salary" className="flex items-center gap-2">
               <Wallet className="h-4 w-4" />
               Зарплаты
@@ -734,64 +692,6 @@ export function TeamManager() {
                 <AddBonusDialog />
               </>
             )}
-            {activeTab === 'roles' && (
-              <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Назначить роль
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Назначить роль сотруднику</DialogTitle>
-                    <DialogDescription>
-                      Выберите сотрудника и роль для назначения. Роли назначаются сотрудникам напрямую.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <Label>Сотрудник</Label>
-                      <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите сотрудника" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {employees.filter(e => e.is_active).map(emp => (
-                            <SelectItem key={emp.id} value={emp.id}>
-                              {emp.full_name} {emp.position ? `(${emp.position})` : ''}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label>Роль</Label>
-                      <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите роль" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map(r => (
-                            <SelectItem key={r.id} value={r.id}>
-                              <div className="flex items-center gap-2">
-                                <Badge className={getRoleColor(r.code)}>{r.code}</Badge>
-                                <span>{r.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <Button onClick={assignRole} className="w-full">
-                      Назначить
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
           </div>
         </div>
         
@@ -805,152 +705,6 @@ export function TeamManager() {
                 emptyMessage="Сотрудников пока нет"
                 onRowClick={(row: EmployeeWithUser) => router.push(`/hr/${row.id}`)}
               />
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
-        {/* Роли */}
-        <TabsContent value="roles">
-          <Card>
-            <CardContent className="pt-6">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Сотрудник</TableHead>
-                    <TableHead>Должность</TableHead>
-                    <TableHead>Роли RBAC</TableHead>
-                    <TableHead>Доступ к модулям</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {employees.filter(e => e.is_active).map(emp => {
-                    const empRoles = emp.system_roles || []
-                    const access = emp.computed_module_access || {}
-                    return (
-                      <TableRow key={emp.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <div>
-                              <span className="font-medium">{emp.full_name}</span>
-                              {emp.auth_user_id && (
-                                <Badge variant="outline" className="ml-2 text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
-                                  Auth
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className="text-sm text-muted-foreground">{emp.position || '-'}</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {empRoles.length > 0 ? (
-                              empRoles.map(role => (
-                                <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
-                                  {role.name}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground text-sm">Нет ролей</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {MODULES.map(mod => {
-                              const level = access[mod.id] || 'none'
-                              if (level === 'none') return null
-                              const Icon = mod.icon
-                              return (
-                                <span key={mod.id} className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                                  <Icon className={`h-3 w-3 ${mod.color}`} />
-                                </span>
-                              )
-                            })}
-                            {Object.values(access).every(l => l === 'none' || !l) && (
-                              <span className="text-muted-foreground text-xs">-</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1 justify-end">
-                            {empRoles.map(role => (
-                              <Button
-                                key={role.id}
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeRole(emp.id, role.id)}
-                                className="h-6 w-6 text-red-400 hover:text-red-300"
-                                title={`Удалить роль ${role.name}`}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  {employees.filter(e => e.is_active).length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                        Нет активных сотрудников
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              
-              {/* Справка по ролям - группировка по модулям */}
-              <div className="mt-6 space-y-4">
-                {/* Системные роли */}
-                <div className="p-4 rounded-lg bg-secondary/30 border border-border">
-                  <h4 className="text-sm font-medium mb-3">Системные роли:</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    {roles.filter(r => r.module === 'system' || !r.module).map(role => (
-                      <div key={role.id} className="flex items-start gap-2">
-                        <Badge variant="outline" className={getRoleColor(role.code)}>{role.code}</Badge>
-                        <div>
-                          <p className="text-sm font-medium">{role.name}</p>
-                          <p className="text-xs text-muted-foreground">{role.description}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                
-                {/* Роли по модулям B3 */}
-                <div className="p-4 rounded-lg bg-secondary/30 border border-border">
-                  <h4 className="text-sm font-medium mb-3">Роли модулей B3:</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {MODULES.map(mod => {
-                      const moduleRoles = roles.filter(r => r.module === mod.id)
-                      const Icon = mod.icon
-                      return (
-                        <div key={mod.id} className="space-y-2">
-                          <div className="flex items-center gap-1 text-sm font-medium">
-                            <Icon className={`h-4 w-4 ${mod.color}`} />
-                            {mod.label}
-                          </div>
-                          <div className="space-y-1">
-                            {moduleRoles.map(role => (
-                              <div key={role.id} className="text-xs text-muted-foreground">
-                                {role.code?.replace(`${mod.id.toUpperCase()}_`, '')}
-                              </div>
-                            ))}
-                            {moduleRoles.length === 0 && (
-                              <div className="text-xs text-muted-foreground">-</div>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -1117,9 +871,9 @@ export function TeamManager() {
         </TabsContent>
       </Tabs>
       
-      {/* Диалог редактирования сотрудника */}
+      {/* Диалог редактирования сотрудника - единый центр управления */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Редактирование сотрудника</DialogTitle>
             <DialogDescription>
@@ -1250,7 +1004,14 @@ export function TeamManager() {
                           variant="ghost"
                           size="icon"
                           className="h-4 w-4 ml-1 p-0 hover:bg-red-500/20"
-                          onClick={() => removeRole(editingEmployee.id, role.id)}
+                          onClick={async () => {
+                            await removeRole(editingEmployee.id, role.id)
+                            // Обновляем локальное состояние
+                            setEditingEmployee(prev => prev ? {
+                              ...prev,
+                              system_roles: prev.system_roles?.filter(r => r.id !== role.id)
+                            } : null)
+                          }}
                         >
                           <Trash2 className="h-3 w-3 text-red-400" />
                         </Button>
@@ -1259,6 +1020,54 @@ export function TeamManager() {
                   ) : (
                     <span className="text-sm text-muted-foreground">Нет назначенных ролей</span>
                   )}
+                </div>
+                
+                {/* Добавить роль */}
+                <div className="flex gap-2">
+                  <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Добавить роль..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles
+                        .filter(r => !editingEmployee.system_roles?.some(sr => sr.id === r.id))
+                        .map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className={`${getRoleColor(r.code)} text-xs`}>{r.code}</Badge>
+                              <span>{r.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!selectedRoleId}
+                    onClick={async () => {
+                      if (!selectedRoleId) return
+                      try {
+                        await supabase
+                          .from('employee_roles')
+                          .insert({ employee_id: editingEmployee.id, role_id: selectedRoleId })
+                        const addedRole = roles.find(r => r.id === selectedRoleId)
+                        if (addedRole) {
+                          setEditingEmployee(prev => prev ? {
+                            ...prev,
+                            system_roles: [...(prev.system_roles || []), addedRole]
+                          } : null)
+                        }
+                        setSelectedRoleId('')
+                        toast.success('Роль назначена')
+                        loadData()
+                      } catch {
+                        toast.error('Ошибка назначения роли')
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
                 
                 {/* Роли по умолчанию для должности */}
