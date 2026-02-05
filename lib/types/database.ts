@@ -187,6 +187,7 @@ export interface Deal {
   updated_at: string
   closed_at: string | null
   created_by: string
+  contact_id: string | null
 }
 
 export interface DealPayment {
@@ -259,6 +260,7 @@ export interface AutoClient {
   notes: string | null
   created_at: string
   updated_at: string
+  contact_id: string | null
 }
 
 export interface AutoDeal {
@@ -270,6 +272,8 @@ export interface AutoDeal {
   car_id: string | null
   buyer_id: string | null
   seller_id: string | null
+  buyer_contact_id: string | null
+  seller_contact_id: string | null
   
   sale_price: number | null
   sale_currency: string
@@ -569,6 +573,7 @@ export interface ClientExchangeOperation {
   created_at: string
   completed_at: string | null
   cancelled_at: string | null
+  contact_id: string | null
   // Связанные детали (для UI)
   details?: ClientExchangeDetail[]
 }
@@ -632,4 +637,73 @@ export interface UserRole {
   role_id: string
   assigned_at: string
   assigned_by: string | null
+}
+
+// ================================================
+// МОДУЛЬ КОНТАКТЫ (ядро клиента для 3 направлений)
+// ================================================
+
+export type ContactModule = 'exchange' | 'deals' | 'auto'
+export type ContactChannelType = 'phone' | 'email'
+
+export interface Contact {
+  id: string
+  display_name: string
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ContactChannel {
+  id: string
+  contact_id: string
+  type: ContactChannelType
+  value: string
+  normalized: string
+  is_primary: boolean
+  created_at: string
+}
+
+export interface ContactSegment {
+  id: string
+  contact_id: string
+  module: ContactModule
+  metadata: Record<string, unknown>
+  last_activity_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ContactSensitive {
+  id: string
+  contact_id: string
+  passport_series: string | null
+  passport_number: string | null
+  passport_issued_by: string | null
+  passport_issued_date: string | null
+  address: string | null
+  driver_license: string | null
+  driver_license_date: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface ContactEvent {
+  id: string
+  contact_id: string
+  module: ContactModule
+  entity_type: string
+  entity_id: string | null
+  title: string
+  payload: Record<string, unknown>
+  happened_at: string
+  created_at: string
+}
+
+// Расширенный контакт с каналами и сегментами (для UI)
+export interface ContactWithDetails extends Contact {
+  channels?: ContactChannel[]
+  segments?: ContactSegment[]
+  primary_phone?: string
+  primary_email?: string
 }

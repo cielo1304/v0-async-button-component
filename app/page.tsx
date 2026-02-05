@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { DollarSign, Car, Package, Briefcase, TrendingUp, Settings, ArrowLeftRight } from 'lucide-react'
+import { DollarSign, Car, Package, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users } from 'lucide-react'
 import Link from 'next/link'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -18,6 +18,13 @@ const modules = [
     icon: ArrowLeftRight,
     href: '/exchange',
     color: 'text-cyan-400',
+  },
+  {
+    title: 'Контакты',
+    description: 'Единая база клиентов для всех направлений',
+    icon: Users,
+    href: '/contacts',
+    color: 'text-violet-400',
   },
   {
     title: 'Автомобили',
