@@ -72,7 +72,16 @@ export function AddAutoClientDialog() {
     setIsLoading(true)
 
     try {
-      const { error } = await supabase.from('auto_clients').insert({
+      // Создаем/находим контакт
+      const { data: contactId } = await supabase.rpc('get_or_create_contact', {
+        p_display_name: fullName.trim(),
+        p_phone: phone || null,
+        p_email: email || null,
+        p_module: 'auto'
+      })
+
+      // Создаем автоклиента
+      const { data: autoClient, error } = await supabase.from('auto_clients').insert({
         full_name: fullName.trim(),
         phone: phone || null,
         email: email || null,
@@ -86,9 +95,40 @@ export function AddAutoClientDialog() {
         driver_license: driverLicense || null,
         driver_license_date: driverLicenseDate || null,
         notes: notes || null,
-      })
+        contact_id: contactId,
+      }).select().single()
 
       if (error) throw error
+
+      // Сохраняем чувствительные данные в contact_sensitive
+      if (contactId && (passportSeries || passportNumber || address || driverLicense)) {
+        await supabase.from('contact_sensitive').upsert({
+          contact_id: contactId,
+          passport_series: passportSeries || null,
+          passport_number: passportNumber || null,
+          passport_issued_by: passportIssuedBy || null,
+          passport_issued_date: passportIssuedDate || null,
+          address: address || null,
+          driver_license: driverLicense || null,
+          driver_license_date: driverLicenseDate || null,
+        }, { onConflict: 'contact_id' })
+      }
+
+      // Логируем событие контакта
+      if (contactId && autoClient) {
+        await supabase.rpc('log_contact_event', {
+          p_contact_id: contactId,
+          p_module: 'auto',
+          p_entity_type: 'auto_client',
+          p_entity_id: autoClient.id,
+          p_title: 'Создан профиль автоплощадки',
+          p_payload: {
+            client_type: clientType,
+            rating,
+            is_blacklisted: false
+          }
+        })
+      }
 
       toast.success('Клиент добавлен')
       resetForm()

@@ -188,6 +188,12 @@ export function AddAutoDealDialog() {
         totalDebt = rentTotal + (depositAmount || 0) - (initialPayment || 0)
       }
 
+      // Получаем contact_id из auto_clients
+      const buyer = clients.find(c => c.id === buyerId)
+      const seller = clients.find(c => c.id === sellerId)
+      const buyerContactId = buyer?.contact_id || null
+      const sellerContactId = seller?.contact_id || null
+
       const { data: deal, error: dealError } = await supabase
         .from('auto_deals')
         .insert({
@@ -197,6 +203,8 @@ export function AddAutoDealDialog() {
           car_id: carId,
           buyer_id: buyerId || null,
           seller_id: sellerId || null, // Комитент для комиссии
+          buyer_contact_id: buyerContactId,
+          seller_contact_id: sellerContactId,
           sale_price: dealType !== 'RENT' ? salePrice : null,
           sale_currency: currency,
           commission_percent: dealType === 'COMMISSION_SALE' ? commissionPercent : null,
@@ -287,6 +295,37 @@ export function AddAutoDealDialog() {
         }
 
         await supabase.from('auto_payments').insert(payments)
+      }
+
+      // Логируем события контактов
+      const eventPayload = {
+        deal_type: dealType,
+        total_amount: salePrice || rentTotal,
+        currency,
+        status: deal.status,
+        deal_number: dealNumber
+      }
+      
+      if (buyerContactId) {
+        await supabase.rpc('log_contact_event', {
+          p_contact_id: buyerContactId,
+          p_module: 'auto',
+          p_entity_type: 'auto_deal',
+          p_entity_id: deal.id,
+          p_title: `Авто-сделка ${dealNumber} создана`,
+          p_payload: eventPayload
+        })
+      }
+      
+      if (sellerContactId && sellerContactId !== buyerContactId) {
+        await supabase.rpc('log_contact_event', {
+          p_contact_id: sellerContactId,
+          p_module: 'auto',
+          p_entity_type: 'auto_deal',
+          p_entity_id: deal.id,
+          p_title: `Авто-сделка ${dealNumber} создана (комитент)`,
+          p_payload: eventPayload
+        })
       }
 
       toast.success(`Сделка ${dealNumber} создана`)

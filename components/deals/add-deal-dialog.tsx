@@ -186,6 +186,16 @@ export function AddDealDialog() {
         }
       }
 
+      // Создаем/находим контакт клиента
+      let contactId: string | null = null
+      const { data: contactData } = await supabase.rpc('get_or_create_contact', {
+        p_display_name: clientName,
+        p_phone: clientPhone || null,
+        p_email: clientEmail || null,
+        p_module: 'deals'
+      })
+      contactId = contactData
+
       // Создаем сделку
       const { data: deal, error: dealError } = await supabase
         .from('deals')
@@ -195,6 +205,7 @@ export function AddDealDialog() {
           client_phone: clientPhone || null,
           client_email: clientEmail || null,
           car_id: carId || null,
+          contact_id: contactId,
           status: payments.length > 0 ? 'IN_PROGRESS' : 'NEW',
           total_amount: contractAmount,
           total_currency: contractCurrency,
@@ -207,6 +218,23 @@ export function AddDealDialog() {
         .single()
 
       if (dealError) throw dealError
+      
+      // Логируем событие контакта
+      if (contactId) {
+        await supabase.rpc('log_contact_event', {
+          p_contact_id: contactId,
+          p_module: 'deals',
+          p_entity_type: 'deal',
+          p_entity_id: deal.id,
+          p_title: `Сделка ${dealNumber} создана`,
+          p_payload: {
+            total_amount: contractAmount,
+            currency: contractCurrency,
+            status: deal.status,
+            deal_number: dealNumber
+          }
+        })
+      }
 
       // Если выбрано авто - резервируем его
       if (carId) {

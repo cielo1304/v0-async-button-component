@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -10,7 +10,7 @@ import { AutoClient, AutoDeal } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { 
   Loader2, User, Phone, Mail, MapPin, CreditCard, Car as CarIcon,
-  Star, Ban, FileText, Calendar, AlertTriangle
+  Star, Ban, FileText, AlertTriangle
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -29,8 +29,9 @@ const DEAL_TYPE_LABELS: Record<string, string> = {
   RENT: 'Аренда',
 }
 
-export default function AutoClientPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function AutoClientPage() {
+  const params = useParams()
+  const id = params.id as string
   const [client, setClient] = useState<AutoClient | null>(null)
   const [deals, setDeals] = useState<AutoDeal[]>([])
   const [isLoading, setIsLoading] = useState(true)

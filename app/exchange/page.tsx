@@ -541,6 +541,18 @@ export default function ExchangePage() {
       const givesInBase = calculateTotalInBase(clientGives, 'give')
       const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
       
+      // 0. Создаем/находим контакт если есть данные клиента
+      let contactId: string | null = null
+      if (clientName || clientPhone) {
+        const { data: contactData } = await supabase.rpc('get_or_create_contact', {
+          p_display_name: clientName || 'Клиент обмена',
+          p_phone: clientPhone || null,
+          p_email: null,
+          p_module: 'exchange'
+        })
+        contactId = contactData
+      }
+      
       // 1. Создаем основную операцию
       const { data: operation, error: opError } = await supabase
         .from('client_exchange_operations')
@@ -552,6 +564,7 @@ export default function ExchangePage() {
           profit_currency: baseCurrency,
           client_name: clientName || null,
           client_phone: clientPhone || null,
+          contact_id: contactId,
           status: 'completed',
           completed_at: new Date().toISOString()
         })
@@ -621,6 +634,23 @@ export default function ExchangePage() {
           category: 'EXCHANGE_OUT',
           description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
           reference_id: operation.id
+        })
+      }
+      
+      // 4. Логируем событие контакта
+      if (contactId) {
+        await supabase.rpc('log_contact_event', {
+          p_contact_id: contactId,
+          p_module: 'exchange',
+          p_entity_type: 'client_exchange_operation',
+          p_entity_id: operation.id,
+          p_title: `Обмен ${operation.operation_number}`,
+          p_payload: {
+            profit: calculatedProfit,
+            gives: clientGives.map(g => ({ currency: g.currency, amount: g.amount })),
+            receives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount })),
+            operation_number: operation.operation_number
+          }
         })
       }
       
