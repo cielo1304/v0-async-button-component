@@ -60,12 +60,13 @@ const modules = [
 async function getStats() {
   const supabase = await createServerClient()
   
-  const [cashboxes, cars, deals, stock, employees] = await Promise.all([
+  const [cashboxes, cars, deals, stock, employees, contacts] = await Promise.all([
     supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false),
     supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK'),
     supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT']),
     supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true),
+    supabase.from('contacts').select('id', { count: 'exact', head: true }),
   ])
 
   return {
@@ -74,6 +75,7 @@ async function getStats() {
     activeDeals: deals.count || 0,
     stockItems: stock.count || 0,
     employeesCount: employees.count || 0,
+    contactsCount: contacts.count || 0,
   }
 }
 
@@ -126,7 +128,7 @@ export default async function HomePage() {
         </div>
 
         {/* Quick Stats */}
-        <div className="mt-12 grid grid-cols-1 md:grid-cols-5 gap-4">
+        <div className="mt-12 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground">{'Всего касс'}</CardTitle>
@@ -169,6 +171,15 @@ export default async function HomePage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold font-mono text-foreground">{stats.employeesCount}</div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm font-medium text-muted-foreground">{'Контактов'}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold font-mono text-violet-400">{stats.contactsCount}</div>
             </CardContent>
           </Card>
         </div>
