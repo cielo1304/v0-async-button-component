@@ -17,7 +17,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import {
   Select,
@@ -41,11 +40,22 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Employee, SystemRole, PositionDefaultRole } from '@/lib/types/database'
+import { 
+  Employee, SystemRole, PositionDefaultRole, EmployeeRole,
+  BusinessModule, ModuleAccessLevel, ModuleAccess 
+} from '@/lib/types/database'
+import { getModuleAccessLevelFromRoles } from '@/lib/access'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
 import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
+import { 
+  setEmployeeModuleAccess, 
+  createEmployeeInvite, 
+  syncEmployeeRoles,
+  setPositionDefaultRoles,
+  deletePositionDefaultRoles
+} from '@/app/actions/team'
 
 // Типы
 interface UserWithRoles {
@@ -57,14 +67,24 @@ interface UserWithRoles {
 interface EmployeeWithUser extends Employee {
   user_email?: string
   system_roles?: SystemRole[]
+  employee_roles?: EmployeeRole[]
+  computed_module_access?: ModuleAccess
 }
 
-// Константы модулей
-const MODULES = [
+// Константы модулей B3
+const MODULES: { id: BusinessModule; label: string; icon: typeof ArrowLeftRight; color: string }[] = [
   { id: 'exchange', label: 'Обмен валют', icon: ArrowLeftRight, color: 'text-cyan-400' },
   { id: 'deals', label: 'Сделки', icon: Briefcase, color: 'text-amber-400' },
   { id: 'auto', label: 'Автоплощадка', icon: Car, color: 'text-violet-400' },
   { id: 'stock', label: 'Склад', icon: Package, color: 'text-blue-400' },
+]
+
+// Уровни доступа к модулям
+const ACCESS_LEVELS: { level: ModuleAccessLevel; label: string; color: string }[] = [
+  { level: 'none', label: 'Нет', color: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30' },
+  { level: 'view', label: 'Просмотр', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  { level: 'work', label: 'Работа', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  { level: 'manage', label: 'Управление', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 ]
 
 export function TeamManager() {
@@ -81,9 +101,18 @@ export function TeamManager() {
   // Диалоги
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingEmployee, setEditingEmployee] = useState<EmployeeWithUser | null>(null)
-  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
-  const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState('')
+  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false) // Declared the missing variable
+  
+  // Должности
+  const [isPositionDialogOpen, setIsPositionDialogOpen] = useState(false)
+  const [editingPosition, setEditingPosition] = useState<string | null>(null)
+  const [positionName, setPositionName] = useState('')
+  const [positionRoleIds, setPositionRoleIds] = useState<string[]>([])
+  
+  // Приглашения
+  const [isSendingInvite, setIsSendingInvite] = useState(false)
+  const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
   
@@ -106,7 +135,19 @@ export function TeamManager() {
       // Загрузка текущего пользователя
       const { data: { user: currentUser } } = await supabase.auth.getUser()
       
-      // Загрузка user_roles
+      // Загрузка employee_roles (source of truth)
+      const { data: employeeRolesData } = await supabase
+        .from('employee_roles')
+        .select(`
+          id,
+          employee_id,
+          role_id,
+          assigned_at,
+          assigned_by,
+          system_roles (*)
+        `)
+      
+      // Также загружаем user_roles для совместимости
       const { data: userRolesData } = await supabase
         .from('user_roles')
         .select(`
@@ -152,14 +193,45 @@ export function TeamManager() {
         }
       })
       
+      // Группируем employee_roles по employee_id
+      const employeeRolesMap = new Map<string, EmployeeRole[]>()
+      employeeRolesData?.forEach(er => {
+        const empId = er.employee_id
+        if (!employeeRolesMap.has(empId)) {
+          employeeRolesMap.set(empId, [])
+        }
+        employeeRolesMap.get(empId)!.push({
+          id: er.id,
+          employee_id: er.employee_id,
+          role_id: er.role_id,
+          assigned_at: er.assigned_at,
+          assigned_by: er.assigned_by,
+          role: er.system_roles as SystemRole
+        })
+      })
+      
       // Добавляем информацию о ролях к сотрудникам
       const employeesWithRoles: EmployeeWithUser[] = (employeesData || []).map(emp => {
-        const userInfo = emp.user_id ? usersMap.get(emp.user_id) : null
+        const userInfo = emp.user_id ? usersMap.get(emp.user_id) : 
+                        emp.auth_user_id ? usersMap.get(emp.auth_user_id) : null
+        const empRoles = employeeRolesMap.get(emp.id) || []
+        const systemRoles = empRoles.map(er => er.role).filter((r): r is SystemRole => r !== undefined)
+        
+        // Вычисляем доступ к модулям на основе ролей
+        const computedModuleAccess: ModuleAccess = {
+          exchange: getModuleAccessLevelFromRoles(systemRoles, 'exchange'),
+          auto: getModuleAccessLevelFromRoles(systemRoles, 'auto'),
+          deals: getModuleAccessLevelFromRoles(systemRoles, 'deals'),
+          stock: getModuleAccessLevelFromRoles(systemRoles, 'stock'),
+        }
+        
         return {
           ...emp,
           modules: emp.modules || [],
           user_email: userInfo?.email,
-          system_roles: userInfo?.roles || []
+          system_roles: systemRoles,
+          employee_roles: empRoles,
+          computed_module_access: computedModuleAccess
         }
       })
       
@@ -212,40 +284,6 @@ export function TeamManager() {
     }
   }
   
-  // Назначение роли
-  const assignRole = async () => {
-    if (!selectedUserId || !selectedRoleId) {
-      toast.error('Выберите пользователя и роль')
-      return
-    }
-    
-    try {
-      const { error } = await supabase
-        .from('user_roles')
-        .insert({
-          user_id: selectedUserId,
-          role_id: selectedRoleId
-        })
-      
-      if (error) {
-        if (error.code === '23505') {
-          toast.error('У пользователя уже есть эта роль')
-        } else {
-          throw error
-        }
-        return
-      }
-      
-      toast.success('Роль назначена')
-      setIsRoleDialogOpen(false)
-      setSelectedUserId('')
-      setSelectedRoleId('')
-      loadData()
-    } catch {
-      toast.error('Ошибка назначения роли')
-    }
-  }
-  
   // Получить роли по умолчанию для должности
   const getDefaultRolesForPosition = useCallback((position: string | null) => {
     if (!position) return []
@@ -263,14 +301,13 @@ export function TeamManager() {
     }
   }, [editingEmployee, getDefaultRolesForPosition])
   
-  // Применить роли по умолчанию к сотруднику
+  // Применить роли по умолчанию к сотруднику (через employee_roles)
   const applyDefaultRoles = async () => {
-    if (!editingEmployee?.auth_user_id && !editingEmployee?.user_id) {
-      toast.error('Сотрудник не привязан к пользователю системы')
+    if (!editingEmployee) {
+      toast.error('Сотрудник не выбран')
       return
     }
     
-    const userId = editingEmployee.auth_user_id || editingEmployee.user_id
     const currentRoleIds = editingEmployee.system_roles?.map(r => r.id) || []
     const rolesToAdd = editingEmployeeDefaultRoles.filter(r => !currentRoleIds.includes(r.id))
     
@@ -282,26 +319,26 @@ export function TeamManager() {
     try {
       for (const role of rolesToAdd) {
         await supabase
-          .from('user_roles')
-          .insert({ user_id: userId, role_id: role.id })
-          .single()
+          .from('employee_roles')
+          .insert({ employee_id: editingEmployee.id, role_id: role.id })
       }
       toast.success(`Назначено ${rolesToAdd.length} роль(ей)`)
+      setIsEditDialogOpen(false)
       loadData()
     } catch {
       toast.error('Ошибка назначения ролей')
     }
   }
 
-  // Удаление роли
-  const removeRole = async (userId: string, roleId: string) => {
-    if (!confirm('Удалить эту роль у пользователя?')) return
+  // Удаление роли у сотрудника (через employee_roles)
+  const removeRole = async (employeeId: string, roleId: string) => {
+    if (!confirm('Удалить эту роль у сотрудника?')) return
     
     try {
       const { error } = await supabase
-        .from('user_roles')
+        .from('employee_roles')
         .delete()
-        .eq('user_id', userId)
+        .eq('employee_id', employeeId)
         .eq('role_id', roleId)
       
       if (error) throw error
@@ -313,6 +350,117 @@ export function TeamManager() {
     }
   }
   
+  // Изменение уровня доступа к модулю
+  const handleModuleAccessChange = async (module: BusinessModule, level: ModuleAccessLevel) => {
+    if (!editingEmployee) return
+    
+    try {
+      await setEmployeeModuleAccess(editingEmployee.id, module, level)
+      toast.success(`Уровень доступа к модулю "${module}" изменен`)
+      loadData()
+      // Обновляем локальное состояние
+      setEditingEmployee(prev => prev ? {
+        ...prev,
+        computed_module_access: { ...prev.computed_module_access, [module]: level }
+      } : null)
+    } catch (err) {
+      toast.error('Ошибка изменения доступа')
+    }
+  }
+  
+  // Отправка приглашения по email
+  const handleSendInvite = async () => {
+    if (!editingEmployee?.email) {
+      toast.error('У сотрудника не указан email')
+      return
+    }
+    
+    setIsSendingInvite(true)
+    try {
+      await createEmployeeInvite(editingEmployee.id, editingEmployee.email)
+      toast.success('Приглашение отправлено')
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка отправки приглашения')
+    } finally {
+      setIsSendingInvite(false)
+    }
+  }
+  
+  // Синхронизация ролей с auth
+  const handleSyncRoles = async () => {
+    if (!editingEmployee?.auth_user_id) {
+      toast.error('Сотрудник не привязан к пользователю Auth')
+      return
+    }
+    
+    setIsSyncingRoles(true)
+    try {
+      await syncEmployeeRoles(editingEmployee.id)
+      toast.success('Роли синхронизированы')
+    } catch (err) {
+      toast.error('Ошибка синхронизации ролей')
+    } finally {
+      setIsSyncingRoles(false)
+    }
+  }
+  
+  // Сохранение должности с ролями по умолчанию
+  const handleSavePosition = async () => {
+    if (!positionName.trim()) {
+      toast.error('Введите название должности')
+      return
+    }
+    
+    try {
+      await setPositionDefaultRoles(positionName.trim(), positionRoleIds)
+      toast.success(editingPosition ? 'Должность обновлена' : 'Должность добавлена')
+      setIsPositionDialogOpen(false)
+      setEditingPosition(null)
+      setPositionName('')
+      setPositionRoleIds([])
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка сохранения должности')
+    }
+  }
+  
+  // Удаление должности
+  const handleDeletePosition = async (position: string) => {
+    if (!confirm(`Удалить должность "${position}" и все связанные роли по умолчанию?`)) return
+    
+    try {
+      await deletePositionDefaultRoles(position)
+      toast.success('Должность удалена')
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка удаления должности')
+    }
+  }
+  
+  // Открыть диалог редактирования должности
+  const openEditPosition = (position: string, roleIds: string[]) => {
+    setEditingPosition(position)
+    setPositionName(position)
+    setPositionRoleIds(roleIds)
+    setIsPositionDialogOpen(true)
+  }
+  
+  // Группировка должностей из position_default_roles
+  const groupedPositions = useMemo(() => {
+    const map = new Map<string, { position: string; roles: SystemRole[] }>()
+    positionDefaults.forEach(pd => {
+      const role = roles.find(r => r.id === pd.system_role_id)
+      if (!map.has(pd.position)) {
+        map.set(pd.position, { position: pd.position, roles: [] })
+      }
+      if (role) {
+        map.get(pd.position)!.roles.push(role)
+      }
+    })
+    return Array.from(map.values())
+  }, [positionDefaults, roles])
+  
   // Цвет роли
   const getRoleColor = (code: string) => {
     switch (code) {
@@ -320,7 +468,13 @@ export function TeamManager() {
       case 'MANAGER': return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
       case 'ACCOUNTANT': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
       case 'CASHIER': return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-      default: return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30'
+      default: 
+        // Модульные роли
+        if (code?.includes('EXCHANGE')) return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+        if (code?.includes('AUTO')) return 'bg-violet-500/20 text-violet-400 border-violet-500/30'
+        if (code?.includes('DEALS')) return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+        if (code?.includes('STOCK')) return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+        return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30'
     }
   }
   
@@ -349,25 +503,29 @@ export function TeamManager() {
     },
     {
       key: 'modules',
-      header: 'Модули',
-      cell: (row: EmployeeWithUser) => (
-        <div className="flex flex-wrap gap-1">
-          {(row.modules || []).map(mod => {
-            const module = MODULES.find(m => m.id === mod)
-            if (!module) return null
-            const Icon = module.icon
-            return (
-              <Badge key={mod} variant="outline" className="text-xs">
-                <Icon className={`h-3 w-3 mr-1 ${module.color}`} />
-                {module.label}
-              </Badge>
-            )
-          })}
-          {(!row.modules || row.modules.length === 0) && (
-            <span className="text-muted-foreground text-xs">-</span>
-          )}
-        </div>
-      ),
+      header: 'Доступ к модулям',
+      cell: (row: EmployeeWithUser) => {
+        const access = row.computed_module_access || {}
+        return (
+          <div className="flex flex-wrap gap-1">
+            {MODULES.map(mod => {
+              const level = access[mod.id] || 'none'
+              if (level === 'none') return null
+              const Icon = mod.icon
+              const accessInfo = ACCESS_LEVELS.find(a => a.level === level)
+              return (
+                <Badge key={mod.id} variant="outline" className={`text-xs ${accessInfo?.color}`}>
+                  <Icon className={`h-3 w-3 mr-1 ${mod.color}`} />
+                  {accessInfo?.label}
+                </Badge>
+              )
+            })}
+            {Object.values(access).every(l => l === 'none' || !l) && (
+              <span className="text-muted-foreground text-xs">Нет доступа</span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'contact',
@@ -512,10 +670,6 @@ export function TeamManager() {
               <Users className="h-4 w-4" />
               Сотрудники
             </TabsTrigger>
-            <TabsTrigger value="roles" className="flex items-center gap-2">
-              <Shield className="h-4 w-4" />
-              Роли
-            </TabsTrigger>
             <TabsTrigger value="salary" className="flex items-center gap-2">
               <Wallet className="h-4 w-4" />
               Зарплаты
@@ -538,64 +692,6 @@ export function TeamManager() {
                 <AddBonusDialog />
               </>
             )}
-            {activeTab === 'roles' && (
-              <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button size="sm">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Назначить роль
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Назначить роль пользователю</DialogTitle>
-                    <DialogDescription>
-                      Выберите пользователя и роль для назначения
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4 pt-4">
-                    <div className="space-y-2">
-                      <Label>Пользователь</Label>
-                      <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите пользователя" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {users.map(u => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.email}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <div className="space-y-2">
-                      <Label>Роль</Label>
-                      <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Выберите роль" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {roles.map(r => (
-                            <SelectItem key={r.id} value={r.id}>
-                              <div className="flex items-center gap-2">
-                                <Badge className={getRoleColor(r.code)}>{r.code}</Badge>
-                                <span>{r.name}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    
-                    <Button onClick={assignRole} className="w-full">
-                      Назначить
-                    </Button>
-                  </div>
-                </DialogContent>
-              </Dialog>
-            )}
           </div>
         </div>
         
@@ -613,109 +709,28 @@ export function TeamManager() {
           </Card>
         </TabsContent>
         
-        {/* Роли */}
-        <TabsContent value="roles">
-          <Card>
-            <CardContent className="pt-6">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Пользователь</TableHead>
-                    <TableHead>Роли</TableHead>
-                    <TableHead>Сотрудник</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {users.map(user => {
-                    const employee = employees.find(e => e.user_id === user.id)
-                    return (
-                      <TableRow key={user.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Users className="h-4 w-4 text-muted-foreground" />
-                            <span>{user.email}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {user.roles.length > 0 ? (
-                              user.roles.map(role => (
-                                <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
-                                  {role.name}
-                                </Badge>
-                              ))
-                            ) : (
-                              <span className="text-muted-foreground text-sm">Нет ролей</span>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {employee ? (
-                            <span className="text-sm">{employee.full_name}</span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">Не привязан</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1 justify-end">
-                            {user.roles.map(role => (
-                              <Button
-                                key={role.id}
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => removeRole(user.id, role.id)}
-                                className="h-6 w-6 text-red-400 hover:text-red-300"
-                                title={`Удалить роль ${role.name}`}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </Button>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  {users.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                        Нет пользователей
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-              
-              {/* Справка по ролям */}
-              <div className="mt-6 p-4 rounded-lg bg-secondary/30 border border-border">
-                <h4 className="text-sm font-medium mb-3">Доступные роли:</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  {roles.map(role => (
-                    <div key={role.id} className="flex items-start gap-2">
-                      <Badge variant="outline" className={getRoleColor(role.code)}>{role.code}</Badge>
-                      <div>
-                        <p className="text-sm font-medium">{role.name}</p>
-                        <p className="text-xs text-muted-foreground">{role.description}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-        
         {/* Должности -> Роли по умолчанию */}
         <TabsContent value="positions">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5 text-amber-400" />
-                Маппинг должностей к RBAC ролям
-              </CardTitle>
-              <CardDescription>
-                При назначении должности сотруднику предлагаются роли по умолчанию. Можно применить автоматически или изменить вручную.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5 text-amber-400" />
+                  Маппинг должностей к RBAC ролям
+                </CardTitle>
+                <CardDescription>
+                  При назначении должности сотруднику предлагаются роли по умолчанию
+                </CardDescription>
+              </div>
+              <Button onClick={() => {
+                setEditingPosition(null)
+                setPositionName('')
+                setPositionRoleIds([])
+                setIsPositionDialogOpen(true)
+              }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Добавить должность
+              </Button>
             </CardHeader>
             <CardContent>
               <Table>
@@ -723,32 +738,47 @@ export function TeamManager() {
                   <TableRow>
                     <TableHead>Должность</TableHead>
                     <TableHead>Роли по умолчанию</TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {Array.from(new Set(positionDefaults.map(pd => pd.position))).map(position => {
-                    const rolesForPosition = positionDefaults
-                      .filter(pd => pd.position === position)
-                      .map(pd => pd.role)
-                      .filter((r): r is SystemRole => r !== undefined)
-                    return (
-                      <TableRow key={position}>
-                        <TableCell className="font-medium">{position}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {rolesForPosition.map(role => (
-                              <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
-                                {role.name}
-                              </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  {positionDefaults.length === 0 && (
+                  {groupedPositions.map(({ position, roles: posRoles }) => (
+                    <TableRow key={position}>
+                      <TableCell className="font-medium">{position}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {posRoles.map(role => (
+                            <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                              {role.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditPosition(position, posRoles.map(r => r.id))}
+                            className="h-8 w-8"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeletePosition(position)}
+                            className="h-8 w-8 text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {groupedPositions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={2} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
                         Маппинг должностей не настроен
                       </TableCell>
                     </TableRow>
@@ -762,7 +792,7 @@ export function TeamManager() {
                   <li>1. Должность (position) - это HR/организационная роль сотрудника</li>
                   <li>2. RBAC роли - это права доступа в системе</li>
                   <li>3. При выборе должности в карточке сотрудника показываются рекомендуемые роли</li>
-                  <li>4. Роли можно применить одной кнопкой или настроить вручную</li>
+                  <li>4. Роли можно применить одной кнопкой или настроить вручную (не удаляя существующие)</li>
                 </ul>
               </div>
             </CardContent>
@@ -841,9 +871,9 @@ export function TeamManager() {
         </TabsContent>
       </Tabs>
       
-      {/* Диалог редактирования сотрудника */}
+      {/* Диалог редактирования сотрудника - единый центр управления */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Редактирование сотрудника</DialogTitle>
             <DialogDescription>
@@ -901,32 +931,41 @@ export function TeamManager() {
                 />
               </div>
               
+              {/* Доступ к модулям B3 (устанавливает preset роли) */}
               <div className="space-y-2">
-                <Label>Модули доступа</Label>
-                <div className="grid grid-cols-2 gap-2 p-3 rounded-lg bg-secondary/30">
+                <Label>Доступ к модулям</Label>
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-secondary/30">
                   {MODULES.map(mod => {
                     const Icon = mod.icon
-                    const isChecked = (editingEmployee.modules || []).includes(mod.id)
+                    const level = editingEmployee.computed_module_access?.[mod.id] || 'none'
                     return (
-                      <div key={mod.id} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`module-${mod.id}`}
-                          checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            const newModules = checked 
-                              ? [...(editingEmployee.modules || []), mod.id]
-                              : (editingEmployee.modules || []).filter(m => m !== mod.id)
-                            setEditingEmployee({ ...editingEmployee, modules: newModules })
-                          }}
-                        />
-                        <label htmlFor={`module-${mod.id}`} className="flex items-center gap-1 text-sm cursor-pointer">
+                      <div key={mod.id} className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 text-sm">
                           <Icon className={`h-4 w-4 ${mod.color}`} />
                           {mod.label}
-                        </label>
+                        </div>
+                        <Select
+                          value={level}
+                          onValueChange={(val) => handleModuleAccessChange(mod.id, val as ModuleAccessLevel)}
+                        >
+                          <SelectTrigger className="w-32 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ACCESS_LEVELS.map(al => (
+                              <SelectItem key={al.level} value={al.level}>
+                                {al.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )
                   })}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  При изменении уровня автоматически назначаются соответствующие preset-роли модуля
+                </p>
               </div>
               
               <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
@@ -943,28 +982,92 @@ export function TeamManager() {
                 />
               </div>
               
-              {/* Блок RBAC ролей */}
+              {/* Блок RBAC ролей - source of truth через employee_roles */}
               <div className="space-y-3 p-3 rounded-lg border border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-base">RBAC роли (права доступа)</Label>
-                  {!editingEmployee.auth_user_id && !editingEmployee.user_id && (
-                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
-                      Не привязан к Auth
+                  <Label className="text-base">Роли RBAC</Label>
+                  {editingEmployee.auth_user_id && (
+                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                      Синхр. с Auth
                     </Badge>
                   )}
                 </div>
                 
-                {/* Текущие роли */}
+                {/* Текущие роли с возможностью удаления */}
                 <div className="flex flex-wrap gap-1">
                   {(editingEmployee.system_roles || []).length > 0 ? (
                     editingEmployee.system_roles!.map(role => (
-                      <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                      <Badge key={role.id} variant="outline" className={`${getRoleColor(role.code)} pr-1`}>
                         {role.name}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 ml-1 p-0 hover:bg-red-500/20"
+                          onClick={async () => {
+                            await removeRole(editingEmployee.id, role.id)
+                            // Обновляем локальное состояние
+                            setEditingEmployee(prev => prev ? {
+                              ...prev,
+                              system_roles: prev.system_roles?.filter(r => r.id !== role.id)
+                            } : null)
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3 text-red-400" />
+                        </Button>
                       </Badge>
                     ))
                   ) : (
                     <span className="text-sm text-muted-foreground">Нет назначенных ролей</span>
                   )}
+                </div>
+                
+                {/* Добавить роль */}
+                <div className="flex gap-2">
+                  <Select value={selectedRoleId} onValueChange={setSelectedRoleId}>
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Добавить роль..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles
+                        .filter(r => !editingEmployee.system_roles?.some(sr => sr.id === r.id))
+                        .map(r => (
+                          <SelectItem key={r.id} value={r.id}>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="outline" className={`${getRoleColor(r.code)} text-xs`}>{r.code}</Badge>
+                              <span>{r.name}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!selectedRoleId}
+                    onClick={async () => {
+                      if (!selectedRoleId) return
+                      try {
+                        await supabase
+                          .from('employee_roles')
+                          .insert({ employee_id: editingEmployee.id, role_id: selectedRoleId })
+                        const addedRole = roles.find(r => r.id === selectedRoleId)
+                        if (addedRole) {
+                          setEditingEmployee(prev => prev ? {
+                            ...prev,
+                            system_roles: [...(prev.system_roles || []), addedRole]
+                          } : null)
+                        }
+                        setSelectedRoleId('')
+                        toast.success('Роль назначена')
+                        loadData()
+                      } catch {
+                        toast.error('Ошибка назначения роли')
+                      }
+                    }}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
                 </div>
                 
                 {/* Роли по умолчанию для должности */}
@@ -985,12 +1088,76 @@ export function TeamManager() {
                       variant="outline"
                       size="sm"
                       onClick={applyDefaultRoles}
-                      disabled={!editingEmployee.auth_user_id && !editingEmployee.user_id}
                       className="w-full mt-2 bg-transparent"
                     >
                       <Plus className="h-3 w-3 mr-1" />
                       Применить роли по умолчанию
                     </Button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Блок Auth / Приглашение */}
+              <div className="space-y-3 p-3 rounded-lg border border-border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base">Авторизация</Label>
+                  {editingEmployee.auth_user_id ? (
+                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                      Привязан к Auth
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
+                      Не привязан
+                    </Badge>
+                  )}
+                </div>
+                
+                {editingEmployee.auth_user_id ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Сотрудник привязан к учетной записи Auth. Роли синхронизируются автоматически.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncRoles}
+                      disabled={isSyncingRoles}
+                      className="w-full bg-transparent"
+                    >
+                      {isSyncingRoles ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Синхронизировать роли
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Сотрудник не привязан к учетной записи. Отправьте приглашение по email для регистрации.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSendInvite}
+                      disabled={isSendingInvite || !editingEmployee.email}
+                      className="w-full bg-transparent"
+                    >
+                      {isSendingInvite ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Mail className="h-3 w-3 mr-1" />
+                      )}
+                      Пригласить по email
+                    </Button>
+                    {!editingEmployee.email && (
+                      <p className="text-xs text-amber-400">
+                        Укажите email сотрудника для отправки приглашения
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
@@ -1003,6 +1170,68 @@ export function TeamManager() {
             </Button>
             <Button onClick={handleUpdateEmployee}>
               Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Диалог редактирования должности */}
+      <Dialog open={isPositionDialogOpen} onOpenChange={setIsPositionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingPosition ? 'Редактировать должность' : 'Добавить должность'}
+            </DialogTitle>
+            <DialogDescription>
+              Настройте роли по умолчанию для должности
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Название должности</Label>
+              <Input
+                value={positionName}
+                onChange={(e) => setPositionName(e.target.value)}
+                placeholder="Например: Менеджер"
+                disabled={!!editingPosition}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Роли по умолчанию</Label>
+              <div className="max-h-60 overflow-y-auto space-y-2 p-3 rounded-lg bg-secondary/30">
+                {roles.map(role => (
+                  <div key={role.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`pos-role-${role.id}`}
+                      checked={positionRoleIds.includes(role.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setPositionRoleIds([...positionRoleIds, role.id])
+                        } else {
+                          setPositionRoleIds(positionRoleIds.filter(id => id !== role.id))
+                        }
+                      }}
+                    />
+                    <label htmlFor={`pos-role-${role.id}`} className="text-sm cursor-pointer flex-1">
+                      <Badge variant="outline" className={`${getRoleColor(role.code)} mr-2`}>
+                        {role.code}
+                      </Badge>
+                      {role.name}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPositionDialogOpen(false)} className="bg-transparent">
+              Отмена
+            </Button>
+            <Button onClick={handleSavePosition}>
+              {editingPosition ? 'Сохранить' : 'Добавить'}
             </Button>
           </DialogFooter>
         </DialogContent>
