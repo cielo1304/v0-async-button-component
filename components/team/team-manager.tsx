@@ -50,6 +50,13 @@ import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
 import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
+import { 
+  setEmployeeModuleAccess, 
+  createEmployeeInvite, 
+  syncEmployeeRoles,
+  setPositionDefaultRoles,
+  deletePositionDefaultRoles
+} from '@/app/actions/team'
 
 // Типы
 interface UserWithRoles {
@@ -98,6 +105,16 @@ export function TeamManager() {
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState('')
+  
+  // Должности
+  const [isPositionDialogOpen, setIsPositionDialogOpen] = useState(false)
+  const [editingPosition, setEditingPosition] = useState<string | null>(null)
+  const [positionName, setPositionName] = useState('')
+  const [positionRoleIds, setPositionRoleIds] = useState<string[]>([])
+  
+  // Приглашения
+  const [isSendingInvite, setIsSendingInvite] = useState(false)
+  const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
   
@@ -371,6 +388,117 @@ export function TeamManager() {
     }
   }
   
+  // Изменение уровня доступа к модулю
+  const handleModuleAccessChange = async (module: BusinessModule, level: ModuleAccessLevel) => {
+    if (!editingEmployee) return
+    
+    try {
+      await setEmployeeModuleAccess(editingEmployee.id, module, level)
+      toast.success(`Уровень доступа к модулю "${module}" изменен`)
+      loadData()
+      // Обновляем локальное состояние
+      setEditingEmployee(prev => prev ? {
+        ...prev,
+        computed_module_access: { ...prev.computed_module_access, [module]: level }
+      } : null)
+    } catch (err) {
+      toast.error('Ошибка изменения доступа')
+    }
+  }
+  
+  // Отправка приглашения по email
+  const handleSendInvite = async () => {
+    if (!editingEmployee?.email) {
+      toast.error('У сотрудника не указан email')
+      return
+    }
+    
+    setIsSendingInvite(true)
+    try {
+      await createEmployeeInvite(editingEmployee.id, editingEmployee.email)
+      toast.success('Приглашение отправлено')
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка отправки приглашения')
+    } finally {
+      setIsSendingInvite(false)
+    }
+  }
+  
+  // Синхронизация ролей с auth
+  const handleSyncRoles = async () => {
+    if (!editingEmployee?.auth_user_id) {
+      toast.error('Сотрудник не привязан к пользователю Auth')
+      return
+    }
+    
+    setIsSyncingRoles(true)
+    try {
+      await syncEmployeeRoles(editingEmployee.id)
+      toast.success('Роли синхронизированы')
+    } catch (err) {
+      toast.error('Ошибка синхронизации ролей')
+    } finally {
+      setIsSyncingRoles(false)
+    }
+  }
+  
+  // Сохранение должности с ролями по умолчанию
+  const handleSavePosition = async () => {
+    if (!positionName.trim()) {
+      toast.error('Введите название должности')
+      return
+    }
+    
+    try {
+      await setPositionDefaultRoles(positionName.trim(), positionRoleIds)
+      toast.success(editingPosition ? 'Должность обновлена' : 'Должность добавлена')
+      setIsPositionDialogOpen(false)
+      setEditingPosition(null)
+      setPositionName('')
+      setPositionRoleIds([])
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка сохранения должности')
+    }
+  }
+  
+  // Удаление должности
+  const handleDeletePosition = async (position: string) => {
+    if (!confirm(`Удалить должность "${position}" и все связанные роли по умолчанию?`)) return
+    
+    try {
+      await deletePositionDefaultRoles(position)
+      toast.success('Должность удалена')
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка удаления должности')
+    }
+  }
+  
+  // Открыть диалог редактирования должности
+  const openEditPosition = (position: string, roleIds: string[]) => {
+    setEditingPosition(position)
+    setPositionName(position)
+    setPositionRoleIds(roleIds)
+    setIsPositionDialogOpen(true)
+  }
+  
+  // Группировка должностей из position_default_roles
+  const groupedPositions = useMemo(() => {
+    const map = new Map<string, { position: string; roles: SystemRole[] }>()
+    positionDefaults.forEach(pd => {
+      const role = roles.find(r => r.id === pd.system_role_id)
+      if (!map.has(pd.position)) {
+        map.set(pd.position, { position: pd.position, roles: [] })
+      }
+      if (role) {
+        map.get(pd.position)!.roles.push(role)
+      }
+    })
+    return Array.from(map.values())
+  }, [positionDefaults, roles])
+  
   // Цвет роли
   const getRoleColor = (code: string) => {
     switch (code) {
@@ -378,7 +506,13 @@ export function TeamManager() {
       case 'MANAGER': return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
       case 'ACCOUNTANT': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
       case 'CASHIER': return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
-      default: return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30'
+      default: 
+        // Модульные роли
+        if (code?.includes('EXCHANGE')) return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30'
+        if (code?.includes('AUTO')) return 'bg-violet-500/20 text-violet-400 border-violet-500/30'
+        if (code?.includes('DEALS')) return 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+        if (code?.includes('STOCK')) return 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+        return 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30'
     }
   }
   
@@ -824,14 +958,25 @@ export function TeamManager() {
         {/* Должности -> Роли по умолчанию */}
         <TabsContent value="positions">
           <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5 text-amber-400" />
-                Маппинг должностей к RBAC ролям
-              </CardTitle>
-              <CardDescription>
-                При назначении должности сотруднику предлагаются роли по умолчанию. Можно применить автоматически или изменить вручную.
-              </CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Briefcase className="h-5 w-5 text-amber-400" />
+                  Маппинг должностей к RBAC ролям
+                </CardTitle>
+                <CardDescription>
+                  При назначении должности сотруднику предлагаются роли по умолчанию
+                </CardDescription>
+              </div>
+              <Button onClick={() => {
+                setEditingPosition(null)
+                setPositionName('')
+                setPositionRoleIds([])
+                setIsPositionDialogOpen(true)
+              }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Добавить должность
+              </Button>
             </CardHeader>
             <CardContent>
               <Table>
@@ -839,32 +984,47 @@ export function TeamManager() {
                   <TableRow>
                     <TableHead>Должность</TableHead>
                     <TableHead>Роли по умолчанию</TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {Array.from(new Set(positionDefaults.map(pd => pd.position))).map(position => {
-                    const rolesForPosition = positionDefaults
-                      .filter(pd => pd.position === position)
-                      .map(pd => pd.role)
-                      .filter((r): r is SystemRole => r !== undefined)
-                    return (
-                      <TableRow key={position}>
-                        <TableCell className="font-medium">{position}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {rolesForPosition.map(role => (
-                              <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
-                                {role.name}
-                              </Badge>
-                            ))}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                  {positionDefaults.length === 0 && (
+                  {groupedPositions.map(({ position, roles: posRoles }) => (
+                    <TableRow key={position}>
+                      <TableCell className="font-medium">{position}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {posRoles.map(role => (
+                            <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                              {role.name}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 justify-end">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => openEditPosition(position, posRoles.map(r => r.id))}
+                            className="h-8 w-8"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleDeletePosition(position)}
+                            className="h-8 w-8 text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  {groupedPositions.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={2} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
                         Маппинг должностей не настроен
                       </TableCell>
                     </TableRow>
@@ -878,7 +1038,7 @@ export function TeamManager() {
                   <li>1. Должность (position) - это HR/организационная роль сотрудника</li>
                   <li>2. RBAC роли - это права доступа в системе</li>
                   <li>3. При выборе должности в карточке сотрудника показываются рекомендуемые роли</li>
-                  <li>4. Роли можно применить одной кнопкой или настроить вручную</li>
+                  <li>4. Роли можно применить одной кнопкой или настроить вручную (не удаляя существующие)</li>
                 </ul>
               </div>
             </CardContent>
@@ -1017,29 +1177,40 @@ export function TeamManager() {
                 />
               </div>
               
-              {/* Вычисленный доступ к модулям (read-only, определяется ролями) */}
+              {/* Доступ к модулям B3 (устанавливает preset роли) */}
               <div className="space-y-2">
-                <Label>Доступ к модулям (определяется ролями)</Label>
-                <div className="grid grid-cols-2 gap-2 p-3 rounded-lg bg-secondary/30">
+                <Label>Доступ к модулям</Label>
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-secondary/30">
                   {MODULES.map(mod => {
                     const Icon = mod.icon
                     const level = editingEmployee.computed_module_access?.[mod.id] || 'none'
-                    const accessInfo = ACCESS_LEVELS.find(a => a.level === level)
                     return (
-                      <div key={mod.id} className="flex items-center justify-between">
+                      <div key={mod.id} className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1 text-sm">
                           <Icon className={`h-4 w-4 ${mod.color}`} />
                           {mod.label}
                         </div>
-                        <Badge variant="outline" className={`text-xs ${accessInfo?.color}`}>
-                          {accessInfo?.label}
-                        </Badge>
+                        <Select
+                          value={level}
+                          onValueChange={(val) => handleModuleAccessChange(mod.id, val as ModuleAccessLevel)}
+                        >
+                          <SelectTrigger className="w-32 h-8">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ACCESS_LEVELS.map(al => (
+                              <SelectItem key={al.level} value={al.level}>
+                                {al.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Уровень доступа определяется автоматически на основе назначенных ролей RBAC
+                  При изменении уровня автоматически назначаются соответствующие preset-роли модуля
                 </p>
               </div>
               
@@ -1116,6 +1287,71 @@ export function TeamManager() {
                   </div>
                 )}
               </div>
+              
+              {/* Блок Auth / Приглашение */}
+              <div className="space-y-3 p-3 rounded-lg border border-border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base">Авторизация</Label>
+                  {editingEmployee.auth_user_id ? (
+                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                      Привязан к Auth
+                    </Badge>
+                  ) : (
+                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
+                      Не привязан
+                    </Badge>
+                  )}
+                </div>
+                
+                {editingEmployee.auth_user_id ? (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Сотрудник привязан к учетной записи Auth. Роли синхронизируются автоматически.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSyncRoles}
+                      disabled={isSyncingRoles}
+                      className="w-full bg-transparent"
+                    >
+                      {isSyncingRoles ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                      )}
+                      Синхронизировать роли
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">
+                      Сотрудник не привязан к учетной записи. Отправьте приглашение по email для регистрации.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSendInvite}
+                      disabled={isSendingInvite || !editingEmployee.email}
+                      className="w-full bg-transparent"
+                    >
+                      {isSendingInvite ? (
+                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                      ) : (
+                        <Mail className="h-3 w-3 mr-1" />
+                      )}
+                      Пригласить по email
+                    </Button>
+                    {!editingEmployee.email && (
+                      <p className="text-xs text-amber-400">
+                        Укажите email сотрудника для отправки приглашения
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
           
@@ -1125,6 +1361,68 @@ export function TeamManager() {
             </Button>
             <Button onClick={handleUpdateEmployee}>
               Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Диалог редактирования должности */}
+      <Dialog open={isPositionDialogOpen} onOpenChange={setIsPositionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingPosition ? 'Редактировать должность' : 'Добавить должность'}
+            </DialogTitle>
+            <DialogDescription>
+              Настройте роли по умолчанию для должности
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+              <Label>Название должности</Label>
+              <Input
+                value={positionName}
+                onChange={(e) => setPositionName(e.target.value)}
+                placeholder="Например: Менеджер"
+                disabled={!!editingPosition}
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Роли по умолчанию</Label>
+              <div className="max-h-60 overflow-y-auto space-y-2 p-3 rounded-lg bg-secondary/30">
+                {roles.map(role => (
+                  <div key={role.id} className="flex items-center gap-2">
+                    <Checkbox
+                      id={`pos-role-${role.id}`}
+                      checked={positionRoleIds.includes(role.id)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setPositionRoleIds([...positionRoleIds, role.id])
+                        } else {
+                          setPositionRoleIds(positionRoleIds.filter(id => id !== role.id))
+                        }
+                      }}
+                    />
+                    <label htmlFor={`pos-role-${role.id}`} className="text-sm cursor-pointer flex-1">
+                      <Badge variant="outline" className={`${getRoleColor(role.code)} mr-2`}>
+                        {role.code}
+                      </Badge>
+                      {role.name}
+                    </label>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPositionDialogOpen(false)} className="bg-transparent">
+              Отмена
+            </Button>
+            <Button onClick={handleSavePosition}>
+              {editingPosition ? 'Сохранить' : 'Добавить'}
             </Button>
           </DialogFooter>
         </DialogContent>
