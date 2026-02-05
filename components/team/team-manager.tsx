@@ -41,7 +41,11 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Employee, SystemRole, PositionDefaultRole } from '@/lib/types/database'
+import { 
+  Employee, SystemRole, PositionDefaultRole, EmployeeRole,
+  BusinessModule, ModuleAccessLevel, ModuleAccess 
+} from '@/lib/types/database'
+import { getModuleAccessLevelFromRoles } from '@/lib/access'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
@@ -57,14 +61,24 @@ interface UserWithRoles {
 interface EmployeeWithUser extends Employee {
   user_email?: string
   system_roles?: SystemRole[]
+  employee_roles?: EmployeeRole[]
+  computed_module_access?: ModuleAccess
 }
 
-// Константы модулей
-const MODULES = [
+// Константы модулей B3
+const MODULES: { id: BusinessModule; label: string; icon: typeof ArrowLeftRight; color: string }[] = [
   { id: 'exchange', label: 'Обмен валют', icon: ArrowLeftRight, color: 'text-cyan-400' },
   { id: 'deals', label: 'Сделки', icon: Briefcase, color: 'text-amber-400' },
   { id: 'auto', label: 'Автоплощадка', icon: Car, color: 'text-violet-400' },
   { id: 'stock', label: 'Склад', icon: Package, color: 'text-blue-400' },
+]
+
+// Уровни доступа к модулям
+const ACCESS_LEVELS: { level: ModuleAccessLevel; label: string; color: string }[] = [
+  { level: 'none', label: 'Нет', color: 'bg-zinc-500/20 text-zinc-400 border-zinc-500/30' },
+  { level: 'view', label: 'Просмотр', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
+  { level: 'work', label: 'Работа', color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+  { level: 'manage', label: 'Управление', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
 ]
 
 export function TeamManager() {
@@ -106,7 +120,19 @@ export function TeamManager() {
       // Загрузка текущего пользователя
       const { data: { user: currentUser } } = await supabase.auth.getUser()
       
-      // Загрузка user_roles
+      // Загрузка employee_roles (source of truth)
+      const { data: employeeRolesData } = await supabase
+        .from('employee_roles')
+        .select(`
+          id,
+          employee_id,
+          role_id,
+          assigned_at,
+          assigned_by,
+          system_roles (*)
+        `)
+      
+      // Также загружаем user_roles для совместимости
       const { data: userRolesData } = await supabase
         .from('user_roles')
         .select(`
@@ -152,14 +178,45 @@ export function TeamManager() {
         }
       })
       
+      // Группируем employee_roles по employee_id
+      const employeeRolesMap = new Map<string, EmployeeRole[]>()
+      employeeRolesData?.forEach(er => {
+        const empId = er.employee_id
+        if (!employeeRolesMap.has(empId)) {
+          employeeRolesMap.set(empId, [])
+        }
+        employeeRolesMap.get(empId)!.push({
+          id: er.id,
+          employee_id: er.employee_id,
+          role_id: er.role_id,
+          assigned_at: er.assigned_at,
+          assigned_by: er.assigned_by,
+          role: er.system_roles as SystemRole
+        })
+      })
+      
       // Добавляем информацию о ролях к сотрудникам
       const employeesWithRoles: EmployeeWithUser[] = (employeesData || []).map(emp => {
-        const userInfo = emp.user_id ? usersMap.get(emp.user_id) : null
+        const userInfo = emp.user_id ? usersMap.get(emp.user_id) : 
+                        emp.auth_user_id ? usersMap.get(emp.auth_user_id) : null
+        const empRoles = employeeRolesMap.get(emp.id) || []
+        const systemRoles = empRoles.map(er => er.role).filter((r): r is SystemRole => r !== undefined)
+        
+        // Вычисляем доступ к модулям на основе ролей
+        const computedModuleAccess: ModuleAccess = {
+          exchange: getModuleAccessLevelFromRoles(systemRoles, 'exchange'),
+          auto: getModuleAccessLevelFromRoles(systemRoles, 'auto'),
+          deals: getModuleAccessLevelFromRoles(systemRoles, 'deals'),
+          stock: getModuleAccessLevelFromRoles(systemRoles, 'stock'),
+        }
+        
         return {
           ...emp,
           modules: emp.modules || [],
           user_email: userInfo?.email,
-          system_roles: userInfo?.roles || []
+          system_roles: systemRoles,
+          employee_roles: empRoles,
+          computed_module_access: computedModuleAccess
         }
       })
       
@@ -212,24 +269,26 @@ export function TeamManager() {
     }
   }
   
-  // Назначение роли
+  // Назначение роли сотруднику (через employee_roles)
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('')
+  
   const assignRole = async () => {
-    if (!selectedUserId || !selectedRoleId) {
-      toast.error('Выберите пользователя и роль')
+    if (!selectedEmployeeId || !selectedRoleId) {
+      toast.error('Выберите сотрудника и роль')
       return
     }
     
     try {
       const { error } = await supabase
-        .from('user_roles')
+        .from('employee_roles')
         .insert({
-          user_id: selectedUserId,
+          employee_id: selectedEmployeeId,
           role_id: selectedRoleId
         })
       
       if (error) {
         if (error.code === '23505') {
-          toast.error('У пользователя уже есть эта роль')
+          toast.error('У сотрудника уже есть эта роль')
         } else {
           throw error
         }
@@ -238,7 +297,7 @@ export function TeamManager() {
       
       toast.success('Роль назначена')
       setIsRoleDialogOpen(false)
-      setSelectedUserId('')
+      setSelectedEmployeeId('')
       setSelectedRoleId('')
       loadData()
     } catch {
@@ -263,14 +322,13 @@ export function TeamManager() {
     }
   }, [editingEmployee, getDefaultRolesForPosition])
   
-  // Применить роли по умолчанию к сотруднику
+  // Применить роли по умолчанию к сотруднику (через employee_roles)
   const applyDefaultRoles = async () => {
-    if (!editingEmployee?.auth_user_id && !editingEmployee?.user_id) {
-      toast.error('Сотрудник не привязан к пользователю системы')
+    if (!editingEmployee) {
+      toast.error('Сотрудник не выбран')
       return
     }
     
-    const userId = editingEmployee.auth_user_id || editingEmployee.user_id
     const currentRoleIds = editingEmployee.system_roles?.map(r => r.id) || []
     const rolesToAdd = editingEmployeeDefaultRoles.filter(r => !currentRoleIds.includes(r.id))
     
@@ -282,26 +340,26 @@ export function TeamManager() {
     try {
       for (const role of rolesToAdd) {
         await supabase
-          .from('user_roles')
-          .insert({ user_id: userId, role_id: role.id })
-          .single()
+          .from('employee_roles')
+          .insert({ employee_id: editingEmployee.id, role_id: role.id })
       }
       toast.success(`Назначено ${rolesToAdd.length} роль(ей)`)
+      setIsEditDialogOpen(false)
       loadData()
     } catch {
       toast.error('Ошибка назначения ролей')
     }
   }
 
-  // Удаление роли
-  const removeRole = async (userId: string, roleId: string) => {
-    if (!confirm('Удалить эту роль у пользователя?')) return
+  // Удаление роли у сотрудника (через employee_roles)
+  const removeRole = async (employeeId: string, roleId: string) => {
+    if (!confirm('Удалить эту роль у сотрудника?')) return
     
     try {
       const { error } = await supabase
-        .from('user_roles')
+        .from('employee_roles')
         .delete()
-        .eq('user_id', userId)
+        .eq('employee_id', employeeId)
         .eq('role_id', roleId)
       
       if (error) throw error
@@ -349,25 +407,29 @@ export function TeamManager() {
     },
     {
       key: 'modules',
-      header: 'Модули',
-      cell: (row: EmployeeWithUser) => (
-        <div className="flex flex-wrap gap-1">
-          {(row.modules || []).map(mod => {
-            const module = MODULES.find(m => m.id === mod)
-            if (!module) return null
-            const Icon = module.icon
-            return (
-              <Badge key={mod} variant="outline" className="text-xs">
-                <Icon className={`h-3 w-3 mr-1 ${module.color}`} />
-                {module.label}
-              </Badge>
-            )
-          })}
-          {(!row.modules || row.modules.length === 0) && (
-            <span className="text-muted-foreground text-xs">-</span>
-          )}
-        </div>
-      ),
+      header: 'Доступ к модулям',
+      cell: (row: EmployeeWithUser) => {
+        const access = row.computed_module_access || {}
+        return (
+          <div className="flex flex-wrap gap-1">
+            {MODULES.map(mod => {
+              const level = access[mod.id] || 'none'
+              if (level === 'none') return null
+              const Icon = mod.icon
+              const accessInfo = ACCESS_LEVELS.find(a => a.level === level)
+              return (
+                <Badge key={mod.id} variant="outline" className={`text-xs ${accessInfo?.color}`}>
+                  <Icon className={`h-3 w-3 mr-1 ${mod.color}`} />
+                  {accessInfo?.label}
+                </Badge>
+              )
+            })}
+            {Object.values(access).every(l => l === 'none' || !l) && (
+              <span className="text-muted-foreground text-xs">Нет доступа</span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'contact',
@@ -548,22 +610,22 @@ export function TeamManager() {
                 </DialogTrigger>
                 <DialogContent>
                   <DialogHeader>
-                    <DialogTitle>Назначить роль пользователю</DialogTitle>
+                    <DialogTitle>Назначить роль сотруднику</DialogTitle>
                     <DialogDescription>
-                      Выберите пользователя и роль для назначения
+                      Выберите сотрудника и роль для назначения. Роли назначаются сотрудникам напрямую.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 pt-4">
                     <div className="space-y-2">
-                      <Label>Пользователь</Label>
-                      <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+                      <Label>Сотрудник</Label>
+                      <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Выберите пользователя" />
+                          <SelectValue placeholder="Выберите сотрудника" />
                         </SelectTrigger>
                         <SelectContent>
-                          {users.map(u => (
-                            <SelectItem key={u.id} value={u.id}>
-                              {u.email}
+                          {employees.filter(e => e.is_active).map(emp => (
+                            <SelectItem key={emp.id} value={emp.id}>
+                              {emp.full_name} {emp.position ? `(${emp.position})` : ''}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -620,27 +682,39 @@ export function TeamManager() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Пользователь</TableHead>
-                    <TableHead>Роли</TableHead>
                     <TableHead>Сотрудник</TableHead>
+                    <TableHead>Должность</TableHead>
+                    <TableHead>Роли RBAC</TableHead>
+                    <TableHead>Доступ к модулям</TableHead>
                     <TableHead></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {users.map(user => {
-                    const employee = employees.find(e => e.user_id === user.id)
+                  {employees.filter(e => e.is_active).map(emp => {
+                    const empRoles = emp.system_roles || []
+                    const access = emp.computed_module_access || {}
                     return (
-                      <TableRow key={user.id}>
+                      <TableRow key={emp.id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <Users className="h-4 w-4 text-muted-foreground" />
-                            <span>{user.email}</span>
+                            <div>
+                              <span className="font-medium">{emp.full_name}</span>
+                              {emp.auth_user_id && (
+                                <Badge variant="outline" className="ml-2 text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                                  Auth
+                                </Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
+                          <span className="text-sm text-muted-foreground">{emp.position || '-'}</span>
+                        </TableCell>
+                        <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {user.roles.length > 0 ? (
-                              user.roles.map(role => (
+                            {empRoles.length > 0 ? (
+                              empRoles.map(role => (
                                 <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
                                   {role.name}
                                 </Badge>
@@ -651,20 +725,30 @@ export function TeamManager() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {employee ? (
-                            <span className="text-sm">{employee.full_name}</span>
-                          ) : (
-                            <span className="text-muted-foreground text-sm">Не привязан</span>
-                          )}
+                          <div className="flex flex-wrap gap-1">
+                            {MODULES.map(mod => {
+                              const level = access[mod.id] || 'none'
+                              if (level === 'none') return null
+                              const Icon = mod.icon
+                              return (
+                                <span key={mod.id} className="flex items-center gap-0.5 text-xs text-muted-foreground">
+                                  <Icon className={`h-3 w-3 ${mod.color}`} />
+                                </span>
+                              )
+                            })}
+                            {Object.values(access).every(l => l === 'none' || !l) && (
+                              <span className="text-muted-foreground text-xs">-</span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-1 justify-end">
-                            {user.roles.map(role => (
+                            {empRoles.map(role => (
                               <Button
                                 key={role.id}
                                 variant="ghost"
                                 size="icon"
-                                onClick={() => removeRole(user.id, role.id)}
+                                onClick={() => removeRole(emp.id, role.id)}
                                 className="h-6 w-6 text-red-400 hover:text-red-300"
                                 title={`Удалить роль ${role.name}`}
                               >
@@ -676,29 +760,61 @@ export function TeamManager() {
                       </TableRow>
                     )
                   })}
-                  {users.length === 0 && (
+                  {employees.filter(e => e.is_active).length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                        Нет пользователей
+                      <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                        Нет активных сотрудников
                       </TableCell>
                     </TableRow>
                   )}
                 </TableBody>
               </Table>
               
-              {/* Справка по ролям */}
-              <div className="mt-6 p-4 rounded-lg bg-secondary/30 border border-border">
-                <h4 className="text-sm font-medium mb-3">Доступные роли:</h4>
-                <div className="grid grid-cols-2 gap-3">
-                  {roles.map(role => (
-                    <div key={role.id} className="flex items-start gap-2">
-                      <Badge variant="outline" className={getRoleColor(role.code)}>{role.code}</Badge>
-                      <div>
-                        <p className="text-sm font-medium">{role.name}</p>
-                        <p className="text-xs text-muted-foreground">{role.description}</p>
+              {/* Справка по ролям - группировка по модулям */}
+              <div className="mt-6 space-y-4">
+                {/* Системные роли */}
+                <div className="p-4 rounded-lg bg-secondary/30 border border-border">
+                  <h4 className="text-sm font-medium mb-3">Системные роли:</h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    {roles.filter(r => r.module === 'system' || !r.module).map(role => (
+                      <div key={role.id} className="flex items-start gap-2">
+                        <Badge variant="outline" className={getRoleColor(role.code)}>{role.code}</Badge>
+                        <div>
+                          <p className="text-sm font-medium">{role.name}</p>
+                          <p className="text-xs text-muted-foreground">{role.description}</p>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </div>
+                
+                {/* Роли по модулям B3 */}
+                <div className="p-4 rounded-lg bg-secondary/30 border border-border">
+                  <h4 className="text-sm font-medium mb-3">Роли модулей B3:</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {MODULES.map(mod => {
+                      const moduleRoles = roles.filter(r => r.module === mod.id)
+                      const Icon = mod.icon
+                      return (
+                        <div key={mod.id} className="space-y-2">
+                          <div className="flex items-center gap-1 text-sm font-medium">
+                            <Icon className={`h-4 w-4 ${mod.color}`} />
+                            {mod.label}
+                          </div>
+                          <div className="space-y-1">
+                            {moduleRoles.map(role => (
+                              <div key={role.id} className="text-xs text-muted-foreground">
+                                {role.code?.replace(`${mod.id.toUpperCase()}_`, '')}
+                              </div>
+                            ))}
+                            {moduleRoles.length === 0 && (
+                              <div className="text-xs text-muted-foreground">-</div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
             </CardContent>
@@ -901,32 +1017,30 @@ export function TeamManager() {
                 />
               </div>
               
+              {/* Вычисленный доступ к модулям (read-only, определяется ролями) */}
               <div className="space-y-2">
-                <Label>Модули доступа</Label>
+                <Label>Доступ к модулям (определяется ролями)</Label>
                 <div className="grid grid-cols-2 gap-2 p-3 rounded-lg bg-secondary/30">
                   {MODULES.map(mod => {
                     const Icon = mod.icon
-                    const isChecked = (editingEmployee.modules || []).includes(mod.id)
+                    const level = editingEmployee.computed_module_access?.[mod.id] || 'none'
+                    const accessInfo = ACCESS_LEVELS.find(a => a.level === level)
                     return (
-                      <div key={mod.id} className="flex items-center gap-2">
-                        <Checkbox
-                          id={`module-${mod.id}`}
-                          checked={isChecked}
-                          onCheckedChange={(checked) => {
-                            const newModules = checked 
-                              ? [...(editingEmployee.modules || []), mod.id]
-                              : (editingEmployee.modules || []).filter(m => m !== mod.id)
-                            setEditingEmployee({ ...editingEmployee, modules: newModules })
-                          }}
-                        />
-                        <label htmlFor={`module-${mod.id}`} className="flex items-center gap-1 text-sm cursor-pointer">
+                      <div key={mod.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-1 text-sm">
                           <Icon className={`h-4 w-4 ${mod.color}`} />
                           {mod.label}
-                        </label>
+                        </div>
+                        <Badge variant="outline" className={`text-xs ${accessInfo?.color}`}>
+                          {accessInfo?.label}
+                        </Badge>
                       </div>
                     )
                   })}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  Уровень доступа определяется автоматически на основе назначенных ролей RBAC
+                </p>
               </div>
               
               <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
@@ -943,23 +1057,32 @@ export function TeamManager() {
                 />
               </div>
               
-              {/* Блок RBAC ролей */}
+              {/* Блок RBAC ролей - source of truth через employee_roles */}
               <div className="space-y-3 p-3 rounded-lg border border-border">
                 <div className="flex items-center justify-between">
-                  <Label className="text-base">RBAC роли (права доступа)</Label>
-                  {!editingEmployee.auth_user_id && !editingEmployee.user_id && (
-                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
-                      Не привязан к Auth
+                  <Label className="text-base">Роли RBAC</Label>
+                  {editingEmployee.auth_user_id && (
+                    <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                      Синхр. с Auth
                     </Badge>
                   )}
                 </div>
                 
-                {/* Текущие роли */}
+                {/* Текущие роли с возможностью удаления */}
                 <div className="flex flex-wrap gap-1">
                   {(editingEmployee.system_roles || []).length > 0 ? (
                     editingEmployee.system_roles!.map(role => (
-                      <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                      <Badge key={role.id} variant="outline" className={`${getRoleColor(role.code)} pr-1`}>
                         {role.name}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-4 w-4 ml-1 p-0 hover:bg-red-500/20"
+                          onClick={() => removeRole(editingEmployee.id, role.id)}
+                        >
+                          <Trash2 className="h-3 w-3 text-red-400" />
+                        </Button>
                       </Badge>
                     ))
                   ) : (
@@ -985,7 +1108,6 @@ export function TeamManager() {
                       variant="outline"
                       size="sm"
                       onClick={applyDefaultRoles}
-                      disabled={!editingEmployee.auth_user_id && !editingEmployee.user_id}
                       className="w-full mt-2 bg-transparent"
                     >
                       <Plus className="h-3 w-3 mr-1" />

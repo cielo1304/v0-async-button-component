@@ -651,6 +651,88 @@ export interface UserRole {
 }
 
 // ================================================
+// TEAM ACCESS MODULE (HR + RBAC unified)
+// ================================================
+
+// Уровни доступа к модулю B3
+export type ModuleAccessLevel = 'none' | 'view' | 'work' | 'manage'
+
+// Бизнес-модули B3
+export type BusinessModule = 'exchange' | 'auto' | 'deals' | 'stock'
+
+// Область видимости данных (пока только 'all')
+export type VisibilityScope = 'all' | 'own' | 'team' | 'branch'
+
+// Доступ к модулям сотрудника
+export interface ModuleAccess {
+  exchange?: ModuleAccessLevel
+  auto?: ModuleAccessLevel
+  deals?: ModuleAccessLevel
+  stock?: ModuleAccessLevel
+}
+
+// Видимость данных в модулях
+export interface ModuleVisibility {
+  exchange?: { scope: VisibilityScope }
+  auto?: { scope: VisibilityScope }
+  deals?: { scope: VisibilityScope }
+  stock?: { scope: VisibilityScope }
+}
+
+// Назначение роли сотруднику (source of truth)
+export interface EmployeeRole {
+  id: string
+  employee_id: string
+  role_id: string
+  assigned_at: string
+  assigned_by: string | null
+  // Joined data
+  role?: SystemRole
+}
+
+// Статус приглашения сотрудника
+export type InviteStatus = 'draft' | 'sent' | 'accepted' | 'cancelled'
+
+// Приглашение сотрудника в систему
+export interface EmployeeInvite {
+  id: string
+  employee_id: string
+  email: string
+  status: InviteStatus
+  invited_at: string
+  invited_by: string | null
+  token: string | null
+  expires_at: string | null
+}
+
+// Расширенный сотрудник с ролями и доступами
+export interface EmployeeWithAccess extends Employee {
+  roles?: SystemRole[]
+  module_access?: ModuleAccess
+  module_visibility?: ModuleVisibility
+  invite?: EmployeeInvite
+}
+
+// Preset роли по модулям
+export interface ModulePresetRole {
+  module: BusinessModule
+  level: ModuleAccessLevel
+  role: SystemRole
+}
+
+// Результат getCurrentEmployeeAccess
+export interface EmployeeAccessResult {
+  employee: Employee | null
+  roles: SystemRole[]
+  permissions: string[]
+  moduleAccess: ModuleAccess
+  moduleVisibility: ModuleVisibility
+  isAdmin: boolean
+  hasPermission: (permission: string) => boolean
+  canAccessModule: (module: BusinessModule, requiredLevel?: ModuleAccessLevel) => boolean
+}
+
+// ================================================
 // МОДУЛЬ КОНТАКТЫ (ядро клиента для 3 направлений)
 // ================================================
 

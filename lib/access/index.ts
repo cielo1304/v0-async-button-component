@@ -8,7 +8,16 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { ContactModule } from '@/lib/types/database'
+import type { 
+  ContactModule, 
+  BusinessModule, 
+  ModuleAccessLevel,
+  ModuleAccess,
+  ModuleVisibility,
+  Employee,
+  SystemRole,
+  EmployeeAccessResult 
+} from '@/lib/types/database'
 import { CONTACT_PERMISSIONS } from '@/lib/constants/contacts'
 
 // Feature flag: режим "Глаз Бога" по умолчанию
@@ -153,4 +162,217 @@ export function isAccessControlEnabled(): boolean {
  */
 export function isGodMode(perms: Set<Permission>): boolean {
   return perms.has(GOD_MODE_PERMISSION)
+}
+
+// ================================================
+// TEAM ACCESS MODULE - Employee-centric RBAC
+// ================================================
+
+// Уровни доступа по приоритету
+const ACCESS_LEVELS: ModuleAccessLevel[] = ['none', 'view', 'work', 'manage']
+
+/**
+ * Сравнить уровни доступа
+ * @returns true если actualLevel >= requiredLevel
+ */
+export function hasAccessLevel(
+  actualLevel: ModuleAccessLevel | undefined,
+  requiredLevel: ModuleAccessLevel
+): boolean {
+  if (!actualLevel || actualLevel === 'none') return requiredLevel === 'none'
+  const actualIdx = ACCESS_LEVELS.indexOf(actualLevel)
+  const requiredIdx = ACCESS_LEVELS.indexOf(requiredLevel)
+  return actualIdx >= requiredIdx
+}
+
+/**
+ * Получить доступы текущего сотрудника через auth.users
+ * Source of truth: employee_roles + employees.module_access
+ * 
+ * @param supabase - клиент Supabase
+ * @param authUserId - опционально, если уже известен user.id
+ * @returns EmployeeAccessResult
+ */
+export async function getCurrentEmployeeAccess(
+  supabase: SupabaseClient,
+  authUserId?: string
+): Promise<EmployeeAccessResult> {
+  // Дефолтный результат для режима "Глаз Бога"
+  const godModeResult: EmployeeAccessResult = {
+    employee: null,
+    roles: [],
+    permissions: [GOD_MODE_PERMISSION],
+    moduleAccess: { exchange: 'manage', auto: 'manage', deals: 'manage', stock: 'manage' },
+    moduleVisibility: {
+      exchange: { scope: 'all' },
+      auto: { scope: 'all' },
+      deals: { scope: 'all' },
+      stock: { scope: 'all' }
+    },
+    isAdmin: true,
+    hasPermission: () => true,
+    canAccessModule: () => true
+  }
+
+  // Режим "Глаз Бога" - полный доступ
+  if (!ACCESS_ENABLED) {
+    return godModeResult
+  }
+
+  try {
+    // Получаем auth user id
+    let userId = authUserId
+    if (!userId) {
+      const { data: { user }, error: userError } = await supabase.auth.getUser()
+      if (userError || !user) {
+        console.warn('Access: No authenticated user')
+        return createEmptyAccessResult()
+      }
+      userId = user.id
+    }
+
+    // Ищем сотрудника по auth_user_id
+    const { data: employee, error: empError } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('auth_user_id', userId)
+      .eq('is_active', true)
+      .single()
+
+    if (empError || !employee) {
+      console.warn('Access: No active employee for auth user', userId)
+      return createEmptyAccessResult()
+    }
+
+    // Загружаем роли из employee_roles (source of truth)
+    const { data: employeeRoles, error: rolesError } = await supabase
+      .from('employee_roles')
+      .select(`
+        id,
+        role_id,
+        assigned_at,
+        system_roles (*)
+      `)
+      .eq('employee_id', employee.id)
+
+    const roles: SystemRole[] = []
+    const permissions = new Set<string>()
+
+    if (!rolesError && employeeRoles) {
+      for (const er of employeeRoles) {
+        const role = er.system_roles as SystemRole | null
+        if (role) {
+          roles.push(role)
+          if (role.permissions) {
+            for (const p of role.permissions) {
+              permissions.add(p)
+            }
+          }
+        }
+      }
+    }
+
+    // Парсим module_access из employees
+    const moduleAccess: ModuleAccess = (employee.module_access as ModuleAccess) || {}
+    const moduleVisibility: ModuleVisibility = (employee.module_visibility as ModuleVisibility) || {
+      exchange: { scope: 'all' },
+      auto: { scope: 'all' },
+      deals: { scope: 'all' },
+      stock: { scope: 'all' }
+    }
+
+    // Проверяем админские права
+    const isAdmin = permissions.has(GOD_MODE_PERMISSION) || 
+      roles.some(r => r.code === 'ADMIN')
+
+    // Создаем функции проверки
+    const hasPermission = (permission: string): boolean => {
+      if (isAdmin || permissions.has(GOD_MODE_PERMISSION)) return true
+      return permissions.has(permission)
+    }
+
+    const canAccessModule = (
+      module: BusinessModule, 
+      requiredLevel: ModuleAccessLevel = 'view'
+    ): boolean => {
+      if (isAdmin) return true
+      const level = moduleAccess[module]
+      return hasAccessLevel(level, requiredLevel)
+    }
+
+    return {
+      employee: employee as Employee,
+      roles,
+      permissions: Array.from(permissions),
+      moduleAccess,
+      moduleVisibility,
+      isAdmin,
+      hasPermission,
+      canAccessModule
+    }
+  } catch (error) {
+    console.error('Access: Error loading employee access', error)
+    return createEmptyAccessResult()
+  }
+}
+
+/**
+ * Создать пустой результат доступа (для неавторизованных)
+ */
+function createEmptyAccessResult(): EmployeeAccessResult {
+  return {
+    employee: null,
+    roles: [],
+    permissions: [],
+    moduleAccess: {},
+    moduleVisibility: {},
+    isAdmin: false,
+    hasPermission: () => false,
+    canAccessModule: () => false
+  }
+}
+
+/**
+ * Получить все preset роли для модуля
+ */
+export function getModulePresetRoles(
+  roles: SystemRole[],
+  module: BusinessModule
+): { view?: SystemRole; work?: SystemRole; manage?: SystemRole } {
+  const result: { view?: SystemRole; work?: SystemRole; manage?: SystemRole } = {}
+  
+  const moduleUpper = module.toUpperCase()
+  for (const role of roles) {
+    if (role.module === module || role.code?.startsWith(moduleUpper)) {
+      if (role.code?.endsWith('_VIEW')) result.view = role
+      else if (role.code?.endsWith('_WORK')) result.work = role
+      else if (role.code?.endsWith('_MANAGE')) result.manage = role
+    }
+  }
+  
+  return result
+}
+
+/**
+ * Определить уровень доступа к модулю по назначенным ролям
+ */
+export function getModuleAccessLevelFromRoles(
+  assignedRoles: SystemRole[],
+  module: BusinessModule
+): ModuleAccessLevel {
+  const moduleUpper = module.toUpperCase()
+  
+  for (const role of assignedRoles) {
+    // ADMIN имеет полный доступ ко всему
+    if (role.code === 'ADMIN') return 'manage'
+    
+    // Проверяем роли модуля
+    if (role.code?.startsWith(moduleUpper)) {
+      if (role.code.endsWith('_MANAGE')) return 'manage'
+      if (role.code.endsWith('_WORK')) return 'work'
+      if (role.code.endsWith('_VIEW')) return 'view'
+    }
+  }
+  
+  return 'none'
 }
