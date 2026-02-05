@@ -206,9 +206,10 @@ export interface DealPayment {
 
 export interface Employee {
   id: string
-  user_id: string | null
+  user_id: string | null // Deprecated: use auth_user_id
+  auth_user_id: string | null // Связь с auth.users для RBAC
   full_name: string
-  position: string | null
+  position: string | null // HR должность (не права!)
   job_title: string | null
   phone: string | null
   email: string | null
@@ -218,6 +219,14 @@ export interface Employee {
   hired_at: string | null
   created_at: string
   updated_at: string
+}
+
+// Маппинг должности к ролям по умолчанию
+export interface PositionDefaultRole {
+  id: string
+  position: string
+  system_role_id: string
+  created_at: string
 }
 
 export interface SalaryOperation {

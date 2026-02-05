@@ -41,7 +41,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { Employee, SystemRole } from '@/lib/types/database'
+import { Employee, SystemRole, PositionDefaultRole } from '@/lib/types/database'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
@@ -84,6 +84,8 @@ export function TeamManager() {
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
   const [selectedUserId, setSelectedUserId] = useState('')
   const [selectedRoleId, setSelectedRoleId] = useState('')
+  const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
+  const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
   
   // Загрузка данных
   const loadData = useCallback(async () => {
@@ -111,6 +113,17 @@ export function TeamManager() {
           id,
           user_id,
           role_id,
+          system_roles (*)
+        `)
+      
+      // Загрузка маппинга должностей к ролям
+      const { data: positionDefaultsData } = await supabase
+        .from('position_default_roles')
+        .select(`
+          id,
+          position,
+          system_role_id,
+          created_at,
           system_roles (*)
         `)
       
@@ -153,6 +166,10 @@ export function TeamManager() {
       setEmployees(employeesWithRoles)
       setRoles(rolesData || [])
       setUsers(Array.from(usersMap.values()))
+      setPositionDefaults((positionDefaultsData || []).map(pd => ({
+        ...pd,
+        role: pd.system_roles as SystemRole
+      })))
     } catch (error) {
       console.error('[v0] Error loading team data:', error)
       toast.error('Ошибка загрузки данных')
@@ -229,6 +246,53 @@ export function TeamManager() {
     }
   }
   
+  // Получить роли по умолчанию для должности
+  const getDefaultRolesForPosition = useCallback((position: string | null) => {
+    if (!position) return []
+    return positionDefaults
+      .filter(pd => pd.position.toLowerCase() === position.toLowerCase())
+      .map(pd => pd.role)
+      .filter((r): r is SystemRole => r !== undefined)
+  }, [positionDefaults])
+  
+  // При открытии редактирования сотрудника загружаем роли по умолчанию
+  useEffect(() => {
+    if (editingEmployee) {
+      const defaultRoles = getDefaultRolesForPosition(editingEmployee.position || editingEmployee.job_title)
+      setEditingEmployeeDefaultRoles(defaultRoles)
+    }
+  }, [editingEmployee, getDefaultRolesForPosition])
+  
+  // Применить роли по умолчанию к сотруднику
+  const applyDefaultRoles = async () => {
+    if (!editingEmployee?.auth_user_id && !editingEmployee?.user_id) {
+      toast.error('Сотрудник не привязан к пользователю системы')
+      return
+    }
+    
+    const userId = editingEmployee.auth_user_id || editingEmployee.user_id
+    const currentRoleIds = editingEmployee.system_roles?.map(r => r.id) || []
+    const rolesToAdd = editingEmployeeDefaultRoles.filter(r => !currentRoleIds.includes(r.id))
+    
+    if (rolesToAdd.length === 0) {
+      toast.info('Все роли по умолчанию уже назначены')
+      return
+    }
+    
+    try {
+      for (const role of rolesToAdd) {
+        await supabase
+          .from('user_roles')
+          .insert({ user_id: userId, role_id: role.id })
+          .single()
+      }
+      toast.success(`Назначено ${rolesToAdd.length} роль(ей)`)
+      loadData()
+    } catch {
+      toast.error('Ошибка назначения ролей')
+    }
+  }
+
   // Удаление роли
   const removeRole = async (userId: string, roleId: string) => {
     if (!confirm('Удалить эту роль у пользователя?')) return
@@ -456,6 +520,10 @@ export function TeamManager() {
               <Wallet className="h-4 w-4" />
               Зарплаты
             </TabsTrigger>
+            <TabsTrigger value="positions" className="flex items-center gap-2">
+              <Briefcase className="h-4 w-4" />
+              Должности
+            </TabsTrigger>
           </TabsList>
           
           <div className="flex items-center gap-2">
@@ -637,6 +705,70 @@ export function TeamManager() {
           </Card>
         </TabsContent>
         
+        {/* Должности -> Роли по умолчанию */}
+        <TabsContent value="positions">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-amber-400" />
+                Маппинг должностей к RBAC ролям
+              </CardTitle>
+              <CardDescription>
+                При назначении должности сотруднику предлагаются роли по умолчанию. Можно применить автоматически или изменить вручную.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Должность</TableHead>
+                    <TableHead>Роли по умолчанию</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Array.from(new Set(positionDefaults.map(pd => pd.position))).map(position => {
+                    const rolesForPosition = positionDefaults
+                      .filter(pd => pd.position === position)
+                      .map(pd => pd.role)
+                      .filter((r): r is SystemRole => r !== undefined)
+                    return (
+                      <TableRow key={position}>
+                        <TableCell className="font-medium">{position}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {rolesForPosition.map(role => (
+                              <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                                {role.name}
+                              </Badge>
+                            ))}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                  {positionDefaults.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={2} className="text-center text-muted-foreground py-8">
+                        Маппинг должностей не настроен
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+              
+              <div className="mt-6 p-4 rounded-lg bg-secondary/30 border border-border">
+                <h4 className="text-sm font-medium mb-2">Как это работает:</h4>
+                <ul className="text-sm text-muted-foreground space-y-1">
+                  <li>1. Должность (position) - это HR/организационная роль сотрудника</li>
+                  <li>2. RBAC роли - это права доступа в системе</li>
+                  <li>3. При выборе должности в карточке сотрудника показываются рекомендуемые роли</li>
+                  <li>4. Роли можно применить одной кнопкой или настроить вручную</li>
+                </ul>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+        
         {/* Зарплаты */}
         <TabsContent value="salary">
           <Card>
@@ -809,6 +941,58 @@ export function TeamManager() {
                     is_active: checked as boolean 
                   })}
                 />
+              </div>
+              
+              {/* Блок RBAC ролей */}
+              <div className="space-y-3 p-3 rounded-lg border border-border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base">RBAC роли (права доступа)</Label>
+                  {!editingEmployee.auth_user_id && !editingEmployee.user_id && (
+                    <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
+                      Не привязан к Auth
+                    </Badge>
+                  )}
+                </div>
+                
+                {/* Текущие роли */}
+                <div className="flex flex-wrap gap-1">
+                  {(editingEmployee.system_roles || []).length > 0 ? (
+                    editingEmployee.system_roles!.map(role => (
+                      <Badge key={role.id} variant="outline" className={getRoleColor(role.code)}>
+                        {role.name}
+                      </Badge>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Нет назначенных ролей</span>
+                  )}
+                </div>
+                
+                {/* Роли по умолчанию для должности */}
+                {editingEmployeeDefaultRoles.length > 0 && (
+                  <div className="p-2 rounded bg-secondary/50 space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Роли по умолчанию для должности "{editingEmployee.position || editingEmployee.job_title}":
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {editingEmployeeDefaultRoles.map(role => (
+                        <Badge key={role.id} variant="outline" className="text-xs">
+                          {role.name}
+                        </Badge>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={applyDefaultRoles}
+                      disabled={!editingEmployee.auth_user_id && !editingEmployee.user_id}
+                      className="w-full mt-2 bg-transparent"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Применить роли по умолчанию
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           )}

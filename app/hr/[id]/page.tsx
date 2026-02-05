@@ -31,8 +31,6 @@ interface Employee {
   salary_balance: number
   is_active: boolean
   status: string
-  role: string | null
-  permissions: string[]
   hired_at: string | null
   fired_at: string | null
   fire_reason: string | null
@@ -57,14 +55,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   BLOCKED: { label: 'Заблокирован', color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', icon: AlertTriangle },
 }
 
-const ROLE_OPTIONS = [
-  { value: 'ADMIN', label: 'Администратор' },
-  { value: 'MANAGER', label: 'Менеджер' },
-  { value: 'ACCOUNTANT', label: 'Бухгалтер' },
-  { value: 'SELLER', label: 'Продавец' },
-  { value: 'MECHANIC', label: 'Механик' },
-  { value: 'EMPLOYEE', label: 'Сотрудник' },
-]
+// Должность (position) теперь HR-поле, роли RBAC управляются в /settings?tab=team
 
 const OPERATION_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   SALARY: { label: 'Зарплата', color: 'text-emerald-400' },
@@ -93,7 +84,6 @@ export default function EmployeeDetailPage() {
     phone: '',
     email: '',
     status: 'ACTIVE',
-    role: 'EMPLOYEE',
     notes: '',
     passport_data: '',
     address: '',
@@ -122,7 +112,6 @@ export default function EmployeeDetailPage() {
         phone: data.phone || '',
         email: data.email || '',
         status: data.status || 'ACTIVE',
-        role: data.role || 'EMPLOYEE',
         notes: data.notes || '',
         passport_data: data.passport_data || '',
         address: data.address || '',
@@ -156,22 +145,21 @@ export default function EmployeeDetailPage() {
     setIsSaving(true)
 
     try {
-      const { error } = await supabase
-        .from('employees')
-        .update({
-          full_name: editForm.full_name,
-          position: editForm.position || null,
-          phone: editForm.phone || null,
-          email: editForm.email || null,
-          status: editForm.status,
-          role: editForm.role,
-          notes: editForm.notes || null,
-          passport_data: editForm.passport_data || null,
-          address: editForm.address || null,
-          is_active: editForm.status === 'ACTIVE' || editForm.status === 'ON_LEAVE',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', employee.id)
+const { error } = await supabase
+      .from('employees')
+      .update({
+        full_name: editForm.full_name,
+        position: editForm.position || null,
+        phone: editForm.phone || null,
+        email: editForm.email || null,
+        status: editForm.status,
+        notes: editForm.notes || null,
+        passport_data: editForm.passport_data || null,
+        address: editForm.address || null,
+        is_active: editForm.status === 'ACTIVE' || editForm.status === 'ON_LEAVE',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', employee.id)
 
       if (error) throw error
 
@@ -449,25 +437,24 @@ export default function EmployeeDetailPage() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label>Роль</Label>
-                      <Select value={editForm.role} onValueChange={(v) => setEditForm({ ...editForm, role: v })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {ROLE_OPTIONS.map((role) => (
-                            <SelectItem key={role.value} value={role.value}>
-                              {role.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label>Должность (HR)</Label>
+                      <Input 
+                        value={editForm.position} 
+                        onChange={(e) => setEditForm({ ...editForm, position: e.target.value })}
+                        placeholder="Должность сотрудника"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Для управления правами доступа перейдите в{' '}
+                        <Link href="/settings?tab=team" className="text-cyan-400 hover:underline">
+                          Настройки → Команда → Роли
+                        </Link>
+                      </p>
                     </div>
                   </div>
                 ) : (
                   <div className="flex items-center gap-4">
                     <Badge variant="outline" className="text-base py-1 px-3">
-                      {ROLE_OPTIONS.find((r) => r.value === employee.role)?.label || employee.role || 'Сотрудник'}
+                      {employee.position || 'Должность не указана'}
                     </Badge>
                     {employee.fired_at && (
                       <div className="text-sm text-red-400">
