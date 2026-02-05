@@ -31,10 +31,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
-import { UserRolesManager } from '@/components/settings/user-roles-manager'
-import { SalaryBalanceList } from '@/components/hr/salary-balance-list'
-import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
-import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
+import { TeamManager } from '@/components/team/team-manager'
 
 interface SystemSettings {
   company_name: string
@@ -477,7 +474,7 @@ export default function SettingsPage() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue={defaultTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-5xl grid-cols-8">
+          <TabsList className="grid w-full max-w-4xl grid-cols-7">
             <TabsTrigger value="general" className="flex items-center gap-1">
               <Building className="h-4 w-4" />
               Общие
@@ -490,9 +487,9 @@ export default function SettingsPage() {
               <ArrowLeftRight className="h-4 w-4" />
               Обмен
             </TabsTrigger>
-            <TabsTrigger value="hr" className="flex items-center gap-1">
+            <TabsTrigger value="team" className="flex items-center gap-1">
               <Users className="h-4 w-4" />
-              HR
+              Команда
             </TabsTrigger>
             <TabsTrigger value="stock" className="flex items-center gap-1">
               <Package className="h-4 w-4" />
@@ -501,10 +498,6 @@ export default function SettingsPage() {
             <TabsTrigger value="auto" className="flex items-center gap-1">
               <Car className="h-4 w-4" />
               Авто
-            </TabsTrigger>
-            <TabsTrigger value="roles" className="flex items-center gap-1">
-              <Shield className="h-4 w-4" />
-              Роли
             </TabsTrigger>
             <TabsTrigger value="system" className="flex items-center gap-1">
               <Database className="h-4 w-4" />
@@ -1177,26 +1170,9 @@ export default function SettingsPage() {
             </Dialog>
           </TabsContent>
 
-          {/* HR - управление сотрудниками */}
-          <TabsContent value="hr" className="space-y-6">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Users className="h-5 w-5 text-violet-400" />
-                    HR и Зарплаты
-                  </CardTitle>
-                  <CardDescription>Управление сотрудниками и начислениями</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <AddEmployeeDialog />
-                  <AddBonusDialog />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <SalaryBalanceList />
-              </CardContent>
-            </Card>
+          {/* Команда - сотрудники, роли, зарплаты */}
+          <TabsContent value="team" className="space-y-6">
+            <TeamManager />
           </TabsContent>
 
           {/* Склад - управление складами */}
@@ -1273,10 +1249,7 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          {/* Роли пользователей */}
-          <TabsContent value="roles" className="space-y-6">
-            <UserRolesManager />
-          </TabsContent>
+          
 
           {/* Система */}
           <TabsContent value="system" className="space-y-6">

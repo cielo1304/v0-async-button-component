@@ -209,11 +209,13 @@ export interface Employee {
   user_id: string | null
   full_name: string
   position: string | null
+  job_title: string | null
   phone: string | null
   email: string | null
   salary_balance: number
   is_active: boolean
-  hired_at: string
+  modules: string[] // Модули в которых работает: 'exchange', 'deals', 'auto'
+  hired_at: string | null
   created_at: string
   updated_at: string
 }
