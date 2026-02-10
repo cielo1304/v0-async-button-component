@@ -27,8 +27,9 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { 
   Settings, ArrowLeft, Building, Wallet, Package, 
-  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users, Pencil
+  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users, Pencil, ScrollText
 } from 'lucide-react'
+import { AuditLogViewer } from '@/components/settings/audit-log-viewer'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
 import { TeamManager } from '@/components/team/team-manager'
@@ -474,7 +475,7 @@ export default function SettingsPage() {
 
       <main className="container mx-auto px-4 py-6">
         <Tabs defaultValue={defaultTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-4xl grid-cols-7">
+          <TabsList className="grid w-full max-w-5xl grid-cols-8">
             <TabsTrigger value="general" className="flex items-center gap-1">
               <Building className="h-4 w-4" />
               Общие
@@ -498,6 +499,10 @@ export default function SettingsPage() {
             <TabsTrigger value="auto" className="flex items-center gap-1">
               <Car className="h-4 w-4" />
               Авто
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="flex items-center gap-1">
+              <ScrollText className="h-4 w-4" />
+              Аудит
             </TabsTrigger>
             <TabsTrigger value="system" className="flex items-center gap-1">
               <Database className="h-4 w-4" />
@@ -1250,6 +1255,11 @@ export default function SettingsPage() {
           </TabsContent>
 
           
+
+          {/* Аудит */}
+          <TabsContent value="audit" className="space-y-6">
+            <AuditLogViewer />
+          </TabsContent>
 
           {/* Система */}
           <TabsContent value="system" className="space-y-6">

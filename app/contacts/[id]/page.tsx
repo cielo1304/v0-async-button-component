@@ -15,10 +15,10 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Home, Users, Phone, Mail, ArrowLeft, Loader2, ArrowLeftRight, FileText, Car, Clock, Calendar, CreditCard, MapPin, Award as IdCard } from 'lucide-react'
+import { Home, Users, Phone, Mail, ArrowLeft, Loader2, ArrowLeftRight, FileText, Car, Clock, Calendar, CreditCard, MapPin, Award as IdCard, Landmark } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { 
-  Contact, ContactChannel, ContactSegment, ContactEvent, ContactSensitive,
+  Contact, ContactChannel, ContactSegment, ContactSensitive,
   ContactModule, ClientExchangeOperation, Deal, AutoClient, AutoDeal
 } from '@/lib/types/database'
 import { MODULE_LABELS, MODULE_COLORS } from '@/lib/constants/contacts'
@@ -45,15 +45,16 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<ContactFull | null>(null)
   const [sensitive, setSensitive] = useState<ContactSensitive | null>(null)
-  const [events, setEvents] = useState<ContactEvent[]>([])
   const [exchangeOps, setExchangeOps] = useState<ClientExchangeOperation[]>([])
   const [deals, setDeals] = useState<Deal[]>([])
+  const [financeDeals, setFinanceDeals] = useState<Array<{ id: string; title: string; status: string; principal_amount: number; contract_currency: string; created_at: string }>>([])
   const [autoClients, setAutoClients] = useState<AutoClient[]>([])
   const [autoDeals, setAutoDeals] = useState<AutoDeal[]>([])
+
   
   const [isLoading, setIsLoading] = useState(true)
   const [permissions, setPermissions] = useState<Set<string>>(new Set(['*']))
-  const [activeTab, setActiveTab] = useState('timeline')
+  const [activeTab, setActiveTab] = useState('exchange')
 
   useEffect(() => {
     loadData()
@@ -90,18 +91,6 @@ export default function ContactDetailPage() {
         setSensitive(sensitiveData)
       }
 
-      // Загружаем события (фильтруем по доступным модулям)
-      const { data: eventsData } = await supabase
-        .from('contact_events')
-        .select('*')
-        .eq('contact_id', id)
-        .order('happened_at', { ascending: false })
-        .limit(50)
-      
-      // Фильтруем события по доступным модулям
-      const filteredEvents = (eventsData || []).filter(e => canReadModule(perms, e.module as ContactModule))
-      setEvents(filteredEvents)
-
       // Загружаем данные по модулям если есть доступ
       if (canReadModule(perms, 'exchange')) {
         const { data } = await supabase
@@ -119,6 +108,24 @@ export default function ContactDetailPage() {
           .eq('contact_id', id)
           .order('created_at', { ascending: false })
         setDeals(data || [])
+      }
+
+      // Загружаем финансовые сделки
+      {
+        const { data: finData } = await supabase
+          .from('core_deals')
+          .select('id, title, status, created_at, finance_deals(principal_amount, contract_currency)')
+          .eq('kind', 'finance')
+          .eq('contact_id', id)
+          .order('created_at', { ascending: false })
+        setFinanceDeals((finData || []).map((d: any) => ({
+          id: d.id,
+          title: d.title,
+          status: d.status,
+          principal_amount: d.finance_deals?.[0]?.principal_amount || d.finance_deals?.principal_amount || 0,
+          contract_currency: d.finance_deals?.[0]?.contract_currency || d.finance_deals?.contract_currency || 'USD',
+          created_at: d.created_at,
+        })))
       }
 
       if (canReadModule(perms, 'auto')) {
@@ -169,11 +176,11 @@ export default function ContactDetailPage() {
   const phone = getPrimaryPhone(contact.contact_channels)
   const email = getPrimaryEmail(contact.contact_channels)
 
-  // Определяем доступные вкладки
+  // Определяем доступные вкладки (без таймлайна, только модульные)
   const availableTabs = [
-    { id: 'timeline', label: 'Таймлайн', icon: Clock, always: true },
     { id: 'exchange', label: 'Обмен', icon: ArrowLeftRight, module: 'exchange' as ContactModule },
     { id: 'deals', label: 'Сделки', icon: FileText, module: 'deals' as ContactModule },
+    { id: 'finance', label: 'Финансовые сделки', icon: Landmark, always: true },
     { id: 'auto', label: 'Автоплощадка', icon: Car, module: 'auto' as ContactModule },
   ].filter(tab => tab.always || (tab.module && canReadModule(permissions, tab.module)))
 
@@ -280,41 +287,6 @@ export default function ContactDetailPage() {
             ))}
           </TabsList>
 
-          {/* Timeline Tab */}
-          <TabsContent value="timeline">
-            <Card>
-              <CardHeader>
-                <CardTitle>История событий</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {events.length === 0 ? (
-                  <p className="text-center py-8 text-muted-foreground">Нет событий</p>
-                ) : (
-                  <div className="space-y-4">
-                    {events.map((event) => {
-                      const Icon = MODULE_ICONS[event.module as ContactModule]
-                      return (
-                        <div key={event.id} className="flex gap-4 items-start">
-                          <div className={`p-2 rounded-full ${MODULE_COLORS[event.module as ContactModule]}`}>
-                            <Icon className="h-4 w-4" />
-                          </div>
-                          <div className="flex-1">
-                            <div className="font-medium">{event.title}</div>
-                            <div className="text-sm text-muted-foreground">
-                              {MODULE_LABELS[event.module as ContactModule]}
-                              {' • '}
-                              {format(new Date(event.happened_at), 'd MMMM yyyy, HH:mm', { locale: ru })}
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           {/* Exchange Tab */}
           {canReadModule(permissions, 'exchange') && (
             <TabsContent value="exchange">
@@ -416,6 +388,53 @@ export default function ContactDetailPage() {
               </Card>
             </TabsContent>
           )}
+
+          {/* Finance Deals Tab */}
+          <TabsContent value="finance">
+            <Card>
+              <CardHeader>
+                <CardTitle>Финансовые сделки</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {financeDeals.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">Нет финансовых сделок</p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Название</TableHead>
+                        <TableHead>Дата</TableHead>
+                        <TableHead>Сумма</TableHead>
+                        <TableHead>Статус</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {financeDeals.map((deal) => (
+                        <TableRow 
+                          key={deal.id}
+                          className="cursor-pointer hover:bg-accent/50"
+                          onClick={() => router.push(`/finance-deals/${deal.id}`)}
+                        >
+                          <TableCell className="font-medium">{deal.title}</TableCell>
+                          <TableCell>
+                            {format(new Date(deal.created_at), 'd MMM yyyy', { locale: ru })}
+                          </TableCell>
+                          <TableCell>
+                            {deal.principal_amount?.toLocaleString() || '-'} {deal.contract_currency}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={deal.status === 'CLOSED' ? 'default' : 'secondary'}>
+                              {deal.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           {/* Auto Tab */}
           {canReadModule(permissions, 'auto') && (

@@ -497,7 +497,7 @@ export interface AutoInspection {
 // МОДУЛЬ КЛИЕНТСКОГО ОБМЕНА ВАЛЮТ
 // ================================================
 
-export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled'
+export type ClientExchangeStatus = 'pending' | 'completed' | 'cancelled' | (string & {})
 
 export type ProfitCalculationMethod = 'auto' | 'manual' | 'fixed_percent'
 export type FixedBaseSource = 'api' | 'manual'
@@ -658,7 +658,7 @@ export interface UserRole {
 export type ModuleAccessLevel = 'none' | 'view' | 'work' | 'manage'
 
 // Бизнес-модули B3
-export type BusinessModule = 'exchange' | 'auto' | 'deals' | 'stock'
+export type BusinessModule = 'exchange' | 'auto' | 'deals' | 'stock' | 'assets' | 'finance'
 
 // Область видимости данных (пока только 'all')
 export type VisibilityScope = 'all' | 'own' | 'team' | 'branch'
@@ -669,6 +669,8 @@ export interface ModuleAccess {
   auto?: ModuleAccessLevel
   deals?: ModuleAccessLevel
   stock?: ModuleAccessLevel
+  assets?: ModuleAccessLevel
+  finance?: ModuleAccessLevel
 }
 
 // Видимость данных в модулях
@@ -677,6 +679,8 @@ export interface ModuleVisibility {
   auto?: { scope: VisibilityScope }
   deals?: { scope: VisibilityScope }
   stock?: { scope: VisibilityScope }
+  assets?: { scope: VisibilityScope }
+  finance?: { scope: VisibilityScope }
 }
 
 // Назначение роли сотруднику (source of truth)
@@ -799,4 +803,331 @@ export interface ContactWithDetails extends Contact {
   segments?: ContactSegment[]
   primary_phone?: string
   primary_email?: string
+}
+
+// ================================================
+// AUDIT LOG (v2)
+// ================================================
+
+export type AuditModule = 'assets' | 'finance' | 'exchange' | 'deals' | 'auto' | 'stock' | 'contacts' | 'system'
+
+export interface AuditLogEntry {
+  id: string
+  actor_employee_id: string | null
+  action: string
+  module: AuditModule
+  entity_table: string
+  entity_id: string
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+  created_at: string
+  // Joined
+  actor_employee?: Employee
+}
+
+// ================================================
+// ASSETS MODULE
+// ================================================
+
+export type AssetType = 'auto' | 'equipment' | 'moto' | 'real_estate' | 'crypto' | 'gold' | 'other'
+export type AssetStatus = 'in_stock' | 'company_owned' | 'pledged' | 'replaced' | 'released' | 'foreclosed' | 'moved_to_cars_stock' | 'on_sale' | 'sold' | 'written_off'
+
+export interface Asset {
+  id: string
+  asset_type: AssetType
+  title: string
+  status: AssetStatus
+  owner_contact_id: string | null
+  responsible_employee_id: string | null
+  notes: string | null
+  metadata: Record<string, unknown>
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  // Joined data
+  owner_contact?: Contact
+  responsible_employee?: Employee
+  latest_valuation?: AssetValuation
+  current_location?: AssetLocation
+}
+
+export interface AssetLocation {
+  id: string
+  name: string
+  description: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface AssetLocationMove {
+  id: string
+  asset_id: string
+  from_location_id: string | null
+  to_location_id: string | null
+  moved_at: string
+  moved_by_employee_id: string | null
+  note: string | null
+  // Joined
+  from_location?: AssetLocation
+  to_location?: AssetLocation
+  moved_by_employee?: Employee
+}
+
+export interface AssetValuation {
+  id: string
+  asset_id: string
+  valuation_amount: number
+  valuation_currency: string
+  base_amount: number
+  base_currency: string
+  fx_rate: number | null
+  source_note: string | null
+  created_at: string
+  created_by_employee_id: string | null
+  // Joined
+  created_by_employee?: Employee
+}
+
+export interface AssetSaleEvent {
+  id: string
+  asset_id: string
+  related_finance_deal_id: string | null
+  sold_at: string
+  sale_amount: number
+  sale_currency: string
+  base_amount: number
+  base_currency: string
+  fx_rate: number | null
+  distribution: Record<string, unknown>
+  created_by_employee_id: string | null
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
+}
+
+// ================================================
+// FINANCE DEALS MODULE
+// ================================================
+
+export type CoreDealKind = 'finance'
+export type CoreDealStatus = 'NEW' | 'ACTIVE' | 'PAUSED' | 'CLOSED' | 'DEFAULT' | 'CANCELLED'
+export type FinanceScheduleType = 'annuity' | 'diff' | 'interest_only' | 'manual' | 'tranches'
+export type FinancePaymentStatus = 'PLANNED' | 'PAID' | 'OVERDUE' | 'ADJUSTED'
+export type FinanceLedgerEntryType = 'disbursement' | 'repayment_principal' | 'repayment_interest' | 'fee' | 'penalty_manual' | 'adjustment' | 'offset' | 'collateral_sale_proceeds'
+export type CollateralLinkStatus = 'active' | 'released' | 'foreclosed' | 'replaced'
+
+export interface CoreDeal {
+  id: string
+  kind: CoreDealKind
+  subtype: string | null
+  status: CoreDealStatus
+  sub_status: string | null
+  title: string
+  base_currency: string
+  contact_id: string | null
+  responsible_employee_id: string | null
+  client_audience_notes: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  // Joined
+  contact?: Contact
+  responsible_employee?: Employee
+  finance_deal?: FinanceDeal
+}
+
+export interface FinanceDeal {
+  id: string
+  core_deal_id: string
+  principal_amount: number
+  contract_currency: string
+  term_months: number
+  rate_percent: number
+  schedule_type: FinanceScheduleType
+  allow_tranches: boolean
+  rules: Record<string, unknown>
+  // Joined
+  core_deal?: CoreDeal
+  participants?: FinanceParticipant[]
+  payment_schedule?: FinancePaymentScheduleItem[]
+  collateral_links?: FinanceCollateralLink[]
+}
+
+export interface FinanceParticipant {
+  id: string
+  finance_deal_id: string
+  contact_id: string | null
+  employee_id: string | null
+  participant_role: string
+  is_primary: boolean
+  note: string | null
+  // Joined
+  contact?: Contact
+  employee?: Employee
+}
+
+export interface FinancePaymentScheduleItem {
+  id: string
+  finance_deal_id: string
+  due_date: string
+  principal_due: number
+  interest_due: number
+  total_due: number
+  currency: string
+  status: FinancePaymentStatus
+}
+
+export interface FinanceLedgerEntry {
+  id: string
+  finance_deal_id: string
+  entry_type: FinanceLedgerEntryType
+  occurred_at: string
+  amount: number
+  currency: string
+  base_amount: number
+  base_currency: string
+  fx_rate: number | null
+  allocation: Record<string, unknown>
+  note: string | null
+  created_by_employee_id: string | null
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
+}
+
+export interface FinancePausePeriod {
+  id: string
+  finance_deal_id: string
+  start_date: string
+  end_date: string
+  reason: string | null
+  created_by_employee_id: string | null
+  created_at: string
+}
+
+export interface FinanceCollateralLink {
+  id: string
+  finance_deal_id: string
+  asset_id: string
+  status: CollateralLinkStatus
+  started_at: string
+  ended_at: string | null
+  note: string | null
+  // Joined
+  asset?: Asset
+}
+
+export interface FinanceCollateralChain {
+  id: string
+  finance_deal_id: string
+  old_asset_id: string
+  new_asset_id: string
+  reason: string | null
+  created_by_employee_id: string | null
+  created_at: string
+  // Joined
+  old_asset?: Asset
+  new_asset?: Asset
+}
+
+// ================================================
+// EXCHANGE EXTENSIONS
+// ================================================
+
+export type ExtendedExchangeStatus = 'pending' | 'completed' | 'cancelled' | 'quoted' | 'awaiting_funds' | 'awaiting_liquidity' | 'in_delivery' | 'delivered' | 'confirmed' | 'dispute' | string
+
+export interface ExchangeStatus {
+  code: string
+  name: string
+  sort_order: number
+  is_system: boolean
+  is_active: boolean
+}
+
+export interface ClientExchangeParticipant {
+  id: string
+  operation_id: string
+  contact_id: string | null
+  employee_id: string | null
+  role: string
+  note: string | null
+  created_at: string
+  // Joined
+  contact?: Contact
+  employee?: Employee
+}
+
+// Extended operation with new fields
+export interface ClientExchangeOperationExtended extends ClientExchangeOperation {
+  status_code: string | null
+  responsible_employee_id: string | null
+  followup_at: string | null
+  followup_note: string | null
+  participants?: ClientExchangeParticipant[]
+  responsible_employee?: Employee
+}
+
+// Extended detail with handover fields
+export interface ClientExchangeDetailExtended extends ClientExchangeDetail {
+  handover_contact_id: string | null
+  handover_employee_id: string | null
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
+  // Joined
+  handover_contact?: Contact
+  handover_employee?: Employee
+}
+
+// ================================================
+// UNIFIED DEALS VIEW
+// ================================================
+
+export type UnifiedDealSource = 'legacy_deals' | 'auto_deals' | 'finance'
+export type UnifiedDealKind = 'deals' | 'auto' | 'finance'
+
+export interface UnifiedDeal {
+  unified_id: string
+  source: UnifiedDealSource
+  entity_id: string
+  kind: UnifiedDealKind
+  title: string
+  status: string
+  amount: number | null
+  currency: string | null
+  contact_id: string | null
+  created_at: string
+}
+
+// ================================================
+// TIMELINE VIEWS
+// ================================================
+
+export interface TimelineEvent {
+  event_time: string
+  lane: 'money' | 'assets'
+  module: string
+  event_type: string
+  entity_id: string
+  finance_deal_id: string
+  title: string
+  amount: number | null
+  currency: string | null
+  base_amount: number | null
+  visibility_mode: string
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
+  created_by_employee_id: string | null
+}
+
+export interface AssetTimelineEvent {
+  event_time: string
+  event_type: string
+  entity_id: string
+  asset_id: string
+  title: string
+  amount: number | null
+  currency: string | null
+  created_by_employee_id: string | null
 }

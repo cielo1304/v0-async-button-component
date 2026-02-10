@@ -10,6 +10,8 @@ export const MODULES: { id: BusinessModule; label: string }[] = [
   { id: 'auto', label: 'Автоплощадка' },
   { id: 'deals', label: 'Сделки' },
   { id: 'stock', label: 'Склад' },
+  { id: 'assets', label: 'Имущество' },
+  { id: 'finance', label: 'Финансовые сделки' },
 ]
 
 // Уровни доступа к модулю
@@ -45,6 +47,16 @@ export const PRESET_ROLE_CODE_BY_MODULE_LEVEL: Record<
     work: 'STOCK_WORK',
     manage: 'STOCK_MANAGE',
   },
+  assets: {
+    view: 'ASSETS_VIEW',
+    work: 'ASSETS_WORK',
+    manage: 'ASSETS_MANAGE',
+  },
+  finance: {
+    view: 'FINANCE_VIEW',
+    work: 'FINANCE_WORK',
+    manage: 'FINANCE_MANAGE',
+  },
 }
 
 // Обратный маппинг: код роли -> модуль + уровень
@@ -61,6 +73,12 @@ export const MODULE_LEVEL_BY_ROLE_CODE: Record<string, { module: BusinessModule;
   STOCK_VIEW: { module: 'stock', level: 'view' },
   STOCK_WORK: { module: 'stock', level: 'work' },
   STOCK_MANAGE: { module: 'stock', level: 'manage' },
+  ASSETS_VIEW: { module: 'assets', level: 'view' },
+  ASSETS_WORK: { module: 'assets', level: 'work' },
+  ASSETS_MANAGE: { module: 'assets', level: 'manage' },
+  FINANCE_VIEW: { module: 'finance', level: 'view' },
+  FINANCE_WORK: { module: 'finance', level: 'work' },
+  FINANCE_MANAGE: { module: 'finance', level: 'manage' },
 }
 
 // Все коды preset ролей модулей
