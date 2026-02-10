@@ -39,7 +39,7 @@ import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { CustomCalendarComponent, type DateRange } from '@/components/ui/custom-calendar'
+import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
 import { OperationExtras } from '@/components/exchange/operation-extras' // Import OperationExtras
 
@@ -330,7 +330,7 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
           <DialogHeader>
             <DialogTitle>Выбрать даты</DialogTitle>
           </DialogHeader>
-          <CustomCalendarComponent
+          <CustomCalendar
             selected={customDateRange}
             onSelect={(range) => {
               setCustomDateRange(range)
