@@ -354,12 +354,12 @@ export default function AssetsPage() {
             </div>
             <div className="space-y-2">
               <Label>Владелец (контакт)</Label>
-              <Select value={form.owner_contact_id} onValueChange={(v) => setForm({ ...form, owner_contact_id: v })}>
+              <Select value={form.owner_contact_id || 'none'} onValueChange={(v) => setForm({ ...form, owner_contact_id: v === 'none' ? '' : v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Выберите контакт" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Не указан</SelectItem>
+                  <SelectItem value="none">Не указан</SelectItem>
                   {contacts.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.display_name}</SelectItem>
                   ))}
@@ -368,12 +368,12 @@ export default function AssetsPage() {
             </div>
             <div className="space-y-2">
               <Label>Ответственный</Label>
-              <Select value={form.responsible_employee_id} onValueChange={(v) => setForm({ ...form, responsible_employee_id: v })}>
+              <Select value={form.responsible_employee_id || '__none__'} onValueChange={(v) => setForm({ ...form, responsible_employee_id: v === '__none__' ? '' : v })}>
                 <SelectTrigger>
                   <SelectValue placeholder="Выберите сотрудника" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Не указан</SelectItem>
+                  <SelectItem value="__none__">Не указан</SelectItem>
                   {employees.map((e) => (
                     <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>
                   ))}
