@@ -62,6 +62,12 @@ export default function ExchangePage() {
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   
+  // Расширенные поля: followup + beneficiary/handover
+  const [followupAt, setFollowupAt] = useState('')
+  const [followupNote, setFollowupNote] = useState('')
+  const [beneficiaryName, setBeneficiaryName] = useState('')
+  const [beneficiaryPhone, setBeneficiaryPhone] = useState('')
+  
   // Данные из БД
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -566,7 +572,11 @@ export default function ExchangePage() {
           client_phone: clientPhone || null,
           contact_id: contactId,
           status: 'completed',
-          completed_at: new Date().toISOString()
+          completed_at: new Date().toISOString(),
+          followup_at: followupAt || null,
+          followup_note: followupNote || null,
+          beneficiary_name: beneficiaryName || null,
+          beneficiary_phone: beneficiaryPhone || null,
         })
         .select()
         .single()
@@ -661,6 +671,10 @@ export default function ExchangePage() {
       setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
+      setFollowupAt('')
+      setFollowupNote('')
+      setBeneficiaryName('')
+      setBeneficiaryPhone('')
       
       // Обновляем данные
       loadData()
@@ -687,6 +701,10 @@ export default function ExchangePage() {
     setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
     setClientName('')
     setClientPhone('')
+    setFollowupAt('')
+    setFollowupNote('')
+    setBeneficiaryName('')
+    setBeneficiaryPhone('')
   }
   
   if (isLoading) {
@@ -1147,25 +1165,67 @@ export default function ExchangePage() {
             <Card className="bg-card border-border">
               <CardContent className="p-4">
                 <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-                  {/* Данные клиента */}
-                  <div className="flex gap-4 flex-1">
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Имя клиента</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        className="h-9"
-                      />
+                  {/* Данные клиента и расширенные поля */}
+                  <div className="flex-1 space-y-3">
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Имя клиента</Label>
+                        <Input
+                          placeholder="Необязательно"
+                          value={clientName}
+                          onChange={(e) => setClientName(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Телефон</Label>
+                        <Input
+                          placeholder="Необязательно"
+                          value={clientPhone}
+                          onChange={(e) => setClientPhone(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Телефон</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(e.target.value)}
-                        className="h-9"
-                      />
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Получатель (beneficiary)</Label>
+                        <Input
+                          placeholder="Имя получателя"
+                          value={beneficiaryName}
+                          onChange={(e) => setBeneficiaryName(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Тел. получателя</Label>
+                        <Input
+                          placeholder="Необязательно"
+                          value={beneficiaryPhone}
+                          onChange={(e) => setBeneficiaryPhone(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-4">
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Followup (перезвонить)</Label>
+                        <Input
+                          type="datetime-local"
+                          value={followupAt}
+                          onChange={(e) => setFollowupAt(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <Label className="text-xs text-muted-foreground">Заметка followup</Label>
+                        <Input
+                          placeholder="Напомнить о..."
+                          value={followupNote}
+                          onChange={(e) => setFollowupNote(e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
                     </div>
                   </div>
                   
