@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { DollarSign, Car, Package, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users } from 'lucide-react'
+import { DollarSign, Car, Package, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users, Landmark, BoxSelect } from 'lucide-react'
 import Link from 'next/link'
 import { createServerClient } from '@/lib/supabase/server'
 
@@ -47,7 +47,20 @@ const modules = [
     href: '/deals',
     color: 'text-amber-400',
   },
-  
+  {
+    title: 'Финансовые сделки',
+    description: 'Займы, кредиты, рассрочки',
+    icon: Landmark,
+    href: '/finance-deals',
+    color: 'text-blue-400',
+  },
+  {
+    title: 'Имущество',
+    description: 'Учёт активов и залогов',
+    icon: BoxSelect,
+    href: '/assets',
+    color: 'text-amber-400',
+  },
   {
     title: 'Аналитика',
     description: 'Отчеты и статистика',
@@ -60,13 +73,15 @@ const modules = [
 async function getStats() {
   const supabase = await createServerClient()
   
-  const [cashboxes, cars, deals, stock, employees, contacts] = await Promise.all([
+  const [cashboxes, cars, deals, stock, employees, contacts, finDeals, assets] = await Promise.all([
     supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false),
     supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK'),
     supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT']),
     supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true),
     supabase.from('contacts').select('id', { count: 'exact', head: true }),
+    supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE']),
+    supabase.from('assets').select('id', { count: 'exact', head: true }),
   ])
 
   return {
@@ -76,6 +91,8 @@ async function getStats() {
     stockItems: stock.count || 0,
     employeesCount: employees.count || 0,
     contactsCount: contacts.count || 0,
+    finDealsCount: finDeals.count || 0,
+    assetsCount: assets.count || 0,
   }
 }
 

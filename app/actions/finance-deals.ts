@@ -1,0 +1,302 @@
+'use server'
+
+import { createClient } from '@/lib/supabase/server'
+import type {
+  CoreDeal, CoreDealStatus, FinanceDeal, FinanceScheduleType,
+  FinanceLedgerEntry, FinanceLedgerEntryType, FinancePaymentScheduleItem,
+  FinanceParticipant, FinanceCollateralLink, FinancePausePeriod
+} from '@/lib/types/database'
+
+// ==================== CORE DEALS ====================
+
+export async function getFinanceDeals() {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('core_deals')
+    .select(`
+      *,
+      contact:contacts(*),
+      responsible_employee:employees(*),
+      finance_deal:finance_deals(
+        *,
+        participants:finance_participants(*, contact:contacts(*), employee:employees(*)),
+        payment_schedule:finance_payment_schedule(*),
+        collateral_links:finance_collateral_links(*, asset:assets(*))
+      )
+    `)
+    .eq('kind', 'finance')
+    .order('created_at', { ascending: false })
+
+  if (error) throw error
+  return (data || []) as CoreDeal[]
+}
+
+export async function getFinanceDealById(id: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('core_deals')
+    .select(`
+      *,
+      contact:contacts(*),
+      responsible_employee:employees(*),
+      finance_deal:finance_deals(
+        *,
+        participants:finance_participants(*, contact:contacts(*), employee:employees(*)),
+        payment_schedule:finance_payment_schedule(* ),
+        collateral_links:finance_collateral_links(*, asset:assets(*))
+      )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (error) throw error
+  return data as CoreDeal
+}
+
+export async function createFinanceDeal(params: {
+  title: string
+  contact_id?: string
+  responsible_employee_id?: string
+  base_currency: string
+  principal_amount: number
+  contract_currency: string
+  term_months: number
+  rate_percent: number
+  schedule_type: FinanceScheduleType
+}) {
+  const supabase = await createClient()
+
+  // Создаём core_deal
+  const { data: coreDeal, error: coreErr } = await supabase
+    .from('core_deals')
+    .insert({
+      kind: 'finance',
+      status: 'NEW',
+      title: params.title,
+      base_currency: params.base_currency,
+      contact_id: params.contact_id || null,
+      responsible_employee_id: params.responsible_employee_id || null,
+    })
+    .select()
+    .single()
+
+  if (coreErr) throw coreErr
+
+  // Создаём finance_deal
+  const { data: financeDeal, error: finErr } = await supabase
+    .from('finance_deals')
+    .insert({
+      core_deal_id: coreDeal.id,
+      principal_amount: params.principal_amount,
+      contract_currency: params.contract_currency,
+      term_months: params.term_months,
+      rate_percent: params.rate_percent,
+      schedule_type: params.schedule_type,
+    })
+    .select()
+    .single()
+
+  if (finErr) throw finErr
+
+  return { coreDeal, financeDeal }
+}
+
+export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('core_deals')
+    .update({ status, sub_status: sub_status || null })
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+// ==================== LEDGER ====================
+
+export async function getFinanceLedger(financeDealId: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('finance_ledger')
+    .select('*')
+    .eq('finance_deal_id', financeDealId)
+    .order('occurred_at', { ascending: false })
+
+  if (error) throw error
+  return (data || []) as FinanceLedgerEntry[]
+}
+
+export async function addLedgerEntry(params: {
+  finance_deal_id: string
+  entry_type: FinanceLedgerEntryType
+  amount: number
+  currency: string
+  base_amount: number
+  base_currency: string
+  fx_rate?: number
+  note?: string
+  created_by_employee_id?: string
+}) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('finance_ledger')
+    .insert({
+      finance_deal_id: params.finance_deal_id,
+      entry_type: params.entry_type,
+      amount: params.amount,
+      currency: params.currency,
+      base_amount: params.base_amount,
+      base_currency: params.base_currency,
+      fx_rate: params.fx_rate || null,
+      note: params.note || null,
+      created_by_employee_id: params.created_by_employee_id || null,
+    })
+    .select()
+    .single()
+
+  if (error) throw error
+  return data as FinanceLedgerEntry
+}
+
+// ==================== PARTICIPANTS ====================
+
+export async function addParticipant(params: {
+  finance_deal_id: string
+  contact_id?: string
+  employee_id?: string
+  participant_role: string
+  is_primary?: boolean
+  note?: string
+}) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('finance_participants')
+    .insert({
+      finance_deal_id: params.finance_deal_id,
+      contact_id: params.contact_id || null,
+      employee_id: params.employee_id || null,
+      participant_role: params.participant_role,
+      is_primary: params.is_primary ?? false,
+      note: params.note || null,
+    })
+
+  if (error) throw error
+}
+
+export async function removeParticipant(id: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('finance_participants')
+    .delete()
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+// ==================== COLLATERAL ====================
+
+export async function linkCollateral(params: {
+  finance_deal_id: string
+  asset_id: string
+  note?: string
+}) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('finance_collateral_links')
+    .insert({
+      finance_deal_id: params.finance_deal_id,
+      asset_id: params.asset_id,
+      status: 'active',
+      note: params.note || null,
+    })
+
+  if (error) throw error
+}
+
+export async function updateCollateralStatus(id: string, status: string) {
+  const supabase = await createClient()
+  const update: Record<string, unknown> = { status }
+  if (status !== 'active') {
+    update.ended_at = new Date().toISOString()
+  }
+  const { error } = await supabase
+    .from('finance_collateral_links')
+    .update(update)
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+// ==================== PAUSE ====================
+
+export async function addPausePeriod(params: {
+  finance_deal_id: string
+  start_date: string
+  end_date: string
+  reason?: string
+  created_by_employee_id?: string
+}) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('finance_pause_periods')
+    .insert(params)
+
+  if (error) throw error
+}
+
+// ==================== PAYMENT SCHEDULE ====================
+
+export async function getPaymentSchedule(financeDealId: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('finance_payment_schedule')
+    .select('*')
+    .eq('finance_deal_id', financeDealId)
+    .order('due_date', { ascending: true })
+
+  if (error) throw error
+  return (data || []) as FinancePaymentScheduleItem[]
+}
+
+export async function updatePaymentStatus(id: string, status: string) {
+  const supabase = await createClient()
+  const { error } = await supabase
+    .from('finance_payment_schedule')
+    .update({ status })
+    .eq('id', id)
+
+  if (error) throw error
+}
+
+// ==================== UNIFIED DEALS ====================
+
+export async function getUnifiedDeals() {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('v_deals_unified')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    // Если view ещё нет - фоллбэк на legacy deals
+    console.warn('[v0] v_deals_unified view not available, falling back')
+    return []
+  }
+  return data || []
+}
+
+// ==================== TIMELINE ====================
+
+export async function getFinanceDealTimeline(financeDealId: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('v_timeline_finance_deal_events')
+    .select('*')
+    .eq('finance_deal_id', financeDealId)
+    .order('event_time', { ascending: false })
+
+  if (error) {
+    console.warn('[v0] Timeline view not available')
+    return []
+  }
+  return data || []
+}

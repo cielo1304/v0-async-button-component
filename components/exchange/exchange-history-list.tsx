@@ -33,14 +33,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Truck, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
 import { ru } from 'date-fns/locale'
-import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
+import { CustomCalendarComponent, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
+import { OperationExtras } from '@/components/exchange/operation-extras' // Import OperationExtras
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
@@ -568,6 +569,13 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   </div>
                 )}
                 
+                {/* Followup / Handover / Beneficiary */}
+                <OperationExtras
+                  operation={selectedOperation}
+                  supabase={supabase}
+                  onUpdate={() => loadOperations()}
+                />
+
                 {/* Кнопка отмены для pending */}
                 {selectedOperation.status === 'pending' && (
                   <div className="pt-3 border-t border-border flex justify-end">
