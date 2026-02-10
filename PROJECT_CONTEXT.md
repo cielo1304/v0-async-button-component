@@ -118,10 +118,10 @@
 - **Синхронизация:** триггер `sync_employee_roles_to_user_roles` копирует в `user_roles` при наличии `auth_user_id`
 
 ### Уровни доступа к модулям
-```typescript
+\`\`\`typescript
 type ModuleAccessLevel = 'none' | 'view' | 'work' | 'manage'
 type BusinessModule = 'exchange' | 'auto' | 'deals' | 'stock'
-```
+\`\`\`
 
 ### Preset роли (12 штук)
 - `EXCHANGE_VIEW`, `EXCHANGE_WORK`, `EXCHANGE_MANAGE`
@@ -136,12 +136,12 @@ type BusinessModule = 'exchange' | 'auto' | 'deals' | 'stock'
 - `CASHIER` - кассовые операции
 
 ### Ключевые функции (lib/access/index.ts)
-```typescript
+\`\`\`typescript
 getCurrentEmployeeAccess(supabase, authUserId?) → EmployeeAccessResult
 hasAccessLevel(actual, required) → boolean
 getModuleAccessLevelFromRoles(roles, module) → ModuleAccessLevel
 canReadModule(perms, module) → boolean
-```
+\`\`\`
 
 ---
 
@@ -200,12 +200,12 @@ canReadModule(perms, module) → boolean
 
 ## Валюты и форматирование
 
-```typescript
+\`\`\`typescript
 type Currency = 'RUB' | 'USD' | 'USDT' | 'EUR'
 
 // Символы: ₽, $, ₮, €
 // Форматирование через Intl.NumberFormat
-```
+\`\`\`
 
 ---
 

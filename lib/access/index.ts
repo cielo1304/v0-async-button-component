@@ -202,12 +202,14 @@ export async function getCurrentEmployeeAccess(
     employee: null,
     roles: [],
     permissions: [GOD_MODE_PERMISSION],
-    moduleAccess: { exchange: 'manage', auto: 'manage', deals: 'manage', stock: 'manage' },
+    moduleAccess: { exchange: 'manage', auto: 'manage', deals: 'manage', stock: 'manage', assets: 'manage', finance: 'manage' },
     moduleVisibility: {
       exchange: { scope: 'all' },
       auto: { scope: 'all' },
       deals: { scope: 'all' },
-      stock: { scope: 'all' }
+      stock: { scope: 'all' },
+      assets: { scope: 'all' },
+      finance: { scope: 'all' }
     },
     isAdmin: true,
     hasPermission: () => true,
@@ -375,4 +377,50 @@ export function getModuleAccessLevelFromRoles(
   }
   
   return 'none'
+}
+
+/**
+ * Проверить видимость строки по RBAC
+ * God mode: всегда true (но данные visibility сохраняем)
+ * public: видно всем
+ * restricted: видно если роли пользователя пересекаются с allowed_role_codes
+ */
+export function canViewByVisibility(
+  permsOrRoleCodes: Set<Permission> | string[],
+  row: { visibility_mode?: string; allowed_role_codes?: string[] }
+): boolean {
+  // God mode
+  if (permsOrRoleCodes instanceof Set && permsOrRoleCodes.has(GOD_MODE_PERMISSION)) {
+    return true
+  }
+  if (!ACCESS_ENABLED) return true
+  
+  // Public = everyone can see
+  if (!row.visibility_mode || row.visibility_mode === 'public') return true
+  
+  // Restricted = check role codes intersection
+  const allowedCodes = row.allowed_role_codes || []
+  if (allowedCodes.length === 0) return true // no restriction specified
+  
+  const userCodes = permsOrRoleCodes instanceof Set 
+    ? Array.from(permsOrRoleCodes) 
+    : permsOrRoleCodes
+  
+  return allowedCodes.some(code => userCodes.includes(code))
+}
+
+/**
+ * Проверить доступ к модулю assets
+ */
+export function canReadAssets(perms: Set<Permission>): boolean {
+  if (perms.has(GOD_MODE_PERMISSION)) return true
+  return perms.has('assets.read')
+}
+
+/**
+ * Проверить доступ к модулю finance
+ */
+export function canReadFinance(perms: Set<Permission>): boolean {
+  if (perms.has(GOD_MODE_PERMISSION)) return true
+  return perms.has('finance.read')
 }
