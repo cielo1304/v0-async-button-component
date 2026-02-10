@@ -33,7 +33,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Truck, Bell } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
@@ -41,6 +41,7 @@ import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, end
 import { ru } from 'date-fns/locale'
 import { CustomCalendarComponent, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
+import { OperationExtras } from '@/components/exchange/operation-extras' // Import OperationExtras
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
@@ -388,17 +389,9 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Badge className={STATUS_LABELS[op.status]?.color || ''}>
-                      {STATUS_LABELS[op.status]?.label || op.status}
-                    </Badge>
-                    {(op as Record<string, unknown>).followup_at && (
-                      <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-[10px] px-1">FU</Badge>
-                    )}
-                    {(op as Record<string, unknown>).beneficiary_name && (
-                      <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px] px-1">BEN</Badge>
-                    )}
-                  </div>
+                  <Badge className={STATUS_LABELS[op.status]?.color || ''}>
+                    {STATUS_LABELS[op.status]?.label || op.status}
+                  </Badge>
                 </TableCell>
                 <TableCell>
                   <div className="flex gap-1 justify-end">
@@ -568,42 +561,6 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   </div>
                 )}
                 
-                {/* Получатель (beneficiary/handover) */}
-                {((selectedOperation as Record<string, unknown>).beneficiary_name || (selectedOperation as Record<string, unknown>).beneficiary_phone) && (
-                  <div className="pt-3 border-t border-border">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Получатель (Beneficiary)</div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      {(selectedOperation as Record<string, unknown>).beneficiary_name && (
-                        <div>
-                          <span className="text-muted-foreground">{'Имя: '}</span>
-                          <span className="text-foreground">{String((selectedOperation as Record<string, unknown>).beneficiary_name)}</span>
-                        </div>
-                      )}
-                      {(selectedOperation as Record<string, unknown>).beneficiary_phone && (
-                        <div>
-                          <span className="text-muted-foreground">{'Тел: '}</span>
-                          <span className="text-foreground">{String((selectedOperation as Record<string, unknown>).beneficiary_phone)}</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Followup */}
-                {(selectedOperation as Record<string, unknown>).followup_at && (
-                  <div className="pt-3 border-t border-border">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Followup</div>
-                    <div className="flex items-center gap-3 text-sm">
-                      <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30">
-                        {format(new Date(String((selectedOperation as Record<string, unknown>).followup_at)), 'dd.MM.yyyy HH:mm', { locale: ru })}
-                      </Badge>
-                      {(selectedOperation as Record<string, unknown>).followup_note && (
-                        <span className="text-muted-foreground">{String((selectedOperation as Record<string, unknown>).followup_note)}</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 {/* Заметки */}
                 {selectedOperation.client_notes && (
                   <div className="pt-3 border-t border-border">
@@ -612,6 +569,13 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   </div>
                 )}
                 
+                {/* Followup / Handover / Beneficiary */}
+                <OperationExtras
+                  operation={selectedOperation}
+                  supabase={supabase}
+                  onUpdate={() => loadOperations()}
+                />
+
                 {/* Кнопка отмены для pending */}
                 {selectedOperation.status === 'pending' && (
                   <div className="pt-3 border-t border-border flex justify-end">

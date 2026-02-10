@@ -27,12 +27,12 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { 
   Settings, ArrowLeft, Building, Wallet, Package, 
-  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users, Pencil, FileText
+  Car, Shield, Bell, Save, Loader2, Plus, Trash2, Database, ArrowLeftRight, Users, Pencil, ScrollText
 } from 'lucide-react'
+import { AuditLogViewer } from '@/components/settings/audit-log-viewer'
 import { toast } from 'sonner'
 import { LocationsManager } from '@/components/finance/locations-manager'
 import { TeamManager } from '@/components/team/team-manager'
-import { AuditLogViewer } from '@/components/settings/audit-log-viewer'
 
 interface SystemSettings {
   company_name: string
@@ -500,15 +500,15 @@ export default function SettingsPage() {
               <Car className="h-4 w-4" />
               Авто
             </TabsTrigger>
+            <TabsTrigger value="audit" className="flex items-center gap-1">
+              <ScrollText className="h-4 w-4" />
+              Аудит
+            </TabsTrigger>
             <TabsTrigger value="system" className="flex items-center gap-1">
               <Database className="h-4 w-4" />
-              <span className="hidden sm:inline">Система</span>
+              Система
             </TabsTrigger>
-            <TabsTrigger value="audit" className="flex items-center gap-1">
-              <FileText className="h-4 w-4" />
-              <span className="hidden sm:inline">Аудит</span>
-            </TabsTrigger>
-            </TabsList>
+          </TabsList>
 
           {/* Общие настройки */}
           <TabsContent value="general" className="space-y-6">
@@ -1256,6 +1256,11 @@ export default function SettingsPage() {
 
           
 
+          {/* Аудит */}
+          <TabsContent value="audit" className="space-y-6">
+            <AuditLogViewer />
+          </TabsContent>
+
           {/* Система */}
           <TabsContent value="system" className="space-y-6">
             <Card>
@@ -1297,11 +1302,6 @@ export default function SettingsPage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
-
-          {/* Аудит */}
-          <TabsContent value="audit" className="space-y-6">
-            <AuditLogViewer />
           </TabsContent>
         </Tabs>
       </main>
