@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { DealList } from '@/components/deals/deal-list'
 import { AddDealDialog } from '@/components/deals/add-deal-dialog'
 import { AddPaymentDialog } from '@/components/deals/add-payment-dialog'
+import { UnifiedDealList } from '@/components/deals/unified-deal-list'
 
 export default function DealsPage() {
   return (
@@ -68,6 +69,17 @@ export default function DealsPage() {
             </Card>
           </Link>
         </div>
+
+        {/* Единый список через v_deals_unified */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Единый список сделок</CardTitle>
+            <CardDescription>{'Все типы сделок из одного представления с фильтрами'}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <UnifiedDealList />
+          </CardContent>
+        </Card>
 
         {/* Legacy-сделки */}
         <Card>

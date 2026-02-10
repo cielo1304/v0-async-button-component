@@ -6,6 +6,7 @@ import type {
   FinanceLedgerEntry, FinanceLedgerEntryType, FinancePaymentScheduleItem,
   FinanceParticipant, FinanceCollateralLink, FinancePausePeriod
 } from '@/lib/types/database'
+import { writeAuditLog } from '@/lib/audit'
 
 // ==================== CORE DEALS ====================
 
@@ -100,17 +101,36 @@ export async function createFinanceDeal(params: {
 
   if (finErr) throw finErr
 
+  await writeAuditLog(supabase, {
+    action: 'create',
+    module: 'finance',
+    entity_table: 'finance_deals',
+    entity_id: financeDeal.id,
+    after: { coreDeal, financeDeal },
+    actor_employee_id: params.responsible_employee_id,
+  })
+
   return { coreDeal, financeDeal }
 }
 
 export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
   const supabase = await createClient()
+  const { data: before } = await supabase.from('core_deals').select('status, sub_status').eq('id', id).single()
   const { error } = await supabase
     .from('core_deals')
     .update({ status, sub_status: sub_status || null })
     .eq('id', id)
 
   if (error) throw error
+
+  await writeAuditLog(supabase, {
+    action: 'status_change',
+    module: 'finance',
+    entity_table: 'core_deals',
+    entity_id: id,
+    before,
+    after: { status, sub_status },
+  })
 }
 
 // ==================== LEDGER ====================
@@ -156,6 +176,16 @@ export async function addLedgerEntry(params: {
     .single()
 
   if (error) throw error
+
+  await writeAuditLog(supabase, {
+    action: 'ledger_entry',
+    module: 'finance',
+    entity_table: 'finance_ledger',
+    entity_id: data.id,
+    after: data,
+    actor_employee_id: params.created_by_employee_id,
+  })
+
   return data as FinanceLedgerEntry
 }
 
@@ -202,7 +232,7 @@ export async function linkCollateral(params: {
   note?: string
 }) {
   const supabase = await createClient()
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('finance_collateral_links')
     .insert({
       finance_deal_id: params.finance_deal_id,
@@ -210,8 +240,18 @@ export async function linkCollateral(params: {
       status: 'active',
       note: params.note || null,
     })
+    .select()
+    .single()
 
   if (error) throw error
+
+  await writeAuditLog(supabase, {
+    action: 'collateral_link',
+    module: 'finance',
+    entity_table: 'finance_collateral_links',
+    entity_id: data.id,
+    after: data,
+  })
 }
 
 export async function updateCollateralStatus(id: string, status: string) {

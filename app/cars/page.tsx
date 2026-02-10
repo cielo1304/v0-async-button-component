@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Car, Users, FileText, Store } from 'lucide-react'
 import Link from 'next/link'
@@ -12,13 +13,12 @@ import { AutoClientList } from '@/components/auto-platform/auto-client-list'
 import { AddAutoClientDialog } from '@/components/auto-platform/add-auto-client-dialog'
 import { AutoDealList } from '@/components/auto-platform/auto-deal-list'
 import { AddAutoDealDialog } from '@/components/auto-platform/add-auto-deal-dialog'
-import { RolesManager } from '@/components/auto-platform/roles-manager'
-import { Settings } from 'lucide-react'
-
-type Tab = 'cars' | 'clients' | 'deals' | 'settings'
+type Tab = 'cars' | 'clients' | 'deals'
 
 export default function CarsPage() {
-  const [activeTab, setActiveTab] = useState<Tab>('cars')
+  const searchParams = useSearchParams()
+  const tabFromUrl = searchParams.get('tab') as Tab | null
+  const [activeTab, setActiveTab] = useState<Tab>(tabFromUrl && ['cars', 'clients', 'deals'].includes(tabFromUrl) ? tabFromUrl : 'cars')
 
   return (
     <div className="min-h-screen bg-background">
@@ -88,17 +88,7 @@ export default function CarsPage() {
               <FileText className="h-4 w-4" />
               Сделки площадки
             </button>
-            <button
-              onClick={() => setActiveTab('settings')}
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-                activeTab === 'settings'
-                  ? 'border-primary text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border'
-              }`}
-            >
-              <Settings className="h-4 w-4" />
-              Настройки
-            </button>
+
           </div>
         </div>
       </header>
@@ -140,19 +130,7 @@ export default function CarsPage() {
           </Card>
         )}
 
-        {activeTab === 'settings' && (
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Управление ролями</CardTitle>
-                <CardDescription>{'Назначение ролей и прав доступа для сотрудников'}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <RolesManager />
-              </CardContent>
-            </Card>
-          </div>
-        )}
+
       </main>
     </div>
   )
