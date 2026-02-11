@@ -20,10 +20,12 @@ import {
 import type {
   CoreDeal, CoreDealStatus, FinanceDeal, FinanceLedgerEntry,
   FinanceLedgerEntryType, FinancePaymentScheduleItem, FinanceParticipant,
-  FinanceCollateralLink, Contact, Employee, Asset
+  FinanceCollateralLink, FinancePausePeriod, Contact, Employee, Asset
 } from '@/lib/types/database'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { computeBalances, totalPausedDays } from '@/lib/finance/math'
+import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -69,6 +71,7 @@ export default function FinanceDealDetailPage() {
   const [schedule, setSchedule] = useState<FinancePaymentScheduleItem[]>([])
   const [participants, setParticipants] = useState<FinanceParticipant[]>([])
   const [collaterals, setCollaterals] = useState<FinanceCollateralLink[]>([])
+  const [pauses, setPauses] = useState<FinancePausePeriod[]>([])
   const [loading, setLoading] = useState(true)
 
   // Справочники
@@ -80,12 +83,15 @@ export default function FinanceDealDetailPage() {
   const [isLedgerOpen, setIsLedgerOpen] = useState(false)
   const [isParticipantOpen, setIsParticipantOpen] = useState(false)
   const [isCollateralOpen, setIsCollateralOpen] = useState(false)
+  const [isPauseOpen, setIsPauseOpen] = useState(false)
+  const [isRecalculating, setIsRecalculating] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'schedule' | 'participants' | 'collateral'>('overview')
 
   // Формы
   const [ledgerForm, setLedgerForm] = useState({ entry_type: 'repayment_principal' as string, amount: '', currency: 'USD', note: '' })
   const [participantForm, setParticipantForm] = useState({ contact_id: '', employee_id: '', participant_role: 'borrower', note: '' })
   const [collateralForm, setCollateralForm] = useState({ asset_id: '', note: '' })
+  const [pauseForm, setPauseForm] = useState({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
 
   const loadDeal = useCallback(async () => {
     setLoading(true)
@@ -108,16 +114,18 @@ export default function FinanceDealDetailPage() {
         setFinanceDeal(fd as FinanceDeal)
 
         // Параллельная загрузка
-        const [ledgerRes, scheduleRes, partRes, collRes] = await Promise.all([
+        const [ledgerRes, scheduleRes, partRes, collRes, pausesRes] = await Promise.all([
           supabase.from('finance_ledger').select('*').eq('finance_deal_id', fd.id).order('occurred_at', { ascending: false }),
           supabase.from('finance_payment_schedule').select('*').eq('finance_deal_id', fd.id).order('due_date'),
           supabase.from('finance_participants').select('*, contact:contacts(*), employee:employees(*)').eq('finance_deal_id', fd.id),
           supabase.from('finance_collateral_links').select('*, asset:assets(*)').eq('finance_deal_id', fd.id),
+          supabase.from('finance_pause_periods').select('*').eq('finance_deal_id', fd.id).order('start_date'),
         ])
         setLedger((ledgerRes.data || []) as FinanceLedgerEntry[])
         setSchedule((scheduleRes.data || []) as FinancePaymentScheduleItem[])
         setParticipants((partRes.data || []) as FinanceParticipant[])
         setCollaterals((collRes.data || []) as FinanceCollateralLink[])
+        setPauses((pausesRes.data || []) as FinancePausePeriod[])
       }
     } catch {
       toast.error('Ошибка загрузки сделки')
@@ -207,10 +215,16 @@ export default function FinanceDealDetailPage() {
 
   const st = STATUS_MAP[deal.status as CoreDealStatus] || { label: deal.status, color: '' }
 
-  // Баланс по книге
-  const totalDisbursed = ledger.filter(l => l.entry_type === 'disbursement').reduce((s, l) => s + (l.amount || 0), 0)
-  const totalRepaid = ledger.filter(l => l.entry_type.startsWith('repayment')).reduce((s, l) => s + (l.amount || 0), 0)
-  const balance = totalDisbursed - totalRepaid
+  // Балансы по книге (через pure function)
+  const balances = computeBalances(
+    financeDeal?.principal_amount || 0,
+    ledger.map(l => ({ entry_type: l.entry_type, amount: l.amount || 0 })),
+  )
+  const pausedDaysCount = totalPausedDays(
+    pauses.map(p => ({ startDate: p.start_date, endDate: p.end_date })),
+  )
+  const today = new Date().toISOString().slice(0, 10)
+  const activePause = pauses.find(p => p.start_date <= today && p.end_date >= today)
 
   const tabs = [
     { id: 'overview', label: 'Обзор', icon: Landmark },
@@ -243,39 +257,56 @@ export default function FinanceDealDetailPage() {
           {deal.status === 'NEW' && <Button size="sm" onClick={() => updateStatus('ACTIVE')}>Активировать</Button>}
           {deal.status === 'ACTIVE' && (
             <>
-              <Button size="sm" variant="outline" className="bg-transparent" onClick={() => updateStatus('PAUSED')}><Pause className="h-4 w-4 mr-1" />Пауза</Button>
+              <Button size="sm" variant="outline" className="bg-transparent" onClick={() => setIsPauseOpen(true)}><Pause className="h-4 w-4 mr-1" />Пауза</Button>
               <Button size="sm" variant="outline" className="bg-transparent text-red-400 border-red-500/30" onClick={() => updateStatus('DEFAULT')}>Дефолт</Button>
               <Button size="sm" onClick={() => updateStatus('CLOSED')}>Закрыть</Button>
             </>
           )}
-          {deal.status === 'PAUSED' && <Button size="sm" onClick={() => updateStatus('ACTIVE')}><Play className="h-4 w-4 mr-1" />Возобновить</Button>}
+          {deal.status === 'PAUSED' && activePause && financeDeal && (
+            <Button size="sm" onClick={async () => {
+              const result = await resumeDeal({ coreDealId: dealId, financeDealId: financeDeal.id, pauseId: activePause.id })
+              if (result.success) { toast.success(result.message); loadDeal() }
+              else toast.error(result.error)
+            }}><Play className="h-4 w-4 mr-1" />Возобновить</Button>
+          )}
+          {deal.status === 'PAUSED' && !activePause && <Button size="sm" onClick={() => updateStatus('ACTIVE')}><Play className="h-4 w-4 mr-1" />Возобновить</Button>}
         </div>
       </div>
 
       {/* Статистика */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Выдано</p>
-            <p className="text-lg font-bold font-mono">{formatMoney(totalDisbursed, financeDeal?.contract_currency)}</p>
+            <p className="text-lg font-bold font-mono">{formatMoney(balances.totalDisbursed, financeDeal?.contract_currency)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Погашено</p>
-            <p className="text-lg font-bold font-mono text-emerald-400">{formatMoney(totalRepaid, financeDeal?.contract_currency)}</p>
+            <p className="text-xs text-muted-foreground">Тело погашено</p>
+            <p className="text-lg font-bold font-mono text-emerald-400">{formatMoney(balances.principalRepaid, financeDeal?.contract_currency)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Остаток</p>
-            <p className={`text-lg font-bold font-mono ${balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatMoney(balance, financeDeal?.contract_currency)}</p>
+            <p className="text-xs text-muted-foreground">% погашено</p>
+            <p className="text-lg font-bold font-mono text-emerald-400">{formatMoney(balances.interestRepaid, financeDeal?.contract_currency)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-4 pb-4">
-            <p className="text-xs text-muted-foreground">Залогов</p>
-            <p className="text-lg font-bold">{collaterals.filter(c => c.status === 'active').length}</p>
+            <p className="text-xs text-muted-foreground">Остаток тела</p>
+            <p className={`text-lg font-bold font-mono ${balances.outstandingPrincipal > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{formatMoney(balances.outstandingPrincipal, financeDeal?.contract_currency)}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-4">
+            <p className="text-xs text-muted-foreground">Пауза / Залоги</p>
+            <p className="text-lg font-bold">
+              {pausedDaysCount > 0 ? <span className="text-amber-400">{pausedDaysCount} дн.</span> : '0 дн.'}
+              {' / '}
+              {collaterals.filter(c => c.status === 'active').length}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -298,6 +329,7 @@ export default function FinanceDealDetailPage() {
 
       {/* Обзор */}
       {activeTab === 'overview' && (
+        <>
         <div className="grid md:grid-cols-2 gap-6">
           <Card>
             <CardHeader><CardTitle className="text-base">Параметры сделки</CardTitle></CardHeader>
@@ -334,6 +366,54 @@ export default function FinanceDealDetailPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Периоды паузы */}
+        {pauses.length > 0 && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Периоды паузы ({pauses.length})</CardTitle></CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Начало</TableHead>
+                    <TableHead>Конец</TableHead>
+                    <TableHead>Причина</TableHead>
+                    <TableHead className="w-[60px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pauses.map(p => {
+                    const isActive = p.start_date <= today && p.end_date >= today
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="text-sm">{new Date(p.start_date).toLocaleDateString('ru-RU')}</TableCell>
+                        <TableCell className="text-sm">{new Date(p.end_date).toLocaleDateString('ru-RU')}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {p.reason || '-'}
+                          {isActive && <Badge variant="outline" className="ml-2 bg-amber-500/15 text-amber-400 border-amber-500/30">Активна</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost" size="icon" className="h-8 w-8 text-red-400 hover:text-red-300 bg-transparent"
+                            onClick={async () => {
+                              if (!financeDeal) return
+                              const result = await deletePause({ coreDealId: dealId, financeDealId: financeDeal.id, pauseId: p.id })
+                              if (result.success) { toast.success(result.message); loadDeal() }
+                              else toast.error(result.error)
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        )}
+        </>
       )}
 
       {/* Книга (Ledger) */}
@@ -375,7 +455,26 @@ export default function FinanceDealDetailPage() {
       {/* График платежей */}
       {activeTab === 'schedule' && (
         <Card>
-          <CardHeader><CardTitle className="text-base">График платежей</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">График платежей</CardTitle>
+            {financeDeal && financeDeal.schedule_type !== 'manual' && financeDeal.schedule_type !== 'tranches' && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="bg-transparent"
+                disabled={isRecalculating}
+                onClick={async () => {
+                  setIsRecalculating(true)
+                  const result = await regenerateSchedule(financeDeal.id)
+                  if (result.success) { toast.success(result.message); loadDeal() }
+                  else toast.error(result.error)
+                  setIsRecalculating(false)
+                }}
+              >
+                <Calendar className="h-4 w-4 mr-1" />{isRecalculating ? 'Пересчёт...' : 'Пересчитать'}
+              </Button>
+            )}
+          </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
@@ -580,6 +679,56 @@ export default function FinanceDealDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsParticipantOpen(false)} className="bg-transparent">Отмена</Button>
             <Button onClick={addParticipant}>Добавить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог паузы */}
+      <Dialog open={isPauseOpen} onOpenChange={setIsPauseOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Поставить сделку на паузу</DialogTitle>
+            <DialogDescription>Укажите период и причину. График будет пересчитан автоматически.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Дата начала</Label>
+                <Input type="date" value={pauseForm.start_date} onChange={e => setPauseForm(f => ({ ...f, start_date: e.target.value }))} />
+              </div>
+              <div className="space-y-2">
+                <Label>Дата окончания</Label>
+                <Input type="date" value={pauseForm.end_date} onChange={e => setPauseForm(f => ({ ...f, end_date: e.target.value }))} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Причина</Label>
+              <Textarea value={pauseForm.reason} onChange={e => setPauseForm(f => ({ ...f, reason: e.target.value }))} placeholder="Необязательно" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPauseOpen(false)} className="bg-transparent">Отмена</Button>
+            <Button onClick={async () => {
+              if (!financeDeal || !pauseForm.end_date) {
+                toast.error('Укажите дату окончания')
+                return
+              }
+              const result = await pauseDeal({
+                coreDealId: dealId,
+                financeDealId: financeDeal.id,
+                startDate: pauseForm.start_date,
+                endDate: pauseForm.end_date,
+                reason: pauseForm.reason || undefined,
+              })
+              if (result.success) {
+                toast.success(result.message)
+                setIsPauseOpen(false)
+                setPauseForm({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
+                loadDeal()
+              } else {
+                toast.error(result.error)
+              }
+            }}>Поставить на паузу</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
