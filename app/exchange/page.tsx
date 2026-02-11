@@ -25,7 +25,7 @@ import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Calendar
+  Calendar, UserCircle, Users, Bell, Clock
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -38,6 +38,8 @@ import { EditRateDialog } from '@/components/exchange/edit-rate-dialog'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, CURRENCY_FLAGS, type DatePeriod } from '@/lib/constants/currencies'
 import { nanoid } from 'nanoid'
+import { submitExchange, setFollowup } from '@/app/actions/client-exchange'
+import type { ExchangeParticipant } from '@/app/actions/client-exchange'
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -62,6 +64,20 @@ export default function ExchangePage() {
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
   
+  // Участники клиента
+  const [participants, setParticipants] = useState<Array<{
+    id: string
+    contactName: string
+    contactPhone: string
+    role: 'client' | 'beneficiary' | 'courier' | 'representative'
+  }>>([])
+  const [beneficiaryContactId, setBeneficiaryContactId] = useState<string>('')
+  const [contacts, setContacts] = useState<Array<{ id: string; display_name: string }>>([])
+  
+  // Follow-up
+  const [followupAt, setFollowupAt] = useState('')
+  const [followupNote, setFollowupNote] = useState('')
+  
   // Данные из БД
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -76,6 +92,10 @@ export default function ExchangePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
+  
+  // Актор: кто выполняет операцию (god-mode selector)
+  const [employees, setEmployees] = useState<Array<{ id: string; full_name: string }>>([])
+  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
   
   // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
@@ -171,7 +191,7 @@ export default function ExchangePage() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ratesResult, cashboxesResult, settingsResult] = await Promise.all([
+      const [ratesResult, cashboxesResult, settingsResult, employeesResult, contactsResult] = await Promise.all([
         supabase
           .from('exchange_rates')
           .select('*')
@@ -186,12 +206,29 @@ export default function ExchangePage() {
         supabase
           .from('exchange_settings')
           .select('*')
-          .single()
+          .single(),
+        supabase
+          .from('employees')
+          .select('id, full_name')
+          .eq('is_active', true)
+          .order('full_name'),
+        supabase
+          .from('contacts')
+          .select('id, display_name')
+          .order('display_name')
+          .limit(500)
       ])
       
       if (ratesResult.data) setExchangeRates(ratesResult.data)
       if (cashboxesResult.data) setCashboxes(cashboxesResult.data)
       if (settingsResult.data) setSettings(settingsResult.data)
+      if (employeesResult.data) {
+        setEmployees(employeesResult.data)
+        if (!actorEmployeeId && employeesResult.data.length > 0) {
+          setActorEmployeeId(employeesResult.data[0].id)
+        }
+      }
+      if (contactsResult.data) setContacts(contactsResult.data)
       
       // Загрузка статистики за выбранный период
       await loadPeriodStats(statsPeriod)
@@ -200,7 +237,7 @@ export default function ExchangePage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, loadPeriodStats, statsPeriod])
+  }, [supabase, loadPeriodStats, statsPeriod, actorEmployeeId])
   
   useEffect(() => {
     loadData()
@@ -524,13 +561,30 @@ export default function ExchangePage() {
       return cashbox && cashbox.balance >= amount
     })
     
-    return givesValid && receivesValid && balancesOk
-  }, [clientGives, clientReceives, cashboxes])
+    // Beneficiary required when >1 client-side participant
+    const clientSideParticipants = participants.filter(p => 
+      p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
+    )
+    const beneficiaryOk = clientSideParticipants.length <= 1 || !!beneficiaryContactId
+    
+    return givesValid && receivesValid && balancesOk && !!actorEmployeeId && beneficiaryOk
+  }, [clientGives, clientReceives, cashboxes, actorEmployeeId, participants, beneficiaryContactId])
   
   // Отправка операции
   const handleSubmit = async () => {
     if (!isValid) {
       toast.error('Проверьте заполнение всех полей и баланс касс')
+      return
+    }
+    if (!actorEmployeeId) {
+      toast.error('Выберите сотрудника-исполнителя')
+      return
+    }
+    const clientSideParts = participants.filter(p => 
+      p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
+    )
+    if (clientSideParts.length > 1 && !beneficiaryContactId) {
+      toast.error('При 2+ участниках клиента выберите бенефициара')
       return
     }
     
@@ -541,128 +595,72 @@ export default function ExchangePage() {
       const givesInBase = calculateTotalInBase(clientGives, 'give')
       const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
       
-      // 0. Создаем/находим контакт если есть данные клиента
-      let contactId: string | null = null
-      if (clientName || clientPhone) {
-        const { data: contactData } = await supabase.rpc('get_or_create_contact', {
-          p_display_name: clientName || 'Клиент обмена',
-          p_phone: clientPhone || null,
-          p_email: null,
-          p_module: 'exchange'
-        })
-        contactId = contactData
-      }
-      
-      // 1. Создаем основную операцию
-      const { data: operation, error: opError } = await supabase
-        .from('client_exchange_operations')
-        .insert({
-          operation_number: '', // Заполнится триггером
-          total_client_gives_usd: givesInBase,
-          total_client_receives_usd: receivesInBase,
-          profit_amount: calculatedProfit,
-          profit_currency: baseCurrency,
-          client_name: clientName || null,
-          client_phone: clientPhone || null,
-          contact_id: contactId,
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .select()
-        .single()
-      
-      if (opError) throw opError
-      
-      // 2. Создаем детали - что клиент дает
-      for (const line of clientGives) {
-        const amount = parseFloat(line.amount)
-        const rate = getRate(line.currency, baseCurrency)
-        
-        await supabase.from('client_exchange_details').insert({
-          operation_id: operation.id,
-          direction: 'give',
-          currency: line.currency,
-          amount: amount,
-          applied_rate: rate?.buy_rate || null,
-          market_rate: rate?.market_rate || null,
-          cashbox_id: line.cashboxId,
-          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount * rate.buy_rate : null)
-        })
-        
-        // Увеличиваем баланс кассы (мы получаем от клиента)
-        await supabase.rpc('update_cashbox_balance', {
-          p_cashbox_id: line.cashboxId,
-          p_amount: amount
-        })
-        
-        // Создаем транзакцию
-        await supabase.from('transactions').insert({
-          cashbox_id: line.cashboxId,
-          amount: amount,
-          category: 'EXCHANGE_IN',
-          description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
-          reference_id: operation.id
-        })
-      }
-      
-      // 3. Создаем детали - что клиент получает
-      for (const line of clientReceives) {
-        const amount = parseFloat(line.amount)
-        const rate = getRate(baseCurrency, line.currency)
-        
-        await supabase.from('client_exchange_details').insert({
-          operation_id: operation.id,
-          direction: 'receive',
-          currency: line.currency,
-          amount: amount,
-          applied_rate: rate?.sell_rate || null,
-          market_rate: rate?.market_rate || null,
-          cashbox_id: line.cashboxId,
-          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount / rate.sell_rate : null)
-        })
-        
-        // Уменьшаем баланс кассы (мы отдаем клиенту)
-        await supabase.rpc('update_cashbox_balance', {
-          p_cashbox_id: line.cashboxId,
-          p_amount: -amount
-        })
-        
-        // Создаем транзакцию
-        await supabase.from('transactions').insert({
-          cashbox_id: line.cashboxId,
-          amount: -amount,
-          category: 'EXCHANGE_OUT',
-          description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
-          reference_id: operation.id
-        })
-      }
-      
-      // 4. Логируем событие контакта
-      if (contactId) {
-        await supabase.rpc('log_contact_event', {
-          p_contact_id: contactId,
-          p_module: 'exchange',
-          p_entity_type: 'client_exchange_operation',
-          p_entity_id: operation.id,
-          p_title: `Обмен ${operation.operation_number}`,
-          p_payload: {
-            profit: calculatedProfit,
-            gives: clientGives.map(g => ({ currency: g.currency, amount: g.amount })),
-            receives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount })),
-            operation_number: operation.operation_number
+      // Build rates info for server action
+      const rates = [
+        ...clientGives.map(line => {
+          const rate = getRate(line.currency, baseCurrency)
+          const amount = parseFloat(line.amount) || 0
+          return {
+            lineCurrency: line.currency,
+            direction: 'give' as const,
+            appliedRate: rate?.buy_rate || null,
+            marketRate: rate?.market_rate || null,
+            amountInBase: line.currency === baseCurrency ? amount : (rate ? amount * rate.buy_rate : null),
           }
-        })
+        }),
+        ...clientReceives.map(line => {
+          const rate = getRate(baseCurrency, line.currency)
+          const amount = parseFloat(line.amount) || 0
+          return {
+            lineCurrency: line.currency,
+            direction: 'receive' as const,
+            appliedRate: rate?.sell_rate || null,
+            marketRate: rate?.market_rate || null,
+            amountInBase: line.currency === baseCurrency ? amount : (rate ? amount / rate.sell_rate : null),
+          }
+        }),
+      ]
+      
+      const result = await submitExchange({
+        clientGives: clientGives.map(g => ({ currency: g.currency, amount: g.amount, cashboxId: g.cashboxId })),
+        clientReceives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount, cashboxId: r.cashboxId })),
+        clientName: clientName || undefined,
+        clientPhone: clientPhone || undefined,
+        baseCurrency,
+        totalGivesBase: givesInBase,
+        totalReceivesBase: receivesInBase,
+        profit: calculatedProfit,
+        actorEmployeeId,
+        rates,
+        // New fields
+        participants: participants.map(p => ({
+          contactName: p.contactName,
+          contactPhone: p.contactPhone,
+          role: p.role,
+        })),
+        beneficiaryContactId: beneficiaryContactId || undefined,
+        followupAt: followupAt || undefined,
+        followupNote: followupNote || undefined,
+      })
+      
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при выполнении обмена')
+        return
       }
       
-      toast.success(`Обмен ${operation.operation_number} выполнен!`)
+      toast.success(`Обмен ${result.operationNumber} выполнен!`)
       
-      // Сброс формы
+      // Reset form
       setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
       setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
+      setParticipants([])
+      setBeneficiaryContactId('')
+      setFollowupAt('')
+      setFollowupNote('')
       
-      // Обновляем данные
+      // Refresh data
       loadData()
       setRefreshKey(k => k + 1)
       
@@ -687,6 +685,10 @@ export default function ExchangePage() {
     setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
     setClientName('')
     setClientPhone('')
+    setParticipants([])
+    setBeneficiaryContactId('')
+    setFollowupAt('')
+    setFollowupNote('')
   }
   
   if (isLoading) {
@@ -718,7 +720,23 @@ export default function ExchangePage() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Employee actor selector */}
+              <div className="flex items-center gap-2">
+                <UserCircle className="h-4 w-4 text-muted-foreground" />
+                <Select value={actorEmployeeId} onValueChange={setActorEmployeeId}>
+                  <SelectTrigger className="w-[200px] h-9 text-sm">
+                    <SelectValue placeholder="Сотрудник..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map(emp => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Link href="/settings?tab=exchange">
                 <Button variant="outline" size="icon" className="bg-transparent">
                   <Settings className="h-5 w-5" />
@@ -1143,31 +1161,156 @@ export default function ExchangePage() {
               </Card>
             </div>
             
+            {/* Клиент + Участники + Follow-up */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4 space-y-4">
+                {/* Основные данные клиента */}
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">Имя клиента</Label>
+                    <Input
+                      placeholder="Необязательно"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">Телефон</Label>
+                    <Input
+                      placeholder="Необязательно"
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+
+                {/* Участники клиента */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5" />
+                      Участники клиента ({participants.length})
+                    </Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs bg-transparent"
+                      onClick={() => setParticipants([...participants, {
+                        id: nanoid(),
+                        contactName: '',
+                        contactPhone: '',
+                        role: 'client',
+                      }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />Добавить
+                    </Button>
+                  </div>
+                  {participants.map((p, idx) => (
+                    <div key={p.id} className="flex gap-2 items-center">
+                      <Input
+                        placeholder="Имя"
+                        value={p.contactName}
+                        onChange={e => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], contactName: e.target.value }
+                          setParticipants(upd)
+                        }}
+                        className="h-8 text-sm flex-1"
+                      />
+                      <Input
+                        placeholder="Телефон"
+                        value={p.contactPhone}
+                        onChange={e => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], contactPhone: e.target.value }
+                          setParticipants(upd)
+                        }}
+                        className="h-8 text-sm w-[140px]"
+                      />
+                      <Select
+                        value={p.role}
+                        onValueChange={v => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], role: v as typeof p.role }
+                          setParticipants(upd)
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="client">Клиент</SelectItem>
+                          <SelectItem value="beneficiary">Бенефициар</SelectItem>
+                          <SelectItem value="courier">Курьер</SelectItem>
+                          <SelectItem value="representative">Представитель</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive bg-transparent"
+                        onClick={() => setParticipants(participants.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {/* Beneficiary select: appears when >1 participant */}
+                  {participants.length > 0 && (
+                    <div className="flex items-center gap-3 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                      <Bell className="h-4 w-4 text-amber-400 shrink-0" />
+                      <div className="flex-1">
+                        <Label className="text-xs text-amber-400">
+                          Бенефициар {participants.length > 1 ? '(обязательно)' : '(необязательно)'}
+                        </Label>
+                        <Select value={beneficiaryContactId} onValueChange={setBeneficiaryContactId}>
+                          <SelectTrigger className="h-8 mt-1 text-sm">
+                            <SelectValue placeholder="Выберите бенефициара из контактов..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {contacts.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.display_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Follow-up */}
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />
+                      Follow-up
+                    </Label>
+                    <Input
+                      type="datetime-local"
+                      value={followupAt}
+                      onChange={e => setFollowupAt(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="flex-[2]">
+                    <Input
+                      placeholder="Заметка к follow-up..."
+                      value={followupNote}
+                      onChange={e => setFollowupNote(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Итого и действия */}
             <Card className="bg-card border-border">
               <CardContent className="p-4">
                 <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-                  {/* Данные клиента */}
-                  <div className="flex gap-4 flex-1">
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Имя клиента</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Телефон</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-                  </div>
                   
                   {/* Прибыль */}
                   <div className="text-center px-6 py-2 rounded-lg bg-muted/50">

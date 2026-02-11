@@ -17,6 +17,8 @@ import { Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { canViewByVisibility } from '@/lib/access'
+import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 
 interface UnifiedDeal {
   unified_id: string
@@ -81,9 +83,10 @@ export function UnifiedDealList() {
     setIsLoading(false)
   }
 
+  const visibleDeals = deals.filter(d => canViewByVisibility([], d as any))
   const filtered = kindFilter === 'all'
-    ? deals
-    : deals.filter(d => d.source === kindFilter)
+    ? visibleDeals
+    : visibleDeals.filter(d => d.source === kindFilter)
 
   if (isLoading) {
     return (
@@ -137,7 +140,12 @@ export function UnifiedDealList() {
                     {SOURCE_LABELS[deal.source] || deal.source}
                   </Badge>
                 </TableCell>
-                <TableCell className="font-medium">{deal.title}</TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-medium">{deal.title}</span>
+                    <VisibilityBadge mode={(deal as any).visibility_mode} count={(deal as any).allowed_role_codes?.length} />
+                  </div>
+                </TableCell>
                 <TableCell className="text-muted-foreground">
                   {format(new Date(deal.created_at), 'd MMM yyyy', { locale: ru })}
                 </TableCell>

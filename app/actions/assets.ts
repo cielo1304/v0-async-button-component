@@ -142,9 +142,22 @@ export async function getAssetCollateralLinks(assetId: string) {
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('finance_collateral_links')
-    .select('*')
+    .select('*, finance_deal:finance_deals!finance_deal_id(id, core_deal_id, principal_amount, contract_currency, core_deal:core_deals!core_deal_id(title, status))')
     .eq('asset_id', assetId)
     .order('started_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function getAssetCollateralChain(assetId: string) {
+  const supabase = await createServerClient()
+  // Get chain entries where this asset was either old or new
+  const { data, error } = await supabase
+    .from('finance_collateral_chain')
+    .select('*, old_asset:assets!finance_collateral_chain_old_asset_id_fkey(id, title), new_asset:assets!finance_collateral_chain_new_asset_id_fkey(id, title)')
+    .or(`old_asset_id.eq.${assetId},new_asset_id.eq.${assetId}`)
+    .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
   return data || []

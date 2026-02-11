@@ -11,6 +11,7 @@ import { Bell, Truck, Users, Save, ChevronDown, ChevronUp } from 'lucide-react'
 import { toast } from 'sonner'
 import type { ClientExchangeOperation } from '@/lib/types/database'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { AudienceNotes } from '@/components/shared/audience-notes'
 
 const FOLLOWUP_STATUS_MAP: Record<string, { label: string; color: string }> = {
   none: { label: 'Нет', color: 'bg-muted text-muted-foreground border-border' },
@@ -105,6 +106,59 @@ export function OperationExtras({ operation, supabase, onUpdate }: Props) {
         </div>
         {expanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
       </button>
+
+      {/* Follow-up дата/заметка (из новых полей) */}
+      {((operation as any).followup_at || (operation as any).followup_note) && (
+        <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20 text-sm">
+          <Bell className="h-4 w-4 text-amber-400 shrink-0" />
+          <div>
+            {(operation as any).followup_at && (
+              <span className="font-medium text-amber-400 mr-2">
+                {new Date((operation as any).followup_at).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {(operation as any).followup_note && (
+              <span className="text-muted-foreground">{(operation as any).followup_note}</span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Snapshot курсов */}
+      {(operation as any).rates_snapshot && (
+        <div className="px-3 py-2 rounded-lg bg-secondary/30 border border-border text-xs space-y-1">
+          <div className="text-muted-foreground font-medium">Зафиксированные курсы:</div>
+          {((operation as any).rates_snapshot?.rates || []).map((r: any, i: number) => (
+            <div key={i} className="flex justify-between">
+              <span className="text-muted-foreground">
+                {r.lineCurrency} ({r.direction === 'give' ? 'покупка' : 'продажа'})
+              </span>
+              <span className="font-mono text-foreground">
+                applied: {r.appliedRate ?? '-'} / market: {r.marketRate ?? '-'}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Бенефициар контакт (из нового поля) */}
+      {(operation as any).beneficiary_contact_id && (
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-500/5 border border-cyan-500/20 text-sm">
+          <Users className="h-3.5 w-3.5 text-cyan-400" />
+          <span className="text-muted-foreground">Бенефициар (контакт):</span>
+          <span className="text-foreground font-medium">{(operation as any).beneficiary_contact_id}</span>
+        </div>
+      )}
+
+      {/* Заметки клиентской стороны */}
+      {(operation as any).client_audience_notes && Object.keys((operation as any).client_audience_notes).length > 0 && (
+        <AudienceNotes
+          notes={(operation as any).client_audience_notes}
+          onChange={() => {}}
+          readOnly
+          inline
+        />
+      )}
 
       {/* Раскрытая форма редактирования */}
       {expanded && (
