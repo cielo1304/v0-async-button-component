@@ -41,7 +41,8 @@ import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, end
 import { ru } from 'date-fns/locale'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
-import { OperationExtras } from '@/components/exchange/operation-extras' // Import OperationExtras
+import { OperationExtras } from '@/components/exchange/operation-extras'
+import { canViewByVisibility } from '@/lib/access'
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
@@ -159,16 +160,19 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     loadOperations()
   }, [loadOperations, refreshKey])
   
-  // Фильтрация по поиску
+  // Фильтрация по поиску + visibility
   const filteredOperations = useMemo(() => {
-    if (!searchQuery) return operations
+    let ops = operations.filter(op => canViewByVisibility([], op as any))
     
-    const query = searchQuery.toLowerCase()
-    return operations.filter(e => 
-      e.client_name?.toLowerCase().includes(query) ||
-      e.client_phone?.includes(query) ||
-      e.operation_number.toLowerCase().includes(query)
-    )
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase()
+      ops = ops.filter(e => 
+        e.client_name?.toLowerCase().includes(query) ||
+        e.client_phone?.includes(query) ||
+        e.operation_number.toLowerCase().includes(query)
+      )
+    }
+    return ops
   }, [operations, searchQuery])
   
   // Загрузка деталей операции
@@ -367,7 +371,19 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   {format(new Date(op.created_at), 'dd.MM.yy HH:mm', { locale: ru })}
                 </TableCell>
                 <TableCell>
-                  {op.client_name || <span className="text-muted-foreground">-</span>}
+                  <div className="flex items-center gap-1.5">
+                    {op.client_name || <span className="text-muted-foreground">-</span>}
+                    {(op as any).followup_at && (
+                      <span title={`Follow-up: ${new Date((op as any).followup_at).toLocaleString('ru-RU')}`}>
+                        <Bell className="h-3 w-3 text-amber-400" />
+                      </span>
+                    )}
+                    {(op as any).beneficiary_contact_id && (
+                      <span title="Есть бенефициар">
+                        <Users className="h-3 w-3 text-cyan-400" />
+                      </span>
+                    )}
+                  </div>
                   {op.client_phone && (
                     <div className="text-xs text-muted-foreground">{op.client_phone}</div>
                   )}

@@ -15,6 +15,8 @@ import { Plus, Search, ArrowLeft, Landmark, Users, Calendar, TrendingUp, Pause, 
 import type { CoreDeal, CoreDealStatus, FinanceScheduleType, Contact, Employee } from '@/lib/types/database'
 import { toast } from 'sonner'
 import Link from 'next/link'
+import { canViewByVisibility } from '@/lib/access'
+import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -141,6 +143,7 @@ export default function FinanceDealsPage() {
   }
 
   const filtered = deals.filter(d => {
+    if (!canViewByVisibility([], d as any)) return false
     const matchSearch = !search || d.title.toLowerCase().includes(search.toLowerCase()) ||
       (d.contact as any)?.full_name?.toLowerCase().includes(search.toLowerCase())
     const matchStatus = statusFilter === 'all' || d.status === statusFilter
@@ -277,7 +280,10 @@ export default function FinanceDealsPage() {
                 return (
                   <TableRow key={deal.id} className="cursor-pointer hover:bg-muted/50" onClick={() => router.push(`/finance-deals/${deal.id}`)}>
                     <TableCell>
-                      <span className="font-medium">{deal.title}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium">{deal.title}</span>
+                        <VisibilityBadge mode={(deal as any).visibility_mode} count={(deal as any).allowed_role_codes?.length} />
+                      </div>
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-muted-foreground">

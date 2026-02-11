@@ -844,6 +844,9 @@ export interface Asset {
   visibility_mode: 'public' | 'restricted'
   allowed_role_codes: string[]
   client_audience_notes: Record<string, unknown>
+  is_divisible: boolean
+  total_units: number | null
+  available_units: number | null
   created_at: string
   updated_at: string
   // Joined data
@@ -929,13 +932,15 @@ export interface CoreDeal {
   contact_id: string | null
   responsible_employee_id: string | null
   client_audience_notes: Record<string, unknown>
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
   created_at: string
   updated_at: string
   // Joined
   contact?: Contact
   responsible_employee?: Employee
   finance_deal?: FinanceDeal
-}
+  }
 
 export interface FinanceDeal {
   id: string
@@ -947,6 +952,9 @@ export interface FinanceDeal {
   schedule_type: FinanceScheduleType
   allow_tranches: boolean
   rules: Record<string, unknown>
+  visibility_mode: 'public' | 'restricted'
+  allowed_role_codes: string[]
+  client_audience_notes: Record<string, unknown>
   // Joined
   core_deal?: CoreDeal
   participants?: FinanceParticipant[]
@@ -1014,6 +1022,9 @@ export interface FinanceCollateralLink {
   started_at: string
   ended_at: string | null
   note: string | null
+  pledged_units: number | null
+  valuation_at_pledge: number | null
+  ltv_at_pledge: number | null
   // Joined
   asset?: Asset
 }

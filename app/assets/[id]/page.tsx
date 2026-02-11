@@ -49,11 +49,14 @@ import {
 import { toast } from 'sonner'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { VisibilityToggle } from '@/components/shared/visibility-toggle'
+import { AudienceNotes } from '@/components/shared/audience-notes'
 import {
   getAssetById,
   getAssetValuations,
   getAssetMoves,
   getAssetCollateralLinks,
+  getAssetCollateralChain,
   getAssetSaleEvents,
   getAssetTimeline,
   getAssetLocations,
@@ -89,6 +92,7 @@ export default function AssetDetailPage() {
   const [valuations, setValuations] = useState<Awaited<ReturnType<typeof getAssetValuations>>>([])
   const [moves, setMoves] = useState<Awaited<ReturnType<typeof getAssetMoves>>>([])
   const [collateral, setCollateral] = useState<Awaited<ReturnType<typeof getAssetCollateralLinks>>>([])
+  const [collateralChain, setCollateralChain] = useState<Awaited<ReturnType<typeof getAssetCollateralChain>>>([])
   const [saleEvents, setSaleEvents] = useState<Awaited<ReturnType<typeof getAssetSaleEvents>>>([])
   const [timeline, setTimeline] = useState<Awaited<ReturnType<typeof getAssetTimeline>>>([])
   const [locations, setLocations] = useState<Awaited<ReturnType<typeof getAssetLocations>>>([])
@@ -126,11 +130,12 @@ export default function AssetDetailPage() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [assetData, vals, mvs, coll, sales, tl, locs, emps] = await Promise.all([
+      const [assetData, vals, mvs, coll, collChain, sales, tl, locs, emps] = await Promise.all([
         getAssetById(id),
         getAssetValuations(id),
         getAssetMoves(id),
         getAssetCollateralLinks(id),
+        getAssetCollateralChain(id),
         getAssetSaleEvents(id),
         getAssetTimeline(id),
         getAssetLocations(),
@@ -140,6 +145,7 @@ export default function AssetDetailPage() {
       setValuations(vals)
       setMoves(mvs)
       setCollateral(coll)
+      setCollateralChain(collChain)
       setSaleEvents(sales)
       setTimeline(tl)
       setLocations(locs)
@@ -260,6 +266,20 @@ export default function AssetDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <VisibilityToggle
+                compact
+                mode={(asset as any).visibility_mode || 'public'}
+                allowedRoleCodes={(asset as any).allowed_role_codes || []}
+                onModeChange={async (m) => {
+                  await updateAsset(id, { visibility_mode: m })
+                  loadData()
+                }}
+                onRoleCodesChange={async (codes) => {
+                  await updateAsset(id, { allowed_role_codes: codes })
+                  loadData()
+                }}
+                onSave={() => toast.success('Видимость сохранена')}
+              />
               <Button variant="outline" size="sm" onClick={() => { setNewStatus(asset.status); setIsEditStatusOpen(true) }}>
                 <Pencil className="h-3 w-3 mr-1" />
                 Статус
@@ -366,6 +386,15 @@ export default function AssetDetailPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Кто со стороны клиента что знает */}
+            <AudienceNotes
+              notes={(asset.client_audience_notes || {}) as Record<string, string>}
+              onChange={async (updated) => {
+                await updateAsset(id, { client_audience_notes: updated })
+              }}
+              onSave={() => { toast.success('Заметки сохранены'); loadData() }}
+            />
           </TabsContent>
 
           {/* Valuations */}
@@ -459,10 +488,10 @@ export default function AssetDetailPage() {
           </TabsContent>
 
           {/* Collateral */}
-          <TabsContent value="collateral">
+          <TabsContent value="collateral" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Залоги</CardTitle>
+                <CardTitle>Залоговые связи ({collateral.length})</CardTitle>
                 <CardDescription>Связи актива с финансовыми сделками как залог</CardDescription>
               </CardHeader>
               <CardContent>
@@ -472,34 +501,115 @@ export default function AssetDetailPage() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Финсделка</TableHead>
-                        <TableHead>Статус</TableHead>
-                        <TableHead>Начало</TableHead>
-                        <TableHead>Окончание</TableHead>
-                        <TableHead>Примечание</TableHead>
+                        <TableHead>Сделка</TableHead>
+                        <TableHead>Сумма</TableHead>
+                        <TableHead>Статус залога</TableHead>
+                        <TableHead>Оценка / LTV</TableHead>
+                        <TableHead>Период</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {collateral.map((cl) => (
-                        <TableRow
-                          key={cl.id}
-                          className="cursor-pointer hover:bg-accent/50"
-                          onClick={() => router.push(`/finance-deals/${cl.finance_deal_id}`)}
-                        >
-                          <TableCell className="font-mono text-sm">{cl.finance_deal_id.slice(0, 8)}...</TableCell>
-                          <TableCell>
-                            <Badge variant={cl.status === 'active' ? 'default' : 'secondary'}>{cl.status}</Badge>
-                          </TableCell>
-                          <TableCell>{format(new Date(cl.started_at), 'd MMM yyyy', { locale: ru })}</TableCell>
-                          <TableCell>{cl.ended_at ? format(new Date(cl.ended_at), 'd MMM yyyy', { locale: ru }) : '—'}</TableCell>
-                          <TableCell className="text-muted-foreground">{cl.note || '—'}</TableCell>
-                        </TableRow>
-                      ))}
+                      {collateral.map((cl: any) => {
+                        const fd = cl.finance_deal
+                        const cd = fd?.core_deal
+                        return (
+                          <TableRow
+                            key={cl.id}
+                            className="cursor-pointer hover:bg-accent/50"
+                            onClick={() => router.push(`/finance-deals/${cd?.id || cl.finance_deal_id}`)}
+                          >
+                            <TableCell>
+                              <div className="text-sm font-medium">{cd?.deal_number || cl.finance_deal_id.slice(0, 8)}</div>
+                              {cd?.status && <Badge variant="outline" className="text-[10px] mt-0.5">{cd.status}</Badge>}
+                            </TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {fd?.principal_amount ? `${Number(fd.principal_amount).toLocaleString()} ${fd.contract_currency}` : '—'}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={
+                                cl.status === 'active' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                                cl.status === 'foreclosed' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                                cl.status === 'replaced' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                                'bg-muted text-muted-foreground border-border'
+                              }>
+                                {cl.status === 'active' ? 'Активен' : cl.status === 'released' ? 'Освобождён' : cl.status === 'foreclosed' ? 'Обращён' : cl.status === 'replaced' ? 'Заменён' : cl.status}
+                              </Badge>
+                              {cl.pledged_units && <span className="text-xs text-muted-foreground ml-2">{cl.pledged_units} ед.</span>}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {cl.valuation_at_pledge != null ? (
+                                <div>
+                                  <span className="font-mono">{Number(cl.valuation_at_pledge).toLocaleString()}</span>
+                                  {cl.ltv_at_pledge != null && (
+                                    <span className={`ml-2 font-mono ${Number(cl.ltv_at_pledge) > 80 ? 'text-red-400' : Number(cl.ltv_at_pledge) > 60 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                                      LTV {cl.ltv_at_pledge}%
+                                    </span>
+                                  )}
+                                </div>
+                              ) : '—'}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {format(new Date(cl.started_at), 'd MMM yy', { locale: ru })}
+                              {cl.ended_at ? ` → ${format(new Date(cl.ended_at), 'd MMM yy', { locale: ru })}` : ' → ...'}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 )}
               </CardContent>
             </Card>
+
+            {/* Chain history */}
+            {collateralChain.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>История замен</CardTitle>
+                  <CardDescription>Цепочка замен залога с участием этого актива</CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Дата</TableHead>
+                        <TableHead>Старый актив</TableHead>
+                        <TableHead></TableHead>
+                        <TableHead>Новый актив</TableHead>
+                        <TableHead>Причина</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {collateralChain.map((ch: any) => (
+                        <TableRow key={ch.id}>
+                          <TableCell className="text-xs">{format(new Date(ch.created_at), 'd MMM yyyy', { locale: ru })}</TableCell>
+                          <TableCell>
+                            {ch.old_asset_id === id ? (
+                              <span className="text-sm font-medium text-amber-400">Этот актив</span>
+                            ) : (
+                              <span className="text-sm cursor-pointer hover:underline" onClick={() => router.push(`/assets/${ch.old_asset_id}`)}>
+                                {ch.old_asset?.title || ch.old_asset_id.slice(0, 8)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-center text-muted-foreground">→</TableCell>
+                          <TableCell>
+                            {ch.new_asset_id === id ? (
+                              <span className="text-sm font-medium text-emerald-400">Этот актив</span>
+                            ) : (
+                              <span className="text-sm cursor-pointer hover:underline" onClick={() => router.push(`/assets/${ch.new_asset_id}`)}>
+                                {ch.new_asset?.title || ch.new_asset_id.slice(0, 8)}
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{ch.reason || '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* Timeline */}

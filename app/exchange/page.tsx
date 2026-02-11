@@ -25,7 +25,7 @@ import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Calendar, UserCircle
+  Calendar, UserCircle, Users, Bell, Clock
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -38,7 +38,8 @@ import { EditRateDialog } from '@/components/exchange/edit-rate-dialog'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, CURRENCY_FLAGS, type DatePeriod } from '@/lib/constants/currencies'
 import { nanoid } from 'nanoid'
-import { submitExchange } from '@/app/actions/client-exchange'
+import { submitExchange, setFollowup } from '@/app/actions/client-exchange'
+import type { ExchangeParticipant } from '@/app/actions/client-exchange'
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -62,6 +63,20 @@ export default function ExchangePage() {
   // Данные клиента
   const [clientName, setClientName] = useState('')
   const [clientPhone, setClientPhone] = useState('')
+  
+  // Участники клиента
+  const [participants, setParticipants] = useState<Array<{
+    id: string
+    contactName: string
+    contactPhone: string
+    role: 'client' | 'beneficiary' | 'courier' | 'representative'
+  }>>([])
+  const [beneficiaryContactId, setBeneficiaryContactId] = useState<string>('')
+  const [contacts, setContacts] = useState<Array<{ id: string; display_name: string }>>([])
+  
+  // Follow-up
+  const [followupAt, setFollowupAt] = useState('')
+  const [followupNote, setFollowupNote] = useState('')
   
   // Данные из БД
   const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([])
@@ -176,7 +191,7 @@ export default function ExchangePage() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ratesResult, cashboxesResult, settingsResult, employeesResult] = await Promise.all([
+      const [ratesResult, cashboxesResult, settingsResult, employeesResult, contactsResult] = await Promise.all([
         supabase
           .from('exchange_rates')
           .select('*')
@@ -196,7 +211,12 @@ export default function ExchangePage() {
           .from('employees')
           .select('id, full_name')
           .eq('is_active', true)
-          .order('full_name')
+          .order('full_name'),
+        supabase
+          .from('contacts')
+          .select('id, display_name')
+          .order('display_name')
+          .limit(500)
       ])
       
       if (ratesResult.data) setExchangeRates(ratesResult.data)
@@ -204,11 +224,11 @@ export default function ExchangePage() {
       if (settingsResult.data) setSettings(settingsResult.data)
       if (employeesResult.data) {
         setEmployees(employeesResult.data)
-        // Auto-select first employee if none selected
         if (!actorEmployeeId && employeesResult.data.length > 0) {
           setActorEmployeeId(employeesResult.data[0].id)
         }
       }
+      if (contactsResult.data) setContacts(contactsResult.data)
       
       // Загрузка статистики за выбранный период
       await loadPeriodStats(statsPeriod)
@@ -541,8 +561,14 @@ export default function ExchangePage() {
       return cashbox && cashbox.balance >= amount
     })
     
-    return givesValid && receivesValid && balancesOk && !!actorEmployeeId
-  }, [clientGives, clientReceives, cashboxes, actorEmployeeId])
+    // Beneficiary required when >1 client-side participant
+    const clientSideParticipants = participants.filter(p => 
+      p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
+    )
+    const beneficiaryOk = clientSideParticipants.length <= 1 || !!beneficiaryContactId
+    
+    return givesValid && receivesValid && balancesOk && !!actorEmployeeId && beneficiaryOk
+  }, [clientGives, clientReceives, cashboxes, actorEmployeeId, participants, beneficiaryContactId])
   
   // Отправка операции
   const handleSubmit = async () => {
@@ -552,6 +578,13 @@ export default function ExchangePage() {
     }
     if (!actorEmployeeId) {
       toast.error('Выберите сотрудника-исполнителя')
+      return
+    }
+    const clientSideParts = participants.filter(p => 
+      p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
+    )
+    if (clientSideParts.length > 1 && !beneficiaryContactId) {
+      toast.error('При 2+ участниках клиента выберите бенефициара')
       return
     }
     
@@ -599,6 +632,15 @@ export default function ExchangePage() {
         profit: calculatedProfit,
         actorEmployeeId,
         rates,
+        // New fields
+        participants: participants.map(p => ({
+          contactName: p.contactName,
+          contactPhone: p.contactPhone,
+          role: p.role,
+        })),
+        beneficiaryContactId: beneficiaryContactId || undefined,
+        followupAt: followupAt || undefined,
+        followupNote: followupNote || undefined,
       })
       
       if (!result.success) {
@@ -613,6 +655,10 @@ export default function ExchangePage() {
       setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
+      setParticipants([])
+      setBeneficiaryContactId('')
+      setFollowupAt('')
+      setFollowupNote('')
       
       // Refresh data
       loadData()
@@ -639,6 +685,10 @@ export default function ExchangePage() {
     setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
     setClientName('')
     setClientPhone('')
+    setParticipants([])
+    setBeneficiaryContactId('')
+    setFollowupAt('')
+    setFollowupNote('')
   }
   
   if (isLoading) {
@@ -1111,31 +1161,156 @@ export default function ExchangePage() {
               </Card>
             </div>
             
+            {/* Клиент + Участники + Follow-up */}
+            <Card className="bg-card border-border">
+              <CardContent className="p-4 space-y-4">
+                {/* Основные данные клиента */}
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">Имя клиента</Label>
+                    <Input
+                      placeholder="Необязательно"
+                      value={clientName}
+                      onChange={(e) => setClientName(e.target.value)}
+                      className="h-9"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">Телефон</Label>
+                    <Input
+                      placeholder="Необязательно"
+                      value={clientPhone}
+                      onChange={(e) => setClientPhone(e.target.value)}
+                      className="h-9"
+                    />
+                  </div>
+                </div>
+
+                {/* Участники клиента */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Users className="h-3.5 w-3.5" />
+                      Участники клиента ({participants.length})
+                    </Label>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs bg-transparent"
+                      onClick={() => setParticipants([...participants, {
+                        id: nanoid(),
+                        contactName: '',
+                        contactPhone: '',
+                        role: 'client',
+                      }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" />Добавить
+                    </Button>
+                  </div>
+                  {participants.map((p, idx) => (
+                    <div key={p.id} className="flex gap-2 items-center">
+                      <Input
+                        placeholder="Имя"
+                        value={p.contactName}
+                        onChange={e => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], contactName: e.target.value }
+                          setParticipants(upd)
+                        }}
+                        className="h-8 text-sm flex-1"
+                      />
+                      <Input
+                        placeholder="Телефон"
+                        value={p.contactPhone}
+                        onChange={e => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], contactPhone: e.target.value }
+                          setParticipants(upd)
+                        }}
+                        className="h-8 text-sm w-[140px]"
+                      />
+                      <Select
+                        value={p.role}
+                        onValueChange={v => {
+                          const upd = [...participants]
+                          upd[idx] = { ...upd[idx], role: v as typeof p.role }
+                          setParticipants(upd)
+                        }}
+                      >
+                        <SelectTrigger className="h-8 w-[140px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="client">Клиент</SelectItem>
+                          <SelectItem value="beneficiary">Бенефициар</SelectItem>
+                          <SelectItem value="courier">Курьер</SelectItem>
+                          <SelectItem value="representative">Представитель</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive bg-transparent"
+                        onClick={() => setParticipants(participants.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  {/* Beneficiary select: appears when >1 participant */}
+                  {participants.length > 0 && (
+                    <div className="flex items-center gap-3 p-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                      <Bell className="h-4 w-4 text-amber-400 shrink-0" />
+                      <div className="flex-1">
+                        <Label className="text-xs text-amber-400">
+                          Бенефициар {participants.length > 1 ? '(обязательно)' : '(необязательно)'}
+                        </Label>
+                        <Select value={beneficiaryContactId} onValueChange={setBeneficiaryContactId}>
+                          <SelectTrigger className="h-8 mt-1 text-sm">
+                            <SelectValue placeholder="Выберите бенефициара из контактов..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {contacts.map(c => (
+                              <SelectItem key={c.id} value={c.id}>{c.display_name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Follow-up */}
+                <div className="flex gap-3 items-end">
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5" />
+                      Follow-up
+                    </Label>
+                    <Input
+                      type="datetime-local"
+                      value={followupAt}
+                      onChange={e => setFollowupAt(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="flex-[2]">
+                    <Input
+                      placeholder="Заметка к follow-up..."
+                      value={followupNote}
+                      onChange={e => setFollowupNote(e.target.value)}
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {/* Итого и действия */}
             <Card className="bg-card border-border">
               <CardContent className="p-4">
                 <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-                  {/* Данные клиента */}
-                  <div className="flex gap-4 flex-1">
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Имя клиента</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientName}
-                        onChange={(e) => setClientName(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <Label className="text-xs text-muted-foreground">Телефон</Label>
-                      <Input
-                        placeholder="Необязательно"
-                        value={clientPhone}
-                        onChange={(e) => setClientPhone(e.target.value)}
-                        className="h-9"
-                      />
-                    </div>
-                  </div>
                   
                   {/* Прибыль */}
                   <div className="text-center px-6 py-2 rounded-lg bg-muted/50">

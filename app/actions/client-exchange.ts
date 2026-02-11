@@ -11,6 +11,14 @@ export interface ExchangeLine {
   cashboxId: string
 }
 
+export interface ExchangeParticipant {
+  contactId?: string
+  contactName?: string   // For auto-create
+  contactPhone?: string  // For auto-create
+  role: 'client' | 'beneficiary' | 'courier' | 'representative'
+  note?: string
+}
+
 export interface SubmitExchangeInput {
   clientGives: ExchangeLine[]
   clientReceives: ExchangeLine[]
@@ -28,6 +36,14 @@ export interface SubmitExchangeInput {
     marketRate: number | null
     amountInBase: number | null
   }>
+  // New fields
+  participants?: ExchangeParticipant[]
+  beneficiaryContactId?: string
+  handoverContactId?: string
+  followupAt?: string      // ISO date
+  followupNote?: string
+  visibilityMode?: 'public' | 'restricted'
+  allowedRoleCodes?: string[]
 }
 
 export interface ExchangeResult {
@@ -43,7 +59,22 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
   const supabase = await createServerClient()
 
   try {
-    // 0. Create/find contact if client data provided
+    // -1. Validate beneficiary rule: if >1 client-side participant => beneficiary required
+    const clientParticipants = (input.participants || []).filter(p =>
+      p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
+    )
+    if (clientParticipants.length > 1 && !input.beneficiaryContactId) {
+      return { success: false, error: 'При наличии 2+ участников со стороны клиента необходимо указать бенефициара' }
+    }
+
+    // 0. Validate rates: all lines must have applied_rate (if not base currency)
+    for (const r of input.rates) {
+      if (r.lineCurrency !== input.baseCurrency && r.appliedRate == null) {
+        return { success: false, error: `Не найден курс для ${r.lineCurrency}. Укажите курс вручную.` }
+      }
+    }
+
+    // 0.5 Create/find contact if client data provided
     let contactId: string | null = null
     if (input.clientName || input.clientPhone) {
       const { data: contactData } = await supabase.rpc('get_or_create_contact', {
@@ -53,6 +84,13 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
         p_module: 'exchange'
       })
       contactId = contactData
+    }
+
+    // 0.6 Build rates snapshot
+    const ratesSnapshot = {
+      baseCurrency: input.baseCurrency,
+      rates: input.rates,
+      capturedAt: new Date().toISOString(),
     }
 
     // 1. Create main operation
@@ -67,6 +105,13 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
         client_name: input.clientName || null,
         client_phone: input.clientPhone || null,
         contact_id: contactId,
+        beneficiary_contact_id: input.beneficiaryContactId || null,
+        handover_contact_id: input.handoverContactId || null,
+        followup_at: input.followupAt || null,
+        followup_note: input.followupNote || null,
+        rates_snapshot: ratesSnapshot,
+        visibility_mode: input.visibilityMode || 'public',
+        allowed_role_codes: input.allowedRoleCodes || [],
         status: 'completed',
         completed_at: new Date().toISOString(),
         created_by: input.actorEmployeeId,
@@ -77,6 +122,31 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       .single()
 
     if (opError) throw opError
+
+    // 1.5 Insert participants
+    if (input.participants && input.participants.length > 0) {
+      for (const p of input.participants) {
+        let pContactId = p.contactId || null
+        // Auto-create contact if name provided but no contactId
+        if (!pContactId && p.contactName) {
+          const { data: newContact } = await supabase.rpc('get_or_create_contact', {
+            p_display_name: p.contactName,
+            p_phone: p.contactPhone || null,
+            p_email: null,
+            p_module: 'exchange'
+          })
+          pContactId = newContact
+        }
+        if (pContactId) {
+          await supabase.from('client_exchange_participants').insert({
+            operation_id: operation.id,
+            contact_id: pContactId,
+            role: p.role,
+            note: p.note || null,
+          })
+        }
+      }
+    }
 
     // 2. Process "gives" - client gives, we receive into cashbox
     for (const line of input.clientGives) {
@@ -180,6 +250,41 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       success: false,
       error: error instanceof Error ? error.message : 'Неизвестная ошибка',
     }
+  }
+}
+
+// ==================== Follow-up ====================
+
+export async function setFollowup(
+  operationId: string,
+  followupAt: string,
+  followupNote: string,
+  actorEmployeeId: string,
+): Promise<ExchangeResult> {
+  const supabase = await createServerClient()
+  try {
+    const { error } = await supabase
+      .from('client_exchange_operations')
+      .update({
+        followup_at: followupAt,
+        followup_note: followupNote || null,
+      })
+      .eq('id', operationId)
+
+    if (error) throw error
+
+    await writeAuditLog(supabase, {
+      actorEmployeeId,
+      action: 'exchange_followup',
+      module: 'exchange',
+      entityTable: 'client_exchange_operations',
+      entityId: operationId,
+      after: { followup_at: followupAt, followup_note: followupNote },
+    })
+
+    return { success: true }
+  } catch (error: unknown) {
+    return { success: false, error: error instanceof Error ? error.message : 'Ошибка' }
   }
 }
 

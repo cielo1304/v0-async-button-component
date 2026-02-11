@@ -45,6 +45,8 @@ import { getAssets, createAsset, getEmployeesList, getContactsList } from '@/app
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Textarea } from '@/components/ui/textarea'
+import { canViewByVisibility } from '@/lib/access'
+import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
   auto: 'Авто',
@@ -254,18 +256,23 @@ export default function AssetsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {assets.map((asset) => (
-                    <TableRow
-                      key={asset.id}
-                      className="cursor-pointer hover:bg-accent/50"
-                      onClick={() => router.push(`/assets/${asset.id}`)}
-                    >
-                      <TableCell>
-                        <Badge variant="outline">
-                          {ASSET_TYPE_LABELS[asset.asset_type] || asset.asset_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-medium">{asset.title}</TableCell>
+              {assets.filter(a => canViewByVisibility([], a as any)).map((asset) => (
+                <TableRow
+                  key={asset.id}
+                  className="cursor-pointer hover:bg-accent/50"
+                  onClick={() => router.push(`/assets/${asset.id}`)}
+                >
+                  <TableCell>
+                    <Badge variant="outline">
+                      {ASSET_TYPE_LABELS[asset.asset_type] || asset.asset_type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium">{asset.title}</span>
+                      <VisibilityBadge mode={(asset as any).visibility_mode} count={(asset as any).allowed_role_codes?.length} />
+                    </div>
+                  </TableCell>
                       <TableCell>
                         <Badge className={ASSET_STATUS_COLORS[asset.status] || ''}>
                           {ASSET_STATUS_LABELS[asset.status] || asset.status}

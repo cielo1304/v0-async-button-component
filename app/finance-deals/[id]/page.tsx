@@ -26,6 +26,10 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
+import { evaluateCollateral, replaceCollateral, releaseCollateral, defaultWithSideEffects } from '@/app/actions/collateral-engine'
+import type { FinanceCollateralChain } from '@/lib/types/database'
+import { VisibilityToggle } from '@/components/shared/visibility-toggle'
+import { AudienceNotes } from '@/components/shared/audience-notes'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -72,6 +76,7 @@ export default function FinanceDealDetailPage() {
   const [participants, setParticipants] = useState<FinanceParticipant[]>([])
   const [collaterals, setCollaterals] = useState<FinanceCollateralLink[]>([])
   const [pauses, setPauses] = useState<FinancePausePeriod[]>([])
+  const [chain, setChain] = useState<FinanceCollateralChain[]>([])
   const [loading, setLoading] = useState(true)
 
   // Справочники
@@ -84,6 +89,9 @@ export default function FinanceDealDetailPage() {
   const [isParticipantOpen, setIsParticipantOpen] = useState(false)
   const [isCollateralOpen, setIsCollateralOpen] = useState(false)
   const [isPauseOpen, setIsPauseOpen] = useState(false)
+  const [isReplaceOpen, setIsReplaceOpen] = useState(false)
+  const [replacingLinkId, setReplacingLinkId] = useState<string | null>(null)
+  const [replaceForm, setReplaceForm] = useState({ new_asset_id: '', reason: '' })
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'schedule' | 'participants' | 'collateral'>('overview')
 
@@ -114,18 +122,20 @@ export default function FinanceDealDetailPage() {
         setFinanceDeal(fd as FinanceDeal)
 
         // Параллельная загрузка
-        const [ledgerRes, scheduleRes, partRes, collRes, pausesRes] = await Promise.all([
+        const [ledgerRes, scheduleRes, partRes, collRes, pausesRes, chainRes] = await Promise.all([
           supabase.from('finance_ledger').select('*').eq('finance_deal_id', fd.id).order('occurred_at', { ascending: false }),
           supabase.from('finance_payment_schedule').select('*').eq('finance_deal_id', fd.id).order('due_date'),
           supabase.from('finance_participants').select('*, contact:contacts(*), employee:employees(*)').eq('finance_deal_id', fd.id),
           supabase.from('finance_collateral_links').select('*, asset:assets(*)').eq('finance_deal_id', fd.id),
           supabase.from('finance_pause_periods').select('*').eq('finance_deal_id', fd.id).order('start_date'),
+          supabase.from('finance_collateral_chain').select('*, old_asset:assets!finance_collateral_chain_old_asset_id_fkey(id, title), new_asset:assets!finance_collateral_chain_new_asset_id_fkey(id, title)').eq('finance_deal_id', fd.id).order('created_at', { ascending: false }),
         ])
         setLedger((ledgerRes.data || []) as FinanceLedgerEntry[])
         setSchedule((scheduleRes.data || []) as FinancePaymentScheduleItem[])
         setParticipants((partRes.data || []) as FinanceParticipant[])
         setCollaterals((collRes.data || []) as FinanceCollateralLink[])
         setPauses((pausesRes.data || []) as FinancePausePeriod[])
+        setChain((chainRes?.data || []) as FinanceCollateralChain[])
       }
     } catch {
       toast.error('Ошибка загрузки сделки')
@@ -253,12 +263,33 @@ export default function FinanceDealDetailPage() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <VisibilityToggle
+            compact
+            mode={(deal as any).visibility_mode || 'public'}
+            allowedRoleCodes={(deal as any).allowed_role_codes || []}
+            onModeChange={async (m) => {
+              const supabase = (await import('@/lib/supabase/client')).createClientComponentClient()
+              await supabase.from('core_deals').update({ visibility_mode: m }).eq('id', dealId)
+              loadDeal()
+            }}
+            onRoleCodesChange={async (codes) => {
+              const supabase = (await import('@/lib/supabase/client')).createClientComponentClient()
+              await supabase.from('core_deals').update({ allowed_role_codes: codes }).eq('id', dealId)
+              loadDeal()
+            }}
+            onSave={() => toast.success('Видимость сохранена')}
+          />
           {deal.status === 'NEW' && <Button size="sm" onClick={() => updateStatus('ACTIVE')}>Активировать</Button>}
           {deal.status === 'ACTIVE' && (
             <>
               <Button size="sm" variant="outline" className="bg-transparent" onClick={() => setIsPauseOpen(true)}><Pause className="h-4 w-4 mr-1" />Пауза</Button>
-              <Button size="sm" variant="outline" className="bg-transparent text-red-400 border-red-500/30" onClick={() => updateStatus('DEFAULT')}>Дефолт</Button>
+              <Button size="sm" variant="outline" className="bg-transparent text-red-400 border-red-500/30" onClick={async () => {
+                if (!financeDeal) return
+                const result = await defaultWithSideEffects({ coreDealId: dealId, financeDealId: financeDeal.id })
+                if (result.success) { toast.success(result.message); loadDeal() }
+                else toast.error(result.error)
+              }}>Дефолт</Button>
               <Button size="sm" onClick={() => updateStatus('CLOSED')}>Закрыть</Button>
             </>
           )}
@@ -413,6 +444,18 @@ export default function FinanceDealDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Кто со стороны клиента что знает */}
+        {financeDeal && (
+          <AudienceNotes
+            notes={(financeDeal.client_audience_notes || {}) as Record<string, string>}
+            onChange={async (updated) => {
+              const supabase = (await import('@/lib/supabase/client')).createClientComponentClient()
+              await supabase.from('finance_deals').update({ client_audience_notes: updated }).eq('id', financeDeal.id)
+            }}
+            onSave={() => { toast.success('Заметки сохранены'); loadDeal() }}
+          />
+        )}
         </>
       )}
 
@@ -550,37 +593,126 @@ export default function FinanceDealDetailPage() {
 
       {/* Залоги */}
       {activeTab === 'collateral' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">Залоговое имущество</CardTitle>
-            <Button size="sm" onClick={() => setIsCollateralOpen(true)}><Link2 className="h-4 w-4 mr-1" />Привязать</Button>
-          </CardHeader>
-          <CardContent>
-            {collaterals.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">Нет привязанных залогов</p>
-            ) : (
-              <div className="space-y-3">
-                {collaterals.map(c => (
-                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border border-border">
-                    <div className="flex items-center gap-3">
-                      <Package className="h-4 w-4 text-muted-foreground" />
-                      <div>
-                        <Link href={`/assets/${(c.asset as any)?.id}`} className="text-sm font-medium hover:underline">
-                          {(c.asset as any)?.title || 'Актив'}
-                        </Link>
-                        <p className="text-xs text-muted-foreground">
-                          {(c.asset as any)?.asset_type} 
-                          {c.note && ` \u2022 ${c.note}`}
-                        </p>
+        <div className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">Залоги ({collaterals.filter(c => c.status === 'active').length} активных)</CardTitle>
+              <Button size="sm" onClick={() => setIsCollateralOpen(true)}><Plus className="h-4 w-4 mr-1" />Привязать</Button>
+            </CardHeader>
+            <CardContent>
+              {collaterals.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4 text-center">Нет привязанных залогов</p>
+              ) : (
+                <div className="space-y-3">
+                  {collaterals.map(c => (
+                    <div key={c.id} className="p-3 rounded-lg border border-border space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Package className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <Link href={`/assets/${(c.asset as any)?.id}`} className="text-sm font-medium hover:underline">
+                              {(c.asset as any)?.title || 'Актив'}
+                            </Link>
+                            <p className="text-xs text-muted-foreground">
+                              {(c.asset as any)?.asset_type}
+                              {c.pledged_units ? ` \u2022 ${c.pledged_units} ед.` : ''}
+                              {c.note && ` \u2022 ${c.note}`}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className={
+                          c.status === 'active' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' :
+                          c.status === 'foreclosed' ? 'bg-red-500/15 text-red-400 border-red-500/30' :
+                          c.status === 'replaced' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
+                          'bg-muted text-muted-foreground border-border'
+                        }>
+                          {c.status === 'active' ? 'Активен' : c.status === 'released' ? 'Освобождён' : c.status === 'foreclosed' ? 'Обращён' : c.status === 'replaced' ? 'Заменён' : c.status}
+                        </Badge>
                       </div>
+                      {/* Valuation / LTV row */}
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        {c.valuation_at_pledge != null && (
+                          <span>Оценка: <span className="font-mono text-foreground">{Number(c.valuation_at_pledge).toLocaleString()}</span></span>
+                        )}
+                        {c.ltv_at_pledge != null && (
+                          <span>LTV: <span className={`font-mono ${Number(c.ltv_at_pledge) > 80 ? 'text-red-400' : Number(c.ltv_at_pledge) > 60 ? 'text-amber-400' : 'text-emerald-400'}`}>{c.ltv_at_pledge}%</span></span>
+                        )}
+                      </div>
+                      {/* Action buttons for active collateral */}
+                      {c.status === 'active' && financeDeal && (
+                        <div className="flex gap-2 pt-1">
+                          <Button size="sm" variant="outline" className="h-7 text-xs bg-transparent" onClick={async () => {
+                            const result = await evaluateCollateral({
+                              collateralLinkId: c.id,
+                              financeDealId: financeDeal.id,
+                              principalOutstanding: balances.outstandingPrincipal,
+                            })
+                            if (result.success) { toast.success(result.message); loadDeal() }
+                            else toast.error(result.error)
+                          }}>Оценить LTV</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs bg-transparent" onClick={() => {
+                            setReplacingLinkId(c.id)
+                            setReplaceForm({ new_asset_id: '', reason: '' })
+                            setIsReplaceOpen(true)
+                          }}>Заменить</Button>
+                          <Button size="sm" variant="outline" className="h-7 text-xs bg-transparent text-emerald-400 border-emerald-500/30" onClick={async () => {
+                            if (!financeDeal) return
+                            const result = await releaseCollateral({
+                              collateralLinkId: c.id,
+                              financeDealId: financeDeal.id,
+                            })
+                            if (result.success) { toast.success(result.message); loadDeal() }
+                            else toast.error(result.error)
+                          }}>Освободить</Button>
+                        </div>
+                      )}
                     </div>
-                    <Badge variant="outline" className={c.status === 'active' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-muted text-muted-foreground border-border'}>
-                      {c.status === 'active' ? 'Активен' : c.status === 'released' ? 'Освобождён' : c.status === 'foreclosed' ? 'Обращён' : c.status}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Chain history */}
+          {chain.length > 0 && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">История замен залога</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Дата</TableHead>
+                      <TableHead>Старый актив</TableHead>
+                      <TableHead></TableHead>
+                      <TableHead>Новый актив</TableHead>
+                      <TableHead>Причина</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {chain.map(ch => (
+                      <TableRow key={ch.id}>
+                        <TableCell className="text-xs">{new Date(ch.created_at).toLocaleDateString('ru-RU')}</TableCell>
+                        <TableCell>
+                          <Link href={`/assets/${ch.old_asset_id}`} className="text-sm hover:underline">
+                            {(ch.old_asset as any)?.title || ch.old_asset_id.slice(0, 8)}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-center text-muted-foreground">→</TableCell>
+                        <TableCell>
+                          <Link href={`/assets/${ch.new_asset_id}`} className="text-sm hover:underline">
+                            {(ch.new_asset as any)?.title || ch.new_asset_id.slice(0, 8)}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{ch.reason || '—'}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
           </CardContent>
         </Card>
       )}
@@ -679,6 +811,57 @@ export default function FinanceDealDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsParticipantOpen(false)} className="bg-transparent">Отмена</Button>
             <Button onClick={addParticipant}>Добавить</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог замены залога */}
+      <Dialog open={isReplaceOpen} onOpenChange={setIsReplaceOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Заменить залог</DialogTitle>
+            <DialogDescription>Выберите новый актив для замены</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Новый актив</Label>
+              <Select value={replaceForm.new_asset_id} onValueChange={v => setReplaceForm(f => ({ ...f, new_asset_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Выберите актив" /></SelectTrigger>
+                <SelectContent>
+                  {assets.filter(a => !collaterals.some(c => c.asset_id === a.id && c.status === 'active')).map(a => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.title} ({a.asset_type})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Причина замены</Label>
+              <Textarea value={replaceForm.reason} onChange={e => setReplaceForm(f => ({ ...f, reason: e.target.value }))} placeholder="Износ, переоценка и т.д." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReplaceOpen(false)} className="bg-transparent">Отмена</Button>
+            <Button onClick={async () => {
+              if (!financeDeal || !replacingLinkId || !replaceForm.new_asset_id) {
+                toast.error('Выберите новый актив')
+                return
+              }
+              const result = await replaceCollateral({
+                financeDealId: financeDeal.id,
+                oldCollateralLinkId: replacingLinkId,
+                newAssetId: replaceForm.new_asset_id,
+                reason: replaceForm.reason || undefined,
+              })
+              if (result.success) {
+                toast.success(result.message)
+                setIsReplaceOpen(false)
+                loadDeal()
+              } else {
+                toast.error(result.error)
+              }
+            }}>Заменить</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
