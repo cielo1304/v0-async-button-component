@@ -264,22 +264,14 @@ export function AddDealDialog() {
         const paymentUSD = payment.amount * (rates[payment.currency] || 1)
         totalPaidUSD += paymentUSD
 
-        // Обновляем баланс кассы
-        const newBalance = Number(cashbox.balance) + payment.amount
-        await supabase
-          .from('cashboxes')
-          .update({ balance: newBalance })
-          .eq('id', payment.cashboxId)
-
-        // Создаем транзакцию
-        await supabase.from('transactions').insert({
-          cashbox_id: payment.cashboxId,
-          amount: payment.amount,
-          balance_after: newBalance,
-          category: 'DEAL_PAYMENT',
-          description: `Оплата по сделке ${dealNumber} от ${clientName}`,
-          deal_id: deal.id,
-          created_by: '00000000-0000-0000-0000-000000000000',
+        // Атомарно: обновляем баланс кассы + создаем транзакцию
+        await supabase.rpc('cashbox_operation', {
+          p_cashbox_id: payment.cashboxId,
+          p_amount: payment.amount,
+          p_category: 'DEAL_PAYMENT',
+          p_description: `Оплата по сделке ${dealNumber} от ${clientName}`,
+          p_deal_id: deal.id,
+          p_created_by: '00000000-0000-0000-0000-000000000000',
         })
 
         // Создаем запись платежа

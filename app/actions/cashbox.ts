@@ -8,13 +8,14 @@ export type DepositWithdrawInput = {
   amount: number
   type: 'DEPOSIT' | 'WITHDRAW'
   description?: string
+  actorEmployeeId?: string
 }
 
 export async function depositWithdraw(input: DepositWithdrawInput) {
   const supabase = await createServerClient()
 
   try {
-    // 1. Получаем кассу
+    // 1. Получаем кассу для проверок
     const { data: cashbox, error: fetchError } = await supabase
       .from('cashboxes')
       .select('*')
@@ -34,42 +35,19 @@ export async function depositWithdraw(input: DepositWithdrawInput) {
       return { success: false, error: `Недостаточно средств. Доступно: ${cashbox.balance} ${cashbox.currency}` }
     }
 
-    // 3. Вычисляем новый баланс
-    const newBalance = input.type === 'DEPOSIT'
-      ? Number(cashbox.balance) + input.amount
-      : Number(cashbox.balance) - input.amount
-
     const transactionAmount = input.type === 'DEPOSIT' ? input.amount : -input.amount
 
-    // 4. Обновляем баланс кассы
-    const { error: updateError } = await supabase
-      .from('cashboxes')
-      .update({ balance: newBalance })
-      .eq('id', input.cashboxId)
+    // 3. Атомарно: обновляем баланс + создаем транзакцию через RPC
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('cashbox_operation', {
+      p_cashbox_id: input.cashboxId,
+      p_amount: transactionAmount,
+      p_category: input.type,
+      p_description: input.description || (input.type === 'DEPOSIT' ? 'Внесение средств' : 'Изъятие средств'),
+      p_created_by: input.actorEmployeeId || '00000000-0000-0000-0000-000000000000',
+    })
 
-    if (updateError) {
-      return { success: false, error: 'Ошибка обновления баланса' }
-    }
-
-    // 5. Создаем транзакцию
-    const { error: txError } = await supabase
-      .from('transactions')
-      .insert({
-        cashbox_id: input.cashboxId,
-        amount: transactionAmount,
-        balance_after: newBalance,
-        category: input.type,
-        description: input.description || (input.type === 'DEPOSIT' ? 'Внесение средств' : 'Изъятие средств'),
-        created_by: '00000000-0000-0000-0000-000000000000', // TODO: заменить на реального пользователя
-      })
-
-    if (txError) {
-      // Откатываем баланс
-      await supabase
-        .from('cashboxes')
-        .update({ balance: cashbox.balance })
-        .eq('id', input.cashboxId)
-      return { success: false, error: 'Ошибка создания транзакции' }
+    if (rpcError) {
+      return { success: false, error: `Ошибка операции: ${rpcError.message}` }
     }
 
     revalidatePath('/finance')
