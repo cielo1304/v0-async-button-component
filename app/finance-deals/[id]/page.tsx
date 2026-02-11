@@ -713,9 +713,6 @@ export default function FinanceDealDetailPage() {
           )}
         </div>
       )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Диалог добавления записи в книгу */}
       <Dialog open={isLedgerOpen} onOpenChange={setIsLedgerOpen}>
