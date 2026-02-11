@@ -104,10 +104,10 @@ export async function createFinanceDeal(params: {
   await writeAuditLog(supabase, {
     action: 'create',
     module: 'finance',
-    entity_table: 'finance_deals',
-    entity_id: financeDeal.id,
+    entityTable: 'finance_deals',
+    entityId: financeDeal.id,
     after: { coreDeal, financeDeal },
-    actor_employee_id: params.responsible_employee_id,
+    actorEmployeeId: params.responsible_employee_id,
   })
 
   return { coreDeal, financeDeal }
@@ -126,8 +126,8 @@ export async function updateCoreDealStatus(id: string, status: CoreDealStatus, s
   await writeAuditLog(supabase, {
     action: 'status_change',
     module: 'finance',
-    entity_table: 'core_deals',
-    entity_id: id,
+    entityTable: 'core_deals',
+    entityId: id,
     before,
     after: { status, sub_status },
   })
@@ -180,10 +180,10 @@ export async function addLedgerEntry(params: {
   await writeAuditLog(supabase, {
     action: 'ledger_entry',
     module: 'finance',
-    entity_table: 'finance_ledger',
-    entity_id: data.id,
+    entityTable: 'finance_ledger',
+    entityId: data.id,
     after: data,
-    actor_employee_id: params.created_by_employee_id,
+    actorEmployeeId: params.created_by_employee_id,
   })
 
   return data as FinanceLedgerEntry
@@ -248,8 +248,8 @@ export async function linkCollateral(params: {
   await writeAuditLog(supabase, {
     action: 'collateral_link',
     module: 'finance',
-    entity_table: 'finance_collateral_links',
-    entity_id: data.id,
+    entityTable: 'finance_collateral_links',
+    entityId: data.id,
     after: data,
   })
 }

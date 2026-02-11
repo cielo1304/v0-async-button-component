@@ -25,7 +25,7 @@ import {
   ArrowLeftRight, Settings, History, TrendingUp,
   RefreshCw, Plus, Trash2, Check,
   Banknote, Home, ArrowDown, ArrowUp, X, ArrowRight, Pencil, Calculator,
-  Calendar
+  Calendar, UserCircle
 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -38,6 +38,7 @@ import { EditRateDialog } from '@/components/exchange/edit-rate-dialog'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, CURRENCY_FLAGS, type DatePeriod } from '@/lib/constants/currencies'
 import { nanoid } from 'nanoid'
+import { submitExchange } from '@/app/actions/client-exchange'
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -76,6 +77,10 @@ export default function ExchangePage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('exchange')
   const [refreshKey, setRefreshKey] = useState(0)
+  
+  // Актор: кто выполняет операцию (god-mode selector)
+  const [employees, setEmployees] = useState<Array<{ id: string; full_name: string }>>([])
+  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
   
   // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
@@ -171,7 +176,7 @@ export default function ExchangePage() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ratesResult, cashboxesResult, settingsResult] = await Promise.all([
+      const [ratesResult, cashboxesResult, settingsResult, employeesResult] = await Promise.all([
         supabase
           .from('exchange_rates')
           .select('*')
@@ -186,12 +191,24 @@ export default function ExchangePage() {
         supabase
           .from('exchange_settings')
           .select('*')
-          .single()
+          .single(),
+        supabase
+          .from('employees')
+          .select('id, full_name')
+          .eq('is_active', true)
+          .order('full_name')
       ])
       
       if (ratesResult.data) setExchangeRates(ratesResult.data)
       if (cashboxesResult.data) setCashboxes(cashboxesResult.data)
       if (settingsResult.data) setSettings(settingsResult.data)
+      if (employeesResult.data) {
+        setEmployees(employeesResult.data)
+        // Auto-select first employee if none selected
+        if (!actorEmployeeId && employeesResult.data.length > 0) {
+          setActorEmployeeId(employeesResult.data[0].id)
+        }
+      }
       
       // Загрузка статистики за выбранный период
       await loadPeriodStats(statsPeriod)
@@ -200,7 +217,7 @@ export default function ExchangePage() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase, loadPeriodStats, statsPeriod])
+  }, [supabase, loadPeriodStats, statsPeriod, actorEmployeeId])
   
   useEffect(() => {
     loadData()
@@ -524,13 +541,17 @@ export default function ExchangePage() {
       return cashbox && cashbox.balance >= amount
     })
     
-    return givesValid && receivesValid && balancesOk
-  }, [clientGives, clientReceives, cashboxes])
+    return givesValid && receivesValid && balancesOk && !!actorEmployeeId
+  }, [clientGives, clientReceives, cashboxes, actorEmployeeId])
   
   // Отправка операции
   const handleSubmit = async () => {
     if (!isValid) {
       toast.error('Проверьте заполнение всех полей и баланс касс')
+      return
+    }
+    if (!actorEmployeeId) {
+      toast.error('Выберите сотрудника-исполнителя')
       return
     }
     
@@ -541,128 +562,59 @@ export default function ExchangePage() {
       const givesInBase = calculateTotalInBase(clientGives, 'give')
       const receivesInBase = calculateTotalInBase(clientReceives, 'receive')
       
-      // 0. Создаем/находим контакт если есть данные клиента
-      let contactId: string | null = null
-      if (clientName || clientPhone) {
-        const { data: contactData } = await supabase.rpc('get_or_create_contact', {
-          p_display_name: clientName || 'Клиент обмена',
-          p_phone: clientPhone || null,
-          p_email: null,
-          p_module: 'exchange'
-        })
-        contactId = contactData
-      }
-      
-      // 1. Создаем основную операцию
-      const { data: operation, error: opError } = await supabase
-        .from('client_exchange_operations')
-        .insert({
-          operation_number: '', // Заполнится триггером
-          total_client_gives_usd: givesInBase,
-          total_client_receives_usd: receivesInBase,
-          profit_amount: calculatedProfit,
-          profit_currency: baseCurrency,
-          client_name: clientName || null,
-          client_phone: clientPhone || null,
-          contact_id: contactId,
-          status: 'completed',
-          completed_at: new Date().toISOString()
-        })
-        .select()
-        .single()
-      
-      if (opError) throw opError
-      
-      // 2. Создаем детали - что клиент дает
-      for (const line of clientGives) {
-        const amount = parseFloat(line.amount)
-        const rate = getRate(line.currency, baseCurrency)
-        
-        await supabase.from('client_exchange_details').insert({
-          operation_id: operation.id,
-          direction: 'give',
-          currency: line.currency,
-          amount: amount,
-          applied_rate: rate?.buy_rate || null,
-          market_rate: rate?.market_rate || null,
-          cashbox_id: line.cashboxId,
-          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount * rate.buy_rate : null)
-        })
-        
-        // Увеличиваем баланс кассы (мы получаем от клиента)
-        await supabase.rpc('update_cashbox_balance', {
-          p_cashbox_id: line.cashboxId,
-          p_amount: amount
-        })
-        
-        // Создаем транзакцию
-        await supabase.from('transactions').insert({
-          cashbox_id: line.cashboxId,
-          amount: amount,
-          category: 'EXCHANGE_IN',
-          description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
-          reference_id: operation.id
-        })
-      }
-      
-      // 3. Создаем детали - что клиент получает
-      for (const line of clientReceives) {
-        const amount = parseFloat(line.amount)
-        const rate = getRate(baseCurrency, line.currency)
-        
-        await supabase.from('client_exchange_details').insert({
-          operation_id: operation.id,
-          direction: 'receive',
-          currency: line.currency,
-          amount: amount,
-          applied_rate: rate?.sell_rate || null,
-          market_rate: rate?.market_rate || null,
-          cashbox_id: line.cashboxId,
-          amount_in_base: line.currency === baseCurrency ? amount : (rate ? amount / rate.sell_rate : null)
-        })
-        
-        // Уменьшаем баланс кассы (мы отдаем клиенту)
-        await supabase.rpc('update_cashbox_balance', {
-          p_cashbox_id: line.cashboxId,
-          p_amount: -amount
-        })
-        
-        // Создаем транзакцию
-        await supabase.from('transactions').insert({
-          cashbox_id: line.cashboxId,
-          amount: -amount,
-          category: 'EXCHANGE_OUT',
-          description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
-          reference_id: operation.id
-        })
-      }
-      
-      // 4. Логируем событие контакта
-      if (contactId) {
-        await supabase.rpc('log_contact_event', {
-          p_contact_id: contactId,
-          p_module: 'exchange',
-          p_entity_type: 'client_exchange_operation',
-          p_entity_id: operation.id,
-          p_title: `Обмен ${operation.operation_number}`,
-          p_payload: {
-            profit: calculatedProfit,
-            gives: clientGives.map(g => ({ currency: g.currency, amount: g.amount })),
-            receives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount })),
-            operation_number: operation.operation_number
+      // Build rates info for server action
+      const rates = [
+        ...clientGives.map(line => {
+          const rate = getRate(line.currency, baseCurrency)
+          const amount = parseFloat(line.amount) || 0
+          return {
+            lineCurrency: line.currency,
+            direction: 'give' as const,
+            appliedRate: rate?.buy_rate || null,
+            marketRate: rate?.market_rate || null,
+            amountInBase: line.currency === baseCurrency ? amount : (rate ? amount * rate.buy_rate : null),
           }
-        })
+        }),
+        ...clientReceives.map(line => {
+          const rate = getRate(baseCurrency, line.currency)
+          const amount = parseFloat(line.amount) || 0
+          return {
+            lineCurrency: line.currency,
+            direction: 'receive' as const,
+            appliedRate: rate?.sell_rate || null,
+            marketRate: rate?.market_rate || null,
+            amountInBase: line.currency === baseCurrency ? amount : (rate ? amount / rate.sell_rate : null),
+          }
+        }),
+      ]
+      
+      const result = await submitExchange({
+        clientGives: clientGives.map(g => ({ currency: g.currency, amount: g.amount, cashboxId: g.cashboxId })),
+        clientReceives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount, cashboxId: r.cashboxId })),
+        clientName: clientName || undefined,
+        clientPhone: clientPhone || undefined,
+        baseCurrency,
+        totalGivesBase: givesInBase,
+        totalReceivesBase: receivesInBase,
+        profit: calculatedProfit,
+        actorEmployeeId,
+        rates,
+      })
+      
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при выполнении обмена')
+        return
       }
       
-      toast.success(`Обмен ${operation.operation_number} выполнен!`)
+      toast.success(`Обмен ${result.operationNumber} выполнен!`)
       
-      // Сброс формы
+      // Reset form
       setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
       setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
       setClientName('')
       setClientPhone('')
       
-      // Обновляем данные
+      // Refresh data
       loadData()
       setRefreshKey(k => k + 1)
       
@@ -718,7 +670,23 @@ export default function ExchangePage() {
               </div>
             </div>
             
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* Employee actor selector */}
+              <div className="flex items-center gap-2">
+                <UserCircle className="h-4 w-4 text-muted-foreground" />
+                <Select value={actorEmployeeId} onValueChange={setActorEmployeeId}>
+                  <SelectTrigger className="w-[200px] h-9 text-sm">
+                    <SelectValue placeholder="Сотрудник..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {employees.map(emp => (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        {emp.full_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Link href="/settings?tab=exchange">
                 <Button variant="outline" size="icon" className="bg-transparent">
                   <Settings className="h-5 w-5" />

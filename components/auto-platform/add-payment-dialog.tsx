@@ -104,23 +104,14 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
         })
       }
 
-      // Создаем транзакцию в кассу
-      const newBalance = Number(cashbox.balance) + amount
-
-      await supabase.from('transactions').insert({
-        cashbox_id: cashboxId,
-        amount,
-        balance_after: newBalance,
-        category: 'DEPOSIT',
-        description: `Платеж по сделке автоплощадки`,
-        created_by: '00000000-0000-0000-0000-000000000000',
+      // Атомарно: обновляем баланс кассы + создаем транзакцию
+      await supabase.rpc('cashbox_operation', {
+        p_cashbox_id: cashboxId,
+        p_amount: amount,
+        p_category: 'DEPOSIT',
+        p_description: `Платеж по сделке автоплощадки`,
+        p_created_by: '00000000-0000-0000-0000-000000000000',
       })
-
-      // Обновляем баланс кассы
-      await supabase
-        .from('cashboxes')
-        .update({ balance: newBalance })
-        .eq('id', cashboxId)
 
       // Обновляем сумму оплаченного в сделке
       const { data: deal } = await supabase

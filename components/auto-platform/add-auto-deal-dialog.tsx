@@ -243,26 +243,14 @@ export function AddAutoDealDialog() {
 
         if (paymentError) throw paymentError
 
-        // Создаем транзакцию в кассу
-        const cashbox = cashboxes.find(cb => cb.id === paymentCashboxId)
-        if (cashbox) {
-          const newBalance = Number(cashbox.balance) + initialPayment
-          
-          await supabase.from('transactions').insert({
-            cashbox_id: paymentCashboxId,
-            amount: initialPayment,
-            balance_after: newBalance,
-            category: 'DEPOSIT',
-            description: `Оплата по сделке ${dealNumber} (${DEAL_TYPES.find(t => t.value === dealType)?.label})`,
-            created_by: '00000000-0000-0000-0000-000000000000',
-          })
-
-          // Обновляем баланс кассы
-          await supabase
-            .from('cashboxes')
-            .update({ balance: newBalance })
-            .eq('id', paymentCashboxId)
-        }
+        // Атомарно: обновляем баланс кассы + создаем транзакцию
+        await supabase.rpc('cashbox_operation', {
+          p_cashbox_id: paymentCashboxId,
+          p_amount: initialPayment,
+          p_category: 'DEPOSIT',
+          p_description: `Оплата по сделке ${dealNumber} (${DEAL_TYPES.find(t => t.value === dealType)?.label})`,
+          p_created_by: '00000000-0000-0000-0000-000000000000',
+        })
       }
 
       // Обновляем статус авто
