@@ -519,7 +519,7 @@ export default function AssetDetailPage() {
                             onClick={() => router.push(`/finance-deals/${cd?.id || cl.finance_deal_id}`)}
                           >
                             <TableCell>
-                              <div className="text-sm font-medium">{cd?.deal_number || cl.finance_deal_id.slice(0, 8)}</div>
+                              <div className="text-sm font-medium">{cd?.title || cl.finance_deal_id.slice(0, 8)}</div>
                               {cd?.status && <Badge variant="outline" className="text-[10px] mt-0.5">{cd.status}</Badge>}
                             </TableCell>
                             <TableCell className="font-mono text-sm">
