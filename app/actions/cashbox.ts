@@ -351,3 +351,227 @@ export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean)
     return { success: false, error: err.message || 'Ошибка обновления настройки обмена' }
   }
 }
+
+// ─── Create cashbox (Fix #8) ───
+
+export type CreateCashboxInput = {
+  name: string
+  type: string
+  currency: string
+  initial_balance?: number
+  balance?: number
+  location?: string | null
+  holder_name?: string | null
+  holder_phone?: string | null
+  is_hidden?: boolean
+  is_archived?: boolean
+  is_exchange_enabled?: boolean
+  actorEmployeeId?: string
+}
+
+export async function createCashbox(input: CreateCashboxInput) {
+  const supabase = await createServerClient()
+
+  try {
+    const { data: newCashbox, error } = await supabase
+      .from('cashboxes')
+      .insert({
+        name: input.name,
+        type: input.type,
+        currency: input.currency,
+        balance: input.balance ?? input.initial_balance ?? 0,
+        initial_balance: input.initial_balance ?? 0,
+        location: input.location || null,
+        holder_name: input.holder_name || null,
+        holder_phone: input.holder_phone || null,
+        is_hidden: input.is_hidden ?? false,
+        is_archived: input.is_archived ?? false,
+        is_exchange_enabled: input.is_exchange_enabled ?? false,
+      })
+      .select()
+      .single()
+
+    if (error) {
+      return { success: false, error: `Ошибка создания кассы: ${error.message}` }
+    }
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_create',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: newCashbox.id,
+        after: input,
+        actorEmployeeId: input.actorEmployeeId,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for createCashbox:', auditErr)
+    }
+
+    revalidatePath('/finance')
+    revalidatePath('/exchange')
+    return { success: true, cashbox: newCashbox }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Неизвестная ошибка создания кассы' }
+  }
+}
+
+// ─── Update cashbox (Fix #8) ───
+
+export type UpdateCashboxInput = {
+  id: string
+  patch: {
+    name?: string
+    type?: string
+    location?: string | null
+    holder_name?: string | null
+    holder_phone?: string | null
+    is_hidden?: boolean
+    is_archived?: boolean
+    is_exchange_enabled?: boolean
+  }
+  actorEmployeeId?: string
+}
+
+export async function updateCashbox(input: UpdateCashboxInput) {
+  const supabase = await createServerClient()
+
+  try {
+    // Get before state for audit
+    const { data: before } = await supabase
+      .from('cashboxes')
+      .select('name, type, location, holder_name, holder_phone, is_hidden, is_archived, is_exchange_enabled')
+      .eq('id', input.id)
+      .single()
+
+    const { error } = await supabase
+      .from('cashboxes')
+      .update({
+        ...input.patch,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', input.id)
+
+    if (error) {
+      return { success: false, error: `Ошибка обновления кассы: ${error.message}` }
+    }
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_update',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: input.id,
+        before,
+        after: input.patch,
+        actorEmployeeId: input.actorEmployeeId,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for updateCashbox:', auditErr)
+    }
+
+    revalidatePath('/finance')
+    revalidatePath('/exchange')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Неизвестная ошибка обновления кассы' }
+  }
+}
+
+// ─── Delete cashbox (Fix #8) ───
+
+export type DeleteCashboxInput = {
+  id: string
+  actorEmployeeId?: string
+}
+
+export async function deleteCashbox(input: DeleteCashboxInput) {
+  const supabase = await createServerClient()
+
+  try {
+    // Check if there are any transactions
+    const { count, error: countError } = await supabase
+      .from('transactions')
+      .select('id', { count: 'exact', head: true })
+      .eq('cashbox_id', input.id)
+
+    if (countError) {
+      return { success: false, error: `Ошибка проверки транзакций: ${countError.message}` }
+    }
+
+    if (count && count > 0) {
+      return {
+        success: false,
+        error: `Есть ${count} связанных транзакций. Удалять нельзя, используйте архив.`,
+      }
+    }
+
+    const { error } = await supabase.from('cashboxes').delete().eq('id', input.id)
+
+    if (error) {
+      return { success: false, error: `Ошибка удаления кассы: ${error.message}` }
+    }
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_delete',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: input.id,
+        actorEmployeeId: input.actorEmployeeId,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for deleteCashbox:', auditErr)
+    }
+
+    revalidatePath('/finance')
+    revalidatePath('/exchange')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Неизвестная ошибка удаления кассы' }
+  }
+}
+
+// ─── Update cashbox sort orders (bulk) (Fix #8) ───
+
+export type UpdateCashboxSortOrdersInput = {
+  items: Array<{ id: string; sort_order: number }>
+  actorEmployeeId?: string
+}
+
+export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInput) {
+  const supabase = await createServerClient()
+
+  try {
+    // Update each cashbox sort order
+    for (const item of input.items) {
+      const { error } = await supabase
+        .from('cashboxes')
+        .update({ sort_order: item.sort_order })
+        .eq('id', item.id)
+
+      if (error) throw error
+    }
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_sort_order_update_bulk',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        after: { items: input.items },
+        actorEmployeeId: input.actorEmployeeId,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for updateCashboxSortOrders:', auditErr)
+    }
+
+    revalidatePath('/finance')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Ошибка обновления порядка касс' }
+  }
+}

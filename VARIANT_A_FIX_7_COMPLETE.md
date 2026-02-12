@@ -27,11 +27,11 @@ Created `/scripts/020_fix_cashbox_operation_v2_remove_bad_overload.sql`
 ### What It Does:
 
 #### STEP A: Remove Bad Overload
-```sql
+\`\`\`sql
 DROP FUNCTION IF EXISTS cashbox_operation_v2(
   UUID, NUMERIC, TEXT, TEXT, TEXT, UUID, UUID, UUID, TEXT, NUMERIC, TEXT, TEXT
 ) CASCADE;
-```
+\`\`\`
 
 #### STEP B: Create ONE Final Correct Version
 
@@ -48,7 +48,7 @@ Combines best parts of 017 + 019:
 - ✅ Ledger currency validation (prevents wrong currency ledger entries)
 
 ### Full Function Signature:
-```sql
+\`\`\`sql
 CREATE OR REPLACE FUNCTION cashbox_operation_v2(
   p_cashbox_id       UUID,
   p_amount           NUMERIC,
@@ -64,7 +64,7 @@ CREATE OR REPLACE FUNCTION cashbox_operation_v2(
   p_ledger_note      TEXT     DEFAULT NULL
 )
 RETURNS TABLE(new_balance NUMERIC, tx_id UUID, ledger_id UUID)
-```
+\`\`\`
 
 ### Function Logic:
 
@@ -105,7 +105,7 @@ RETURNS TABLE(new_balance NUMERIC, tx_id UUID, ledger_id UUID)
 ## 🧪 TESTING VERIFICATION
 
 ### Before Migration 020:
-```bash
+\`\`\`bash
 # Ambiguous function errors
 ERROR: function cashbox_operation_v2(...) is not unique
 
@@ -114,10 +114,10 @@ ERROR: invalid input syntax for type uuid: "some-text-id"
 
 # Or constraint violations
 ERROR: null value in column "balance_after" violates not-null constraint
-```
+\`\`\`
 
 ### After Migration 020:
-```bash
+\`\`\`bash
 # ✅ Only one function exists
 SELECT proname, pronargs 
 FROM pg_proc 
@@ -165,20 +165,20 @@ SELECT * FROM cashbox_operation_v2(
   p_ledger_currency := 'EUR'  -- Wrong!
 );
 -- ERROR: Ledger currency mismatch: provided EUR, but finance deal requires USD
-```
+\`\`\`
 
 ---
 
 ## 📦 DEPLOYMENT
 
 ### Step 1: Apply Migration
-```bash
+\`\`\`bash
 # In Supabase SQL Editor or psql
 \i scripts/020_fix_cashbox_operation_v2_remove_bad_overload.sql
-```
+\`\`\`
 
 ### Step 2: Verify
-```sql
+\`\`\`sql
 -- Check function exists and is unique
 SELECT 
   p.proname,
@@ -187,10 +187,10 @@ SELECT
 FROM pg_proc p
 WHERE p.proname = 'cashbox_operation_v2';
 -- Should return 1 row with 12 arguments
-```
+\`\`\`
 
 ### Step 3: Test Basic Operation
-```sql
+\`\`\`sql
 -- Test deposit (should work)
 SELECT * FROM cashbox_operation_v2(
   p_cashbox_id := (SELECT id FROM cashboxes WHERE currency = 'USD' LIMIT 1),
@@ -198,10 +198,10 @@ SELECT * FROM cashbox_operation_v2(
   p_category := 'TEST_DEPOSIT',
   p_description := 'Migration 020 verification'
 );
-```
+\`\`\`
 
 ### Step 4: Verify Transactions
-```sql
+\`\`\`sql
 -- Check balance_after is written correctly
 SELECT 
   id,
@@ -215,7 +215,7 @@ FROM transactions
 WHERE category = 'TEST_DEPOSIT'
 ORDER BY created_at DESC
 LIMIT 5;
-```
+\`\`\`
 
 ---
 
@@ -252,13 +252,13 @@ LIMIT 5;
 
 ## 🔄 ROLLBACK (if needed)
 
-```sql
+\`\`\`sql
 -- Rollback to 017 version (before 019's bad overload)
 DROP FUNCTION IF EXISTS cashbox_operation_v2 CASCADE;
 
 -- Then re-run 017
 \i scripts/017_fix_cashbox_operation_v2_after_016.sql
-```
+\`\`\`
 
 ---
 
