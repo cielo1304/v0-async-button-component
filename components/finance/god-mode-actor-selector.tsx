@@ -15,7 +15,7 @@ import { ShieldAlert } from 'lucide-react'
 
 interface Employee {
   id: string
-  name: string
+  full_name: string
   position?: string
 }
 
@@ -52,9 +52,9 @@ export function GodModeActorSelector({
       const supabase = createClient()
       const { data, error } = await supabase
         .from('employees')
-        .select('id, name, position')
+        .select('id, full_name, position')
         .eq('is_active', true)
-        .order('name')
+        .order('full_name')
 
       if (error) {
         console.error('[v0] GodModeActorSelector: Failed to load employees:', error)
@@ -95,7 +95,7 @@ export function GodModeActorSelector({
             {employees.map((emp) => (
               <SelectItem key={emp.id} value={emp.id}>
                 <div className="flex flex-col">
-                  <span className="font-medium">{emp.name}</span>
+                  <span className="font-medium">{emp.full_name}</span>
                   {emp.position && (
                     <span className="text-xs text-muted-foreground">{emp.position}</span>
                   )}
