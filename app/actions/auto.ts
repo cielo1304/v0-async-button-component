@@ -148,6 +148,7 @@ export async function createAutoDeal(params: {
 /**
  * Record a payment for an auto deal
  * Updates auto_deal paid_amount and creates ledger entry
+ * @deprecated Use recordAutoPaymentV2 instead for cashbox integration
  */
 export async function recordAutoPayment(params: {
   dealId: string
@@ -188,6 +189,51 @@ export async function recordAutoPayment(params: {
       },
     }
   } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Record a payment for an auto deal V2
+ * ATOMIC: Creates transaction via cashbox_operation_v2, updates auto_payments and auto_deals
+ * Full audit trail and God Mode support
+ */
+export async function recordAutoPaymentV2(params: {
+  dealId: string
+  cashboxId: string
+  amount: number
+  currency: string
+  schedulePaymentId?: string
+  note?: string
+  actorEmployeeId?: string
+}): Promise<AutoActionResult> {
+  try {
+    const supabase = await createClient()
+
+    const { data: paymentId, error } = await supabase.rpc('auto_record_payment_v2', {
+      p_deal_id: params.dealId,
+      p_cashbox_id: params.cashboxId,
+      p_amount: params.amount,
+      p_currency: params.currency,
+      p_schedule_payment_id: params.schedulePaymentId || null,
+      p_note: params.note || null,
+      p_actor_employee_id: params.actorEmployeeId || null,
+    })
+
+    if (error) {
+      console.error('[v0] recordAutoPaymentV2 error:', error)
+      return { success: false, error: error.message }
+    }
+
+    return {
+      success: true,
+      data: { paymentId },
+    }
+  } catch (err) {
+    console.error('[v0] recordAutoPaymentV2 exception:', err)
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Unknown error',
