@@ -60,6 +60,7 @@ export async function createFinanceDeal(params: {
   title: string
   contact_id?: string
   responsible_employee_id?: string
+  actor_employee_id?: string
   base_currency: string
   principal_amount: number
   contract_currency: string
@@ -105,9 +106,20 @@ export async function createFinanceDeal(params: {
   const { generateInitialSchedule } = await import('./finance-engine')
   const scheduleResult = await generateInitialSchedule(financeDeal.id, coreDeal.id)
   
-  if (!scheduleResult.success) {
-    console.warn('[v0] Failed to generate initial schedule:', scheduleResult.error)
-    // Don't fail the whole creation, but log it
+  // If schedule generation failed for non-manual/non-tranches deals, rollback the entire creation
+  if (!scheduleResult.success && params.schedule_type !== 'manual' && params.schedule_type !== 'tranches') {
+    console.error('[v0] Schedule generation failed, rolling back deal creation:', scheduleResult.error)
+    
+    // Delete finance_deals record
+    await supabase.from('finance_deals').delete().eq('id', financeDeal.id)
+    
+    // Delete core_deals record
+    await supabase.from('core_deals').delete().eq('id', coreDeal.id)
+    
+    return { 
+      success: false, 
+      error: scheduleResult.error || 'Schedule generation failed'
+    }
   }
 
   await writeAuditLog(supabase, {
@@ -116,10 +128,10 @@ export async function createFinanceDeal(params: {
     entityTable: 'finance_deals',
     entityId: financeDeal.id,
     after: { coreDeal, financeDeal, scheduleGenerated: scheduleResult.success },
-    actorEmployeeId: params.responsible_employee_id,
+    actorEmployeeId: params.actor_employee_id || params.responsible_employee_id,
   })
 
-  return { coreDeal, financeDeal, scheduleResult }
+  return { success: true, coreDeal, financeDeal, scheduleResult }
 }
 
 export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
@@ -425,30 +437,30 @@ export async function recordFinancePayment(params: {
   // God mode validation: if godmode is used, validate it's a valid employee
   let effectiveActor = params.created_by || '00000000-0000-0000-0000-000000000000'
   if (params.godmode_actor_employee_id) {
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('id, name')
-      .eq('id', params.godmode_actor_employee_id)
-      .single()
-    
-    if (!employee) {
-      return { success: false, error: 'Invalid godmode_actor_employee_id' }
-    }
-    effectiveActor = params.godmode_actor_employee_id
+  const { data: employee } = await supabase
+  .from('employees')
+  .select('id, full_name')
+  .eq('id', params.godmode_actor_employee_id)
+  .single()
+  
+  if (!employee) {
+  return { success: false, error: 'Invalid godmode_actor_employee_id' }
+  }
+  effectiveActor = params.godmode_actor_employee_id
   }
 
   // Currency validation is now handled by record_finance_payment RPC and cashbox_operation_v2
   // No need to duplicate it here - let the database handle it atomically
 
   try {
-    const { data, error } = await supabase.rpc('record_finance_payment', {
-      p_finance_deal_id: params.finance_deal_id,
-      p_payment_amount: params.payment_amount,
-      p_currency: params.currency,
-      p_cashbox_id: params.cashbox_id || null,
-      p_note: params.note || null,
-      p_created_by: params.created_by || '00000000-0000-0000-0000-000000000000',
-    })
+  const { data, error } = await supabase.rpc('record_finance_payment', {
+  p_finance_deal_id: params.finance_deal_id,
+  p_payment_amount: params.payment_amount,
+  p_currency: params.currency,
+  p_cashbox_id: params.cashbox_id || null,
+  p_note: params.note || null,
+  p_created_by: effectiveActor,
+  })
 
     if (error) {
       console.error('[v0] recordFinancePayment RPC error:', error.message)

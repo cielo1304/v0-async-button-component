@@ -75,7 +75,7 @@
 
 **God Mode в `recordFinancePayment()`:**
 
-```typescript
+\`\`\`typescript
 export async function recordFinancePayment(params: {
   finance_deal_id: string
   payment_amount: number
@@ -85,7 +85,7 @@ export async function recordFinancePayment(params: {
   created_by?: string
   godmode_actor_employee_id?: string  // 🔑 God mode parameter
 })
-```
+\`\`\`
 
 **Особенности:**
 - Если передан `godmode_actor_employee_id`, все действия записываются от его имени
@@ -102,12 +102,12 @@ export async function recordFinancePayment(params: {
 
 **Добавлена функция `generateInitialSchedule()`:**
 
-```typescript
+\`\`\`typescript
 export async function generateInitialSchedule(
   financeDealId: string, 
   coreDealId: string
 )
-```
+\`\`\`
 
 **Особенности:**
 - Вызывается автоматически при создании каждой финансовой сделки
@@ -125,7 +125,7 @@ export async function generateInitialSchedule(
 
 Добавлены функции управления:
 
-```typescript
+\`\`\`typescript
 export async function updateCashboxSortOrder(
   cashboxId: string, 
   sortOrder: number
@@ -135,7 +135,7 @@ export async function toggleExchangeEnabled(
   cashboxId: string, 
   enabled: boolean
 )
-```
+\`\`\`
 
 ---
 
@@ -145,14 +145,14 @@ export async function toggleExchangeEnabled(
 
 **Компонент для выбора employee в God mode:**
 
-```tsx
+\`\`\`tsx
 <GodModeActorSelector 
   value={godmodeActorId} 
   onChange={setGodmodeActorId}
   label="God Mode: Act as Employee"
   description="Select an employee to perform this action on their behalf"
 />
-```
+\`\`\`
 
 **Особенности:**
 - Загружает список активных сотрудников из БД
@@ -165,14 +165,14 @@ export async function toggleExchangeEnabled(
 
 **Диалог записи платежа с God mode:**
 
-```tsx
+\`\`\`tsx
 <RecordPaymentDialog
   financeDealId={deal.id}
   dealCurrency={deal.contract_currency}
   open={isOpen}
   onOpenChange={setIsOpen}
 />
-```
+\`\`\`
 
 **Особенности:**
 - Интегрирует `GodModeActorSelector` для административных действий
@@ -196,7 +196,7 @@ export async function toggleExchangeEnabled(
 
 ### `/lib/types/database.ts` ✅ ОБНОВЛЕНО
 
-```typescript
+\`\`\`typescript
 export interface Cashbox {
   id: string
   name: string
@@ -224,7 +224,7 @@ export interface CashboxLocation {     // 🆕 NEW
   created_at: string
   updated_at: string
 }
-```
+\`\`\`
 
 ---
 
@@ -247,10 +247,10 @@ export interface CashboxLocation {     // 🆕 NEW
 ### ✅ 3. Валидация валют
 
 **На уровне БД (cashbox_operation_v2):**
-```sql
+\`\`\`sql
 IF v_cashbox_currency <> v_deal_currency THEN
   RAISE EXCEPTION 'Currency mismatch: cashbox is %, finance deal requires %. Please exchange first.'
-```
+\`\`\`
 
 **На уровне приложения (recordFinancePayment):**
 - Проверка до вызова RPC функции
@@ -266,7 +266,7 @@ IF v_cashbox_currency <> v_deal_currency THEN
 - Все cashbox операции
 
 **Структура аудит лога:**
-```typescript
+\`\`\`typescript
 {
   action: 'record_finance_payment',
   module: 'finance',
@@ -281,18 +281,18 @@ IF v_cashbox_currency <> v_deal_currency THEN
   },
   actorEmployeeId: 'godmode-actor-uuid'
 }
-```
+\`\`\`
 
 ### ✅ 5. Непогашенные проценты (unpaid_interest)
 
 **Вычисление в `getDealSummary()`:**
-```typescript
+\`\`\`typescript
 const unpaid_interest = schedule
   .filter(s => s.status === 'PLANNED' || s.status === 'PENDING')
   .reduce((sum, s) => sum + Number(s.interest_due), 0)
 
 const totalOwed = remainingPrincipal + unpaid_interest
-```
+\`\`\`
 
 **Преимущества:**
 - Точное отражение будущих обязательств по процентам
@@ -305,7 +305,7 @@ const totalOwed = remainingPrincipal + unpaid_interest
 
 ### Сценарий 1: Создание финансовой сделки
 
-```typescript
+\`\`\`typescript
 const result = await createFinanceDeal({
   title: "Test Loan",
   principal_amount: 10000,
@@ -318,11 +318,11 @@ const result = await createFinanceDeal({
 
 // Проверка: scheduleResult.success === true
 // Проверка: scheduleResult.rows === 12
-```
+\`\`\`
 
 ### Сценарий 2: Запись платежа с God mode
 
-```typescript
+\`\`\`typescript
 const result = await recordFinancePayment({
   finance_deal_id: "deal-uuid",
   payment_amount: 500,
@@ -334,11 +334,11 @@ const result = await recordFinancePayment({
 // Проверка: result.success === true
 // Проверка: audit log содержит godmode_used: true
 // Проверка: actorEmployeeId === "employee-uuid"
-```
+\`\`\`
 
 ### Сценарий 3: Валидация валют
 
-```typescript
+\`\`\`typescript
 // Касса в EUR, сделка в USD
 const result = await recordFinancePayment({
   finance_deal_id: "usd-deal",
@@ -350,13 +350,13 @@ const result = await recordFinancePayment({
 // Ожидаемый результат:
 // result.success === false
 // result.error === "Currency mismatch: cashbox is EUR, finance deal requires USD. Please exchange first."
-```
+\`\`\`
 
 ---
 
 ## 📁 Файловая структура
 
-```
+\`\`\`
 /scripts/
   ├── 016_variantA_finance_hardening.sql          ✅ СОЗДАНО
   └── 017_fix_cashbox_operation_v2_after_016.sql  ✅ СОЗДАНО
@@ -376,7 +376,7 @@ const result = await recordFinancePayment({
 /app/finance-deals/[id]/page.tsx                   ✅ ОБНОВЛЕНО (использует новый диалог)
 
 /lib/types/database.ts                             ✅ ОБНОВЛЕНО (типы Cashbox, CashboxLocation)
-```
+\`\`\`
 
 ---
 

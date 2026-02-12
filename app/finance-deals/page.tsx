@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 import Link from 'next/link'
 import { canViewByVisibility } from '@/lib/access'
 import { VisibilityBadge } from '@/components/shared/visibility-toggle'
+import { createFinanceDeal } from '@/app/actions/finance-deals'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -59,6 +60,7 @@ export default function FinanceDealsPage() {
     title: '',
     contact_id: '',
     responsible_employee_id: '',
+    actor_employee_id: '',
     base_currency: 'USD',
     principal_amount: '',
     contract_currency: 'USD',
@@ -107,38 +109,30 @@ export default function FinanceDealsPage() {
       return
     }
     try {
-      const { data: coreDeal, error: coreErr } = await supabase
-        .from('core_deals')
-        .insert({
-          kind: 'finance',
-          status: 'NEW',
-          title: form.title,
-          base_currency: form.base_currency,
-          contact_id: form.contact_id || null,
-          responsible_employee_id: form.responsible_employee_id || null,
-        })
-        .select()
-        .single()
-      if (coreErr) throw coreErr
+      const result = await createFinanceDeal({
+        title: form.title,
+        contact_id: form.contact_id || undefined,
+        responsible_employee_id: form.responsible_employee_id || undefined,
+        actor_employee_id: form.actor_employee_id || undefined,
+        base_currency: form.base_currency,
+        principal_amount: parseFloat(form.principal_amount),
+        contract_currency: form.contract_currency,
+        term_months: parseInt(form.term_months),
+        rate_percent: parseFloat(form.rate_percent),
+        schedule_type: form.schedule_type,
+      })
 
-      const { error: finErr } = await supabase
-        .from('finance_deals')
-        .insert({
-          core_deal_id: coreDeal.id,
-          principal_amount: parseFloat(form.principal_amount),
-          contract_currency: form.contract_currency,
-          term_months: parseInt(form.term_months),
-          rate_percent: parseFloat(form.rate_percent),
-          schedule_type: form.schedule_type,
-        })
-      if (finErr) throw finErr
+      if (result.success === false) {
+        toast.error(result.error || 'Ошибка создания сделки')
+        return
+      }
 
       toast.success('Финансовая сделка создана')
       setIsCreateOpen(false)
-      setForm({ title: '', contact_id: '', responsible_employee_id: '', base_currency: 'USD', principal_amount: '', contract_currency: 'USD', term_months: '', rate_percent: '', schedule_type: 'annuity' })
+      setForm({ title: '', contact_id: '', responsible_employee_id: '', actor_employee_id: '', base_currency: 'USD', principal_amount: '', contract_currency: 'USD', term_months: '', rate_percent: '', schedule_type: 'annuity' })
       loadDeals()
-    } catch {
-      toast.error('Ошибка создания сделки')
+    } catch (err: any) {
+      toast.error(err.message || 'Ошибка создания сделки')
     }
   }
 
@@ -334,20 +328,29 @@ export default function FinanceDealsPage() {
               <Label>Название *</Label>
               <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Займ Иванову на авто" />
             </div>
+            <div className="space-y-2">
+              <Label>Контакт</Label>
+              <Select value={form.contact_id} onValueChange={v => setForm(f => ({ ...f, contact_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Выберите" /></SelectTrigger>
+                <SelectContent>
+                  {contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Контакт</Label>
-                <Select value={form.contact_id} onValueChange={v => setForm(f => ({ ...f, contact_id: v }))}>
-                  <SelectTrigger><SelectValue placeholder="Выберите" /></SelectTrigger>
-                  <SelectContent>
-                    {contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
               <div className="space-y-2">
                 <Label>Ответственный</Label>
                 <Select value={form.responsible_employee_id} onValueChange={v => setForm(f => ({ ...f, responsible_employee_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Выберите" /></SelectTrigger>
+                  <SelectContent>
+                    {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Актор (создатель)</Label>
+                <Select value={form.actor_employee_id} onValueChange={v => setForm(f => ({ ...f, actor_employee_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Текущий пользователь" /></SelectTrigger>
                   <SelectContent>
                     {employees.map(e => <SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>)}
                   </SelectContent>
