@@ -6,7 +6,7 @@ Successfully implemented Variant B for the auto module with full P&L tracking, a
 ## Database Layer ✅
 
 ### 1. auto_ledger Table Created
-```sql
+\`\`\`sql
 CREATE TABLE auto_ledger (
   id UUID PRIMARY KEY,
   car_id UUID NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE auto_ledger (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID
 )
-```
+\`\`\`
 
 **Categories:**
 - `PURCHASE`: Car acquisition cost (negative amount)
@@ -26,7 +26,7 @@ CREATE TABLE auto_ledger (
 - `SALE_PAYMENT`: Payment received from buyer (positive amount)
 
 ### 2. P&L View Created
-```sql
+\`\`\`sql
 CREATE VIEW auto_car_pnl AS
 SELECT 
   car_id,
@@ -44,7 +44,7 @@ SELECT
 FROM cars
 LEFT JOIN auto_ledger USING (car_id)
 GROUP BY car_id
-```
+\`\`\`
 
 ### 3. RPC Functions Created
 
@@ -94,7 +94,7 @@ All actions:
 ### 1. /components/cars/add-car-dialog.tsx
 **Change**: Auto-creates purchase record when car is added
 
-```typescript
+\`\`\`typescript
 // After creating car in database:
 if (newCar && purchasePrice > 0) {
   await createAutoPurchase({
@@ -104,28 +104,28 @@ if (newCar && purchasePrice > 0) {
     description: `Initial purchase: ${brand} ${model} ${year}`,
   })
 }
-```
+\`\`\`
 
 **Impact**: Every new car automatically gets a PURCHASE entry in auto_ledger for P&L tracking
 
 ### 2. /components/cars/add-expense-to-car-dialog.tsx
 **Change**: Records expenses in auto_ledger after cash/stock expense
 
-```typescript
+\`\`\`typescript
 // After creating car_expense record:
 await recordAutoExpense({
   carId,
   amount,
   description: `${categoryLabel}`,
 })
-```
+\`\`\`
 
 **Impact**: All car expenses (repairs, parts, etc.) are tracked in auto_ledger for P&L
 
 ### 3. /components/auto-platform/add-auto-deal-dialog.tsx
 **Change**: Creates SALE_REVENUE entry when deal is created
 
-```typescript
+\`\`\`typescript
 // After creating auto_deal:
 await supabase.from('auto_ledger').insert({
   car_id: carId,
@@ -134,14 +134,14 @@ await supabase.from('auto_ledger').insert({
   amount: totalAmount,
   description: `${dealType} - ${dealNumber}`,
 })
-```
+\`\`\`
 
 **Impact**: Sale revenue is immediately recorded for P&L tracking
 
 ### 4. /components/auto-platform/add-payment-dialog.tsx
 **Change**: Records SALE_PAYMENT when payment is received
 
-```typescript
+\`\`\`typescript
 // After updating auto_deal paid_amount:
 await supabase.from('auto_ledger').insert({
   car_id: carId,
@@ -150,7 +150,7 @@ await supabase.from('auto_ledger').insert({
   amount,
   description: 'Payment received',
 })
-```
+\`\`\`
 
 **Impact**: Payment tracking is automatic and complete
 
@@ -188,9 +188,9 @@ await supabase.from('auto_ledger').insert({
 
 For a car (BMW X5 2023):
 
-```sql
+\`\`\`sql
 SELECT * FROM auto_car_pnl WHERE car_id = 'xxx';
-```
+\`\`\`
 
 Results:
 - **total_purchase_cost**: -25,000 (initial purchase)
@@ -204,14 +204,14 @@ Results:
 
 All RPC functions and server actions support God Mode:
 
-```typescript
+\`\`\`typescript
 await createAutoPurchase({
   carId: 'xxx',
   supplierName: 'Supplier',
   purchaseAmount: 25000,
   actorEmployeeId: 'employee-uuid-here', // God Mode: act as this employee
 })
-```
+\`\`\`
 
 If `actorEmployeeId` is not provided, uses `auth.uid()` (current user).
 
