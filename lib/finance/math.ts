@@ -238,7 +238,7 @@ export interface DealBalances {
 }
 
 export function computeBalances(
-  principalAmount: number,
+  _principalAmount: number,
   ledger: Array<{ entry_type: string; amount: number }>,
 ): DealBalances {
   let totalDisbursed = 0
@@ -249,26 +249,28 @@ export function computeBalances(
   let collateralProceeds = 0
 
   for (const e of ledger) {
+    const amt = Number(e.amount) || 0
     switch (e.entry_type) {
       case 'disbursement':
-        totalDisbursed += e.amount
+        totalDisbursed += amt
         break
-      case 'repayment_principal':
-        principalRepaid += e.amount
+      case 'principal_repayment':
+      case 'early_repayment':
+        principalRepaid += amt
         break
-      case 'repayment_interest':
-        interestRepaid += e.amount
+      case 'interest_payment':
+        interestRepaid += amt
         break
       case 'fee':
-      case 'penalty_manual':
-        feesAndPenalties += e.amount
+      case 'penalty':
+        feesAndPenalties += amt
         break
       case 'adjustment':
       case 'offset':
-        adjustments += e.amount
+        adjustments += amt
         break
       case 'collateral_sale_proceeds':
-        collateralProceeds += e.amount
+        collateralProceeds += amt
         break
     }
   }
@@ -285,6 +287,16 @@ export function computeBalances(
     outstandingPrincipal: Math.max(0, outstandingPrincipal),
     totalOwed: Math.max(0, outstandingPrincipal),
   }
+}
+
+/**
+ * Format money with currency symbol.
+ */
+const SYMBOLS: Record<string, string> = { USD: '$', EUR: '\u20AC', GEL: '\u20BE', RUB: '\u20BD', USDT: '\u20AE', AED: 'AED', TRY: '\u20BA' }
+export function formatMoney(amount: number | string, currency = 'USD'): string {
+  const n = typeof amount === 'string' ? parseFloat(amount) : amount
+  if (isNaN(n)) return `${SYMBOLS[currency] || currency} 0.00`
+  return `${SYMBOLS[currency] || currency} ${n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 /**

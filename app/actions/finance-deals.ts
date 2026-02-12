@@ -189,6 +189,92 @@ export async function addLedgerEntry(params: {
   return data as FinanceLedgerEntry
 }
 
+// ==================== LEDGER + CASHBOX (linked) ====================
+
+export async function addLedgerEntryWithCashbox(params: {
+  finance_deal_id: string
+  entry_type: FinanceLedgerEntryType
+  amount: number
+  currency: string
+  note?: string
+  cashbox_id?: string   // if set, also move money in/out of this cashbox
+  created_by_employee_id?: string
+}) {
+  const supabase = await createClient()
+
+  // If cashbox is linked, use the v2 RPC for atomicity
+  if (params.cashbox_id) {
+    // disbursement = money OUT of cashbox (negative), repayments = money IN (positive)
+    const isOutflow = params.entry_type === 'disbursement'
+    const cashboxAmount = isOutflow ? -params.amount : params.amount
+
+    const { data, error } = await supabase.rpc('cashbox_operation_v2', {
+      p_cashbox_id: params.cashbox_id,
+      p_amount: cashboxAmount,
+      p_category: `finance_${params.entry_type}`,
+      p_description: params.note || `Фин.сделка: ${params.entry_type}`,
+      p_created_by: params.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
+      p_finance_deal_id: params.finance_deal_id,
+      p_ledger_entry_type: params.entry_type,
+      p_ledger_amount: params.amount,
+      p_ledger_currency: params.currency,
+      p_ledger_note: params.note || null,
+    })
+
+    if (error) throw error
+
+    await writeAuditLog(supabase, {
+      action: 'ledger_entry_with_cashbox',
+      module: 'finance',
+      entityTable: 'finance_ledger',
+      entityId: (Array.isArray(data) ? data[0] : data)?.ledger_id,
+      after: { ...params, cashboxAmount },
+      actorEmployeeId: params.created_by_employee_id,
+    })
+
+    return { success: true, data: Array.isArray(data) ? data[0] : data }
+  }
+
+  // Fallback: plain ledger entry without cashbox link
+  const entry = await addLedgerEntry({
+    ...params,
+    base_amount: params.amount,
+    base_currency: params.currency,
+  })
+  return { success: true, data: entry }
+}
+
+// ==================== P&L VIEW ====================
+
+export async function getFinanceDealPnl(financeDealId: string) {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('v_finance_deal_pnl')
+    .select('*')
+    .eq('finance_deal_id', financeDealId)
+    .maybeSingle()
+
+  if (error) {
+    console.warn('[v0] P&L view error:', error.message)
+    return null
+  }
+  return data as {
+    finance_deal_id: string
+    principal_amount: number
+    contract_currency: string
+    rate_percent: number
+    term_months: number
+    total_disbursed: number
+    total_principal_repaid: number
+    total_interest_received: number
+    total_fees: number
+    total_penalties: number
+    outstanding_principal: number
+    net_income: number
+    entry_count: number
+  } | null
+}
+
 // ==================== PARTICIPANTS ====================
 
 export async function addParticipant(params: {
@@ -307,6 +393,57 @@ export async function updatePaymentStatus(id: string, status: string) {
     .eq('id', id)
 
   if (error) throw error
+}
+
+/**
+ * Record a payment against the schedule + update ledger atomically.
+ * Uses the DB RPC to distribute payment across schedule rows (FIFO) and write ledger entries.
+ */
+export async function recordFinancePayment(params: {
+  finance_deal_id: string
+  payment_amount: number
+  currency: string
+  cashbox_id?: string
+  note?: string
+  created_by?: string
+}) {
+  const supabase = await createClient()
+  try {
+    const { data, error } = await supabase.rpc('record_finance_payment', {
+      p_finance_deal_id: params.finance_deal_id,
+      p_payment_amount: params.payment_amount,
+      p_currency: params.currency,
+      p_cashbox_id: params.cashbox_id || null,
+      p_note: params.note || null,
+      p_created_by: params.created_by || '00000000-0000-0000-0000-000000000000',
+    })
+
+    if (error) {
+      console.error('[v0] recordFinancePayment error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    const row = Array.isArray(data) ? data[0] : data
+
+    await writeAuditLog(supabase, {
+      action: 'record_finance_payment',
+      module: 'finance',
+      entityTable: 'finance_payment_schedule',
+      entityId: params.finance_deal_id,
+      after: { payment_amount: params.payment_amount, ...params },
+      actorEmployeeId: params.created_by,
+    })
+
+    return {
+      success: true,
+      principal_paid: row?.principal_paid,
+      interest_paid: row?.interest_paid,
+      ledger_ids: row?.ledger_ids,
+    }
+  } catch (err: any) {
+    console.error('[v0] recordFinancePayment error:', err)
+    return { success: false, error: err.message || 'Unknown error' }
+  }
 }
 
 // ==================== UNIFIED DEALS ====================

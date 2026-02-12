@@ -27,6 +27,7 @@ import Link from 'next/link'
 import { computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
 import { evaluateCollateral, replaceCollateral, releaseCollateral, defaultWithSideEffects } from '@/app/actions/collateral-engine'
+import { addLedgerEntryWithCashbox, getFinanceDealPnl, recordFinancePayment } from '@/app/actions/finance-deals'
 import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
@@ -42,10 +43,11 @@ const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
 
 const LEDGER_TYPE_LABELS: Record<string, string> = {
   disbursement: 'Выдача',
-  repayment_principal: 'Погашение тела',
-  repayment_interest: 'Погашение %',
+  principal_repayment: 'Погашение тела',
+  early_repayment: 'Досрочное погашение',
+  interest_payment: 'Погашение %',
   fee: 'Комиссия',
-  penalty_manual: 'Штраф',
+  penalty: 'Штраф',
   adjustment: 'Корректировка',
   offset: 'Взаимозачёт',
   collateral_sale_proceeds: 'Продажа залога',
@@ -54,8 +56,8 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
 const PAYMENT_STATUS_MAP: Record<string, { label: string; color: string }> = {
   PLANNED: { label: 'Плановый', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
   PAID: { label: 'Оплачен', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  PARTIAL: { label: 'Частично', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
   OVERDUE: { label: 'Просрочен', color: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  ADJUSTED: { label: 'Скорректирован', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
 }
 
 function formatMoney(amount: number | null | undefined, currency?: string) {
@@ -95,11 +97,22 @@ export default function FinanceDealDetailPage() {
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'schedule' | 'participants' | 'collateral'>('overview')
 
+  // P&L from VIEW
+  const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getFinanceDealPnl>>>(null)
+
+  // Cashboxes for linking ledger entries
+  const [cashboxes, setCashboxes] = useState<Array<{ id: string; name: string; currency: string; balance: number }>>([])
+
   // Формы
-  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'repayment_principal' as string, amount: '', currency: 'USD', note: '' })
+  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'principal_repayment' as string, amount: '', currency: 'USD', note: '', cashbox_id: '' })
   const [participantForm, setParticipantForm] = useState({ contact_id: '', employee_id: '', participant_role: 'borrower', note: '' })
   const [collateralForm, setCollateralForm] = useState({ asset_id: '', note: '' })
   const [pauseForm, setPauseForm] = useState({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
+  
+  // Payment dialog
+  const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+  const [paymentForm, setPaymentForm] = useState({ amount: '', note: '', cashbox_id: '' })
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false)
 
   const loadDeal = useCallback(async () => {
     setLoading(true)
@@ -136,7 +149,15 @@ export default function FinanceDealDetailPage() {
         setCollaterals((collRes.data || []) as FinanceCollateralLink[])
         setPauses((pausesRes.data || []) as FinancePausePeriod[])
         setChain((chainRes?.data || []) as FinanceCollateralChain[])
+
+        // Load P&L from VIEW
+        getFinanceDealPnl(fd.id).then(setPnl).catch(() => {})
       }
+
+      // Load cashboxes for linking
+      supabase.from('cashboxes').select('id, name, currency, balance').eq('is_archived', false).order('sort_order').then(({ data }) => {
+        setCashboxes((data || []) as Array<{ id: string; name: string; currency: string; balance: number }>)
+      })
     } catch {
       toast.error('Ошибка загрузки сделки')
     } finally {
@@ -166,23 +187,50 @@ export default function FinanceDealDetailPage() {
     } catch { toast.error('Ошибка смены статуса') }
   }
 
-  const addLedgerEntry = async () => {
+  const handleAddLedgerEntry = async () => {
     if (!financeDeal || !ledgerForm.amount) return
     try {
       const amount = parseFloat(ledgerForm.amount)
-      const { error } = await supabase.from('finance_ledger').insert({
+      const result = await addLedgerEntryWithCashbox({
         finance_deal_id: financeDeal.id,
-        entry_type: ledgerForm.entry_type,
-        amount, currency: ledgerForm.currency,
-        base_amount: amount, base_currency: ledgerForm.currency,
-        note: ledgerForm.note || null,
+        entry_type: ledgerForm.entry_type as any,
+        amount,
+        currency: ledgerForm.currency,
+        note: ledgerForm.note || undefined,
+        cashbox_id: ledgerForm.cashbox_id || undefined,
       })
-      if (error) throw error
-      toast.success('Запись добавлена в книгу')
+      if (!result.success) throw new Error('Failed')
+      toast.success('Запись добавлена' + (ledgerForm.cashbox_id ? ' + касса обновлена' : ''))
       setIsLedgerOpen(false)
-      setLedgerForm({ entry_type: 'repayment_principal', amount: '', currency: 'USD', note: '' })
+      setLedgerForm({ entry_type: 'principal_repayment', amount: '', currency: 'USD', note: '', cashbox_id: '' })
       loadDeal()
     } catch { toast.error('Ошибка добавления записи') }
+  }
+
+  const handleRecordPayment = async () => {
+    if (!financeDeal || !paymentForm.amount) return
+    setIsRecordingPayment(true)
+    try {
+      const amount = parseFloat(paymentForm.amount)
+      const result = await recordFinancePayment({
+        finance_deal_id: financeDeal.id,
+        payment_amount: amount,
+        currency: financeDeal.contract_currency,
+        cashbox_id: paymentForm.cashbox_id || undefined,
+        note: paymentForm.note || undefined,
+      })
+      if (!result.success) {
+        throw new Error(result.error || 'Failed')
+      }
+      toast.success(`Платеж записан: ${formatMoney(result.principal_paid, financeDeal.contract_currency)} тело + ${formatMoney(result.interest_paid, financeDeal.contract_currency)} %`)
+      setIsPaymentDialogOpen(false)
+      setPaymentForm({ amount: '', note: '', cashbox_id: '' })
+      loadDeal()
+    } catch (err: any) {
+      toast.error(err.message || 'Ошибка записи платежа')
+    } finally {
+      setIsRecordingPayment(false)
+    }
   }
 
   const addParticipant = async () => {
@@ -398,6 +446,60 @@ export default function FinanceDealDetailPage() {
           </Card>
         </div>
 
+        {/* P&L Summary Card */}
+        {pnl && (
+          <Card className="border-border">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-emerald-400" />
+                P&L (Прибыль и убытки)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Выдано</p>
+                  <p className="font-mono text-sm font-medium text-red-400">
+                    {formatMoney(Number(pnl.total_disbursed), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Тело погашено</p>
+                  <p className="font-mono text-sm font-medium text-emerald-400">
+                    {formatMoney(Number(pnl.total_principal_repaid), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Проценты получены</p>
+                  <p className="font-mono text-sm font-medium text-emerald-400">
+                    {formatMoney(Number(pnl.total_interest_received), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Остаток тела</p>
+                  <p className={`font-mono text-sm font-medium ${Number(pnl.outstanding_principal) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {formatMoney(Number(pnl.outstanding_principal), pnl.contract_currency)}
+                  </p>
+                </div>
+              </div>
+              <Separator className="my-3" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  {Number(pnl.total_fees) > 0 && <span>Комиссии: {formatMoney(Number(pnl.total_fees), pnl.contract_currency)}</span>}
+                  {Number(pnl.total_penalties) > 0 && <span>Штрафы: {formatMoney(Number(pnl.total_penalties), pnl.contract_currency)}</span>}
+                  <span>Записей: {pnl.entry_count}</span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Чистый доход</p>
+                  <p className={`font-mono font-bold text-lg ${Number(pnl.net_income) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {Number(pnl.net_income) >= 0 ? '+' : ''}{formatMoney(Number(pnl.net_income), pnl.contract_currency)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Периоды паузы */}
         {pauses.length > 0 && (
           <Card>
@@ -496,50 +598,64 @@ export default function FinanceDealDetailPage() {
       )}
 
       {/* График платежей */}
-      {activeTab === 'schedule' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-base">График платежей</CardTitle>
-            {financeDeal && financeDeal.schedule_type !== 'manual' && financeDeal.schedule_type !== 'tranches' && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-transparent"
-                disabled={isRecalculating}
-                onClick={async () => {
-                  setIsRecalculating(true)
-                  const result = await regenerateSchedule(financeDeal.id)
-                  if (result.success) { toast.success(result.message); loadDeal() }
-                  else toast.error(result.error)
-                  setIsRecalculating(false)
-                }}
-              >
-                <Calendar className="h-4 w-4 mr-1" />{isRecalculating ? 'Пересчёт...' : 'Пересчитать'}
-              </Button>
-            )}
-          </CardHeader>
+        {activeTab === 'schedule' && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-base">График платежей</CardTitle>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="default"
+                  onClick={() => setIsPaymentDialogOpen(true)}
+                  disabled={!financeDeal || schedule.length === 0}
+                >
+                  <DollarSign className="h-4 w-4 mr-1" />Записать платёж
+                </Button>
+                {financeDeal && financeDeal.schedule_type !== 'manual' && financeDeal.schedule_type !== 'tranches' && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="bg-transparent"
+                    disabled={isRecalculating}
+                    onClick={async () => {
+                      setIsRecalculating(true)
+                      const result = await regenerateSchedule(financeDeal.id)
+                      if (result.success) { toast.success(result.message); loadDeal() }
+                      else toast.error(result.error)
+                      setIsRecalculating(false)
+                    }}
+                  >
+                    <Calendar className="h-4 w-4 mr-1" />{isRecalculating ? 'Пересчёт...' : 'Пересчитать'}
+                  </Button>
+                )}
+              </div>
+            </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Дата</TableHead>
-                  <TableHead>Тело</TableHead>
-                  <TableHead>Проценты</TableHead>
-                  <TableHead>Итого</TableHead>
+                  <TableHead>Тело (к оплате)</TableHead>
+                  <TableHead>Проценты (к оплате)</TableHead>
+                  <TableHead>Тело (оплачено)</TableHead>
+                  <TableHead>Проценты (оплачено)</TableHead>
                   <TableHead>Статус</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {schedule.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center py-8 text-muted-foreground">График ещё не сформирован</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">График ещё не сформирован</TableCell></TableRow>
                 ) : schedule.map(item => {
                   const pst = PAYMENT_STATUS_MAP[item.status] || { label: item.status, color: '' }
+                  const principalPaid = (item as any).principal_paid || 0
+                  const interestPaid = (item as any).interest_paid || 0
                   return (
                     <TableRow key={item.id}>
                       <TableCell className="text-sm">{new Date(item.due_date).toLocaleDateString('ru-RU')}</TableCell>
                       <TableCell className="font-mono text-sm">{formatMoney(item.principal_due, item.currency)}</TableCell>
                       <TableCell className="font-mono text-sm">{formatMoney(item.interest_due, item.currency)}</TableCell>
-                      <TableCell className="font-mono text-sm font-medium">{formatMoney(item.total_due, item.currency)}</TableCell>
+                      <TableCell className="font-mono text-sm text-emerald-400">{formatMoney(principalPaid, item.currency)}</TableCell>
+                      <TableCell className="font-mono text-sm text-emerald-400">{formatMoney(interestPaid, item.currency)}</TableCell>
                       <TableCell><Badge variant="outline" className={pst.color}>{pst.label}</Badge></TableCell>
                     </TableRow>
                   )
@@ -751,13 +867,26 @@ export default function FinanceDealDetailPage() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label>Касса (опционально)</Label>
+              <Select value={ledgerForm.cashbox_id || 'none'} onValueChange={v => setLedgerForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
+                <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Без привязки</SelectItem>
+                  {cashboxes.filter(c => c.currency === ledgerForm.currency).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Если выбрана касса, деньги будут списаны/зачислены атомарно</p>
+            </div>
+            <div className="space-y-2">
               <Label>Примечание</Label>
               <Textarea value={ledgerForm.note} onChange={e => setLedgerForm(f => ({ ...f, note: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsLedgerOpen(false)} className="bg-transparent">Отмена</Button>
-            <Button onClick={addLedgerEntry}>Добавить</Button>
+            <Button onClick={handleAddLedgerEntry}>Добавить</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -942,6 +1071,54 @@ export default function FinanceDealDetailPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsCollateralOpen(false)} className="bg-transparent">Отмена</Button>
             <Button onClick={linkCollateral}>Привязать</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Диалог записи платежа */}
+      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Записать платёж</DialogTitle>
+            <DialogDescription>Платёж автоматически распределится по графику (FIFO)</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Сумма платежа</Label>
+              <Input
+                type="number"
+                step="0.01"
+                value={paymentForm.amount}
+                onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))}
+                placeholder="0.00"
+              />
+              <p className="text-xs text-muted-foreground">
+                Валюта: {financeDeal?.contract_currency || 'USD'}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Касса (опционально)</Label>
+              <Select value={paymentForm.cashbox_id || 'none'} onValueChange={v => setPaymentForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
+                <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Без привязки</SelectItem>
+                  {cashboxes.filter(c => c.currency === financeDeal?.contract_currency).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Если выбрана касса, деньги будут зачислены атомарно</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Примечание</Label>
+              <Textarea value={paymentForm.note} onChange={e => setPaymentForm(f => ({ ...f, note: e.target.value }))} placeholder="Необязательно" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)} className="bg-transparent">Отмена</Button>
+            <Button onClick={handleRecordPayment} disabled={isRecordingPayment || !paymentForm.amount}>
+              {isRecordingPayment ? 'Записываю...' : 'Записать'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
