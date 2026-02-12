@@ -13,6 +13,8 @@ import { Wrench } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Car, Cashbox, Currency } from '@/lib/types/database'
+import { recordAutoExpenseV2 } from '@/app/actions/auto'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const EXPENSE_CATEGORIES = [
   { value: 'REPAIR', label: 'Ремонт' },
@@ -39,6 +41,7 @@ export function AddExpenseDialog() {
   const [amount, setAmount] = useState<number | null>(null)
   const [currency, setCurrency] = useState<Currency>('RUB')
   const [description, setDescription] = useState('')
+  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
 
   const selectedCashbox = cashboxes.find(c => c.id === selectedCashboxId)
 
@@ -71,78 +74,24 @@ export function AddExpenseDialog() {
       return
     }
 
-    // Проверяем баланс кассы
-    if (selectedCashbox && Number(selectedCashbox.balance) < amount) {
-      toast.error(`Недостаточно средств в кассе. Доступно: ${Number(selectedCashbox.balance).toLocaleString('ru-RU')} ${selectedCashbox.currency}`)
-      return
-    }
-
     setIsLoading(true)
     try {
-      const supabase = createClient()
-      
-      // Получаем авто
-      const selectedCar = cars.find(c => c.id === selectedCarId)
-      if (!selectedCar) throw new Error('Автомобиль не найден')
+      const result = await recordAutoExpenseV2({
+        carId: selectedCarId,
+        dealId: undefined,
+        cashboxId: selectedCashboxId,
+        amount,
+        currency,
+        type: category,
+        description: description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label,
+        paidBy: 'COMPANY',
+        ownerShare: 0,
+        actorEmployeeId: actorEmployeeId || undefined,
+      })
 
-      // Списываем из кассы
-      const newCashboxBalance = Number(selectedCashbox!.balance) - amount
-      const { error: cashboxError } = await supabase
-        .from('cashboxes')
-        .update({ balance: newCashboxBalance })
-        .eq('id', selectedCashboxId)
-      
-      if (cashboxError) throw cashboxError
-
-      // Создаем транзакцию
-      const { error: txError } = await supabase
-        .from('transactions')
-        .insert({
-          cashbox_id: selectedCashboxId,
-          amount: -amount,
-          balance_after: newCashboxBalance,
-          category: 'EXPENSE',
-          description: `Расход на ${selectedCar.brand} ${selectedCar.model}: ${description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label}`,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
-      
-      if (txError) console.error('[v0] Transaction error:', txError)
-      
-      // Создаем расход на авто
-      const { error: expenseError } = await supabase
-        .from('car_expenses')
-        .insert({
-          car_id: selectedCarId,
-          category,
-          amount,
-          currency,
-          description: description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label,
-          expense_date: new Date().toISOString().split('T')[0],
-          cashbox_id: selectedCashboxId,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
-      
-      if (expenseError) throw expenseError
-      
-      // Обновляем себестоимость авто
-      const newCostPrice = Number(selectedCar.cost_price) + amount
-      const { error: carError } = await supabase
-        .from('cars')
-        .update({ cost_price: newCostPrice })
-        .eq('id', selectedCarId)
-      
-      if (carError) console.error('[v0] Car update error:', carError)
-      
-      // Добавляем запись в таймлайн авто
-      await supabase
-        .from('car_timeline')
-        .insert({
-          car_id: selectedCarId,
-          event_type: 'EXPENSE',
-          new_value: { category, amount, currency },
-          description: `${EXPENSE_CATEGORIES.find(c => c.value === category)?.label}: ${amount} ${currency}`,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to record expense')
+      }
 
       toast.success('Расход добавлен')
       setOpen(false)
@@ -150,7 +99,7 @@ export function AddExpenseDialog() {
       router.refresh()
     } catch (error) {
       console.error('[v0] Error:', error)
-      toast.error('Ошибка при добавлении расхода')
+      toast.error(error instanceof Error ? error.message : 'Ошибка при добавлении расхода')
     } finally {
       setIsLoading(false)
     }
@@ -163,6 +112,7 @@ export function AddExpenseDialog() {
     setAmount(null)
     setCurrency('RUB')
     setDescription('')
+    setActorEmployeeId('')
   }
 
   return (
@@ -274,6 +224,11 @@ export function AddExpenseDialog() {
               rows={2}
             />
           </div>
+
+          <GodModeActorSelector
+            value={actorEmployeeId}
+            onChange={setActorEmployeeId}
+          />
         </div>
         
         <div className="flex justify-end gap-3">
