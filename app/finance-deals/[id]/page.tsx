@@ -54,10 +54,10 @@ const LEDGER_TYPE_LABELS: Record<string, string> = {
 }
 
 const PAYMENT_STATUS_MAP: Record<string, { label: string; color: string }> = {
-  pending: { label: 'Плановый', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
-  paid: { label: 'Оплачен', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
-  partial: { label: 'Частично', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
-  overdue: { label: 'Просрочен', color: 'bg-red-500/15 text-red-400 border-red-500/30' },
+  PLANNED: { label: 'Плановый', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
+  PAID: { label: 'Оплачен', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  PARTIAL: { label: 'Частично', color: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  OVERDUE: { label: 'Просрочен', color: 'bg-red-500/15 text-red-400 border-red-500/30' },
 }
 
 function formatMoney(amount: number | null | undefined, currency?: string) {
@@ -635,10 +635,10 @@ export default function FinanceDealDetailPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Дата</TableHead>
-                  <TableHead>Тело</TableHead>
-                  <TableHead>Проценты</TableHead>
-                  <TableHead>Итого</TableHead>
-                  <TableHead>Оплачено</TableHead>
+                  <TableHead>Тело (к оплате)</TableHead>
+                  <TableHead>Проценты (к оплате)</TableHead>
+                  <TableHead>Тело (оплачено)</TableHead>
+                  <TableHead>Проценты (оплачено)</TableHead>
                   <TableHead>Статус</TableHead>
                 </TableRow>
               </TableHeader>
@@ -647,14 +647,15 @@ export default function FinanceDealDetailPage() {
                   <TableRow><TableCell colSpan={6} className="text-center py-8 text-muted-foreground">График ещё не сформирован</TableCell></TableRow>
                 ) : schedule.map(item => {
                   const pst = PAYMENT_STATUS_MAP[item.status] || { label: item.status, color: '' }
-                  const amountPaid = (item as any).amount_paid || 0
+                  const principalPaid = (item as any).principal_paid || 0
+                  const interestPaid = (item as any).interest_paid || 0
                   return (
                     <TableRow key={item.id}>
                       <TableCell className="text-sm">{new Date(item.due_date).toLocaleDateString('ru-RU')}</TableCell>
                       <TableCell className="font-mono text-sm">{formatMoney(item.principal_due, item.currency)}</TableCell>
                       <TableCell className="font-mono text-sm">{formatMoney(item.interest_due, item.currency)}</TableCell>
-                      <TableCell className="font-mono text-sm font-medium">{formatMoney(item.total_due, item.currency)}</TableCell>
-                      <TableCell className="font-mono text-sm text-emerald-400">{formatMoney(amountPaid, item.currency)}</TableCell>
+                      <TableCell className="font-mono text-sm text-emerald-400">{formatMoney(principalPaid, item.currency)}</TableCell>
+                      <TableCell className="font-mono text-sm text-emerald-400">{formatMoney(interestPaid, item.currency)}</TableCell>
                       <TableCell><Badge variant="outline" className={pst.color}>{pst.label}</Badge></TableCell>
                     </TableRow>
                   )
