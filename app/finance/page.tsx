@@ -20,6 +20,7 @@ import { DepositWithdrawDialog } from '@/components/finance/deposit-withdraw-dia
 import { EditCashboxDialog } from '@/components/finance/edit-cashbox-dialog'
 import { TransferDialog } from '@/components/finance/transfer-dialog'
 import { toast } from 'sonner'
+import { updateCashboxSortOrders } from '@/app/actions/cashbox'
 
 interface CashboxWithLocation extends Cashbox {
   location?: string | null
@@ -454,12 +455,14 @@ if (error) throw error
     if (draggedIndex === null) return
     
     try {
-      for (let i = 0; i < cashboxes.length; i++) {
-        await supabase
-          .from('cashboxes')
-          .update({ sort_order: i })
-          .eq('id', cashboxes[i].id)
+      const items = cashboxes.map((c, i) => ({ id: c.id, sort_order: i }))
+      const result = await updateCashboxSortOrders({ items })
+      
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка сохранения порядка')
+        return
       }
+      
       toast.success('Порядок сохранен')
     } catch (error) {
       toast.error('Ошибка сохранения порядка')

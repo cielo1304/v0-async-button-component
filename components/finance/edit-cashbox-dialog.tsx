@@ -42,6 +42,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { updateCashbox, deleteCashbox } from '@/app/actions/cashbox'
 
 const CASHBOX_TYPES = [
   { value: 'CASH', label: 'Наличные' },
@@ -74,6 +76,7 @@ export function EditCashboxDialog({
   const [isHidden, setIsHidden] = useState(cashbox.is_hidden)
   const [isArchived, setIsArchived] = useState(cashbox.is_archived)
   const [isExchangeEnabled, setIsExchangeEnabled] = useState((cashbox as any).is_exchange_enabled || false)
+  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (open) {
@@ -87,6 +90,7 @@ export function EditCashboxDialog({
       setIsHidden(cashbox.is_hidden)
       setIsArchived(cashbox.is_archived)
       setIsExchangeEnabled((cashbox as any).is_exchange_enabled || false)
+      setGodmodeActorId(undefined)
     }
   }, [open, cashbox])
 
@@ -108,11 +112,9 @@ export function EditCashboxDialog({
 
     setIsLoading(true)
     try {
-      const supabase = createClient()
-
-      const { error } = await supabase
-        .from('cashboxes')
-        .update({
+      const result = await updateCashbox({
+        id: cashbox.id,
+        patch: {
           name,
           type,
           location: location || null,
@@ -121,11 +123,14 @@ export function EditCashboxDialog({
           is_hidden: isHidden,
           is_archived: isArchived,
           is_exchange_enabled: isExchangeEnabled,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', cashbox.id)
+        },
+        actorEmployeeId: godmodeActorId,
+      })
 
-      if (error) throw error
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при обновлении кассы')
+        return
+      }
 
       toast.success('Касса успешно обновлена')
       onOpenChange(false)
@@ -140,29 +145,17 @@ export function EditCashboxDialog({
   const handleDelete = async () => {
     setIsLoading(true)
     try {
-      const supabase = createClient()
+      const result = await deleteCashbox({
+        id: cashbox.id,
+        actorEmployeeId: godmodeActorId,
+      })
 
-      // Проверяем, есть ли транзакции
-      const { count } = await supabase
-        .from('transactions')
-        .select('id', { count: 'exact', head: true })
-        .eq('cashbox_id', cashbox.id)
-
-      if (count && count > 0) {
-        toast.error(
-          `Невозможно удалить кассу. Есть ${count} связанных транзакций. Используйте архивирование.`
-        )
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при удалении кассы')
         setShowDeleteConfirm(false)
         setIsLoading(false)
         return
       }
-
-      const { error } = await supabase
-        .from('cashboxes')
-        .delete()
-        .eq('id', cashbox.id)
-
-      if (error) throw error
 
       toast.success('Касса удалена')
       onOpenChange(false)
@@ -408,6 +401,12 @@ export function EditCashboxDialog({
               </div>
             </div>
           </div>
+
+          {/* God Mode Actor Selector */}
+          <GodModeActorSelector
+            value={godmodeActorId}
+            onChange={setGodmodeActorId}
+          />
 
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
