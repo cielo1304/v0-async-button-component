@@ -27,6 +27,7 @@ import Link from 'next/link'
 import { computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
 import { evaluateCollateral, replaceCollateral, releaseCollateral, defaultWithSideEffects } from '@/app/actions/collateral-engine'
+import { addLedgerEntryWithCashbox, getFinanceDealPnl } from '@/app/actions/finance-deals'
 import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
@@ -42,10 +43,11 @@ const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
 
 const LEDGER_TYPE_LABELS: Record<string, string> = {
   disbursement: 'Выдача',
-  repayment_principal: 'Погашение тела',
-  repayment_interest: 'Погашение %',
+  principal_repayment: 'Погашение тела',
+  early_repayment: 'Досрочное погашение',
+  interest_payment: 'Погашение %',
   fee: 'Комиссия',
-  penalty_manual: 'Штраф',
+  penalty: 'Штраф',
   adjustment: 'Корректировка',
   offset: 'Взаимозачёт',
   collateral_sale_proceeds: 'Продажа залога',
@@ -95,8 +97,14 @@ export default function FinanceDealDetailPage() {
   const [isRecalculating, setIsRecalculating] = useState(false)
   const [activeTab, setActiveTab] = useState<'overview' | 'ledger' | 'schedule' | 'participants' | 'collateral'>('overview')
 
+  // P&L from VIEW
+  const [pnl, setPnl] = useState<Awaited<ReturnType<typeof getFinanceDealPnl>>>(null)
+
+  // Cashboxes for linking ledger entries
+  const [cashboxes, setCashboxes] = useState<Array<{ id: string; name: string; currency: string; balance: number }>>([])
+
   // Формы
-  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'repayment_principal' as string, amount: '', currency: 'USD', note: '' })
+  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'principal_repayment' as string, amount: '', currency: 'USD', note: '', cashbox_id: '' })
   const [participantForm, setParticipantForm] = useState({ contact_id: '', employee_id: '', participant_role: 'borrower', note: '' })
   const [collateralForm, setCollateralForm] = useState({ asset_id: '', note: '' })
   const [pauseForm, setPauseForm] = useState({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
@@ -136,7 +144,15 @@ export default function FinanceDealDetailPage() {
         setCollaterals((collRes.data || []) as FinanceCollateralLink[])
         setPauses((pausesRes.data || []) as FinancePausePeriod[])
         setChain((chainRes?.data || []) as FinanceCollateralChain[])
+
+        // Load P&L from VIEW
+        getFinanceDealPnl(fd.id).then(setPnl).catch(() => {})
       }
+
+      // Load cashboxes for linking
+      supabase.from('cashboxes').select('id, name, currency, balance').eq('is_archived', false).order('sort_order').then(({ data }) => {
+        setCashboxes((data || []) as Array<{ id: string; name: string; currency: string; balance: number }>)
+      })
     } catch {
       toast.error('Ошибка загрузки сделки')
     } finally {
@@ -166,21 +182,22 @@ export default function FinanceDealDetailPage() {
     } catch { toast.error('Ошибка смены статуса') }
   }
 
-  const addLedgerEntry = async () => {
+  const handleAddLedgerEntry = async () => {
     if (!financeDeal || !ledgerForm.amount) return
     try {
       const amount = parseFloat(ledgerForm.amount)
-      const { error } = await supabase.from('finance_ledger').insert({
+      const result = await addLedgerEntryWithCashbox({
         finance_deal_id: financeDeal.id,
-        entry_type: ledgerForm.entry_type,
-        amount, currency: ledgerForm.currency,
-        base_amount: amount, base_currency: ledgerForm.currency,
-        note: ledgerForm.note || null,
+        entry_type: ledgerForm.entry_type as any,
+        amount,
+        currency: ledgerForm.currency,
+        note: ledgerForm.note || undefined,
+        cashbox_id: ledgerForm.cashbox_id || undefined,
       })
-      if (error) throw error
-      toast.success('Запись добавлена в книгу')
+      if (!result.success) throw new Error('Failed')
+      toast.success('Запись добавлена' + (ledgerForm.cashbox_id ? ' + касса обновлена' : ''))
       setIsLedgerOpen(false)
-      setLedgerForm({ entry_type: 'repayment_principal', amount: '', currency: 'USD', note: '' })
+      setLedgerForm({ entry_type: 'principal_repayment', amount: '', currency: 'USD', note: '', cashbox_id: '' })
       loadDeal()
     } catch { toast.error('Ошибка добавления записи') }
   }
@@ -397,6 +414,60 @@ export default function FinanceDealDetailPage() {
             </CardContent>
           </Card>
         </div>
+
+        {/* P&L Summary Card */}
+        {pnl && (
+          <Card className="border-border">
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-emerald-400" />
+                P&L (Прибыль и убытки)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Выдано</p>
+                  <p className="font-mono text-sm font-medium text-red-400">
+                    {formatMoney(Number(pnl.total_disbursed), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Тело погашено</p>
+                  <p className="font-mono text-sm font-medium text-emerald-400">
+                    {formatMoney(Number(pnl.total_principal_repaid), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Проценты получены</p>
+                  <p className="font-mono text-sm font-medium text-emerald-400">
+                    {formatMoney(Number(pnl.total_interest_received), pnl.contract_currency)}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">Остаток тела</p>
+                  <p className={`font-mono text-sm font-medium ${Number(pnl.outstanding_principal) > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                    {formatMoney(Number(pnl.outstanding_principal), pnl.contract_currency)}
+                  </p>
+                </div>
+              </div>
+              <Separator className="my-3" />
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  {Number(pnl.total_fees) > 0 && <span>Комиссии: {formatMoney(Number(pnl.total_fees), pnl.contract_currency)}</span>}
+                  {Number(pnl.total_penalties) > 0 && <span>Штрафы: {formatMoney(Number(pnl.total_penalties), pnl.contract_currency)}</span>}
+                  <span>Записей: {pnl.entry_count}</span>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs text-muted-foreground">Чистый доход</p>
+                  <p className={`font-mono font-bold text-lg ${Number(pnl.net_income) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {Number(pnl.net_income) >= 0 ? '+' : ''}{formatMoney(Number(pnl.net_income), pnl.contract_currency)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Периоды паузы */}
         {pauses.length > 0 && (
@@ -751,13 +822,26 @@ export default function FinanceDealDetailPage() {
               </div>
             </div>
             <div className="space-y-2">
+              <Label>Касса (опционально)</Label>
+              <Select value={ledgerForm.cashbox_id || 'none'} onValueChange={v => setLedgerForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
+                <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Без привязки</SelectItem>
+                  {cashboxes.filter(c => c.currency === ledgerForm.currency).map(c => (
+                    <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Если выбрана касса, деньги будут списаны/зачислены атомарно</p>
+            </div>
+            <div className="space-y-2">
               <Label>Примечание</Label>
               <Textarea value={ledgerForm.note} onChange={e => setLedgerForm(f => ({ ...f, note: e.target.value }))} />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsLedgerOpen(false)} className="bg-transparent">Отмена</Button>
-            <Button onClick={addLedgerEntry}>Добавить</Button>
+            <Button onClick={handleAddLedgerEntry}>Добавить</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
