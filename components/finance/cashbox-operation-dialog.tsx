@@ -16,9 +16,10 @@ import { Textarea } from '@/components/ui/textarea'
 import { AsyncButton } from '@/components/ui/async-button'
 import { MoneyInput } from '@/components/ui/money-input'
 import { Cashbox } from '@/lib/types/database'
-import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { TrendingUp, TrendingDown } from 'lucide-react'
+import { depositWithdraw } from '@/app/actions/cashbox'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 interface CashboxOperationDialogProps {
   cashbox: Cashbox
@@ -31,7 +32,7 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
   const [amount, setAmount] = useState<number | null>(null)
   const [description, setDescription] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const supabase = createClient()
+  const [godmodeActorId, setGodmodeActorId] = useState<string>('')
 
   const isDeposit = type === 'DEPOSIT'
   const title = isDeposit ? 'Внести средства' : 'Вывести средства'
@@ -52,35 +53,24 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
     setIsLoading(true)
 
     try {
-      const txAmount = isDeposit ? amount : -amount
-      const newBalance = Number(cashbox.balance) + txAmount
+      const result = await depositWithdraw({
+        cashboxId: cashbox.id,
+        amount,
+        type,
+        description: description || undefined,
+        actorEmployeeId: godmodeActorId || undefined,
+      })
 
-      // Создаем транзакцию
-      const { error: txError } = await supabase
-        .from('transactions')
-        .insert({
-          cashbox_id: cashbox.id,
-          amount: txAmount,
-          balance_after: newBalance,
-          category: type,
-          description: description || null,
-          created_by: '00000000-0000-0000-0000-000000000000', // TODO: использовать реального пользователя
-        })
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при выполнении операции')
+        return
+      }
 
-      if (txError) throw txError
-
-      // Обновляем баланс кассы
-      const { error: cashboxError } = await supabase
-        .from('cashboxes')
-        .update({ balance: newBalance })
-        .eq('id', cashbox.id)
-
-      if (cashboxError) throw cashboxError
-
-      toast.success(isDeposit ? 'Средства внесены' : 'Средства выведены')
+      toast.success(result.message || (isDeposit ? 'Средства внесены' : 'Средства выведены'))
       setOpen(false)
       setAmount(null)
       setDescription('')
+      setGodmodeActorId('')
       onSuccess?.()
     } catch {
       toast.error('Ошибка при выполнении операции')
@@ -136,6 +126,12 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
               className="bg-secondary border-border text-foreground"
             />
           </div>
+
+          {/* God Mode Actor Selector */}
+          <GodModeActorSelector
+            value={godmodeActorId}
+            onChange={setGodmodeActorId}
+          />
         </div>
 
         <div className="flex justify-end gap-2">
