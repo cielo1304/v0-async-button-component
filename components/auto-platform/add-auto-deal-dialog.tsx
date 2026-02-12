@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { FilePlus, Car, User, Calculator, Calendar, Percent } from 'lucide-react'
 import { AutoClient, Car as CarType, Cashbox } from '@/lib/types/database'
+import { createAutoDeal } from '@/app/actions/auto'
 
 const DEAL_TYPES = [
   { value: 'CASH_SALE', label: 'Наличная продажа', description: 'Продажа авто с полной оплатой' },
@@ -313,6 +314,19 @@ export function AddAutoDealDialog() {
           p_entity_id: deal.id,
           p_title: `Авто-сделка ${dealNumber} создана (комитент)`,
           p_payload: eventPayload
+        })
+      }
+
+      // Record sale revenue in auto_ledger for P&L tracking
+      const totalAmount = dealType === 'RENT' ? rentTotal : (salePrice || 0)
+      if (totalAmount > 0) {
+        await supabase.from('auto_ledger').insert({
+          car_id: carId,
+          deal_id: deal.id,
+          category: 'SALE_REVENUE',
+          amount: totalAmount,
+          description: `${DEAL_TYPES.find(t => t.value === dealType)?.label} - ${dealNumber}`,
+          created_by: '00000000-0000-0000-0000-000000000000',
         })
       }
 

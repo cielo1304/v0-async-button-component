@@ -15,7 +15,7 @@
 4. **Нет audit log** - операции не логировались
 5. **Нет God-mode actor** - не было возможности указать, кто выполняет операцию
 
-```typescript
+\`\`\`typescript
 // ❌ ПЛОХО (было)
 const { error: txError } = await supabase
   .from('transactions')
@@ -32,7 +32,7 @@ const { error: cashboxError } = await supabase
   .from('cashboxes')
   .update({ balance: newBalance })
   .eq('id', cashbox.id)
-```
+\`\`\`
 
 ---
 
@@ -40,19 +40,19 @@ const { error: cashboxError } = await supabase
 
 ### STEP 1: Обновили imports
 Убрали `createClient` из `@/lib/supabase/client`, добавили:
-```typescript
+\`\`\`typescript
 import { depositWithdraw } from '@/app/actions/cashbox'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
-```
+\`\`\`
 
 ### STEP 2: Добавили godmodeActorId state
-```typescript
+\`\`\`typescript
 const [godmodeActorId, setGodmodeActorId] = useState<string>('')
-```
+\`\`\`
 
 ### STEP 3: Переписали handleSubmit
 Заменили client insert/update на server action:
-```typescript
+\`\`\`typescript
 const result = await depositWithdraw({
   cashboxId: cashbox.id,
   amount,
@@ -68,16 +68,16 @@ if (!result.success) {
 
 toast.success(result.message || ...)
 // close dialog + reset form
-```
+\`\`\`
 
 ### STEP 4: Добавили GodModeActorSelector в UI
 Перед кнопками "Отмена/Внести/Вывести":
-```typescript
+\`\`\`typescript
 <GodModeActorSelector
   value={godmodeActorId}
   onChange={setGodmodeActorId}
 />
-```
+\`\`\`
 
 ---
 

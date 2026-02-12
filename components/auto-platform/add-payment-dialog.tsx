@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { CreditCard } from 'lucide-react'
 import { Cashbox, AutoPayment } from '@/lib/types/database'
+import { recordAutoPayment } from '@/app/actions/auto'
 
 interface AddPaymentDialogProps {
   dealId: string
@@ -133,6 +134,16 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
           })
           .eq('id', dealId)
       }
+
+      // Record payment in auto_ledger for P&L tracking
+      await supabase.from('auto_ledger').insert({
+        car_id: (await supabase.from('auto_deals').select('car_id').eq('id', dealId).single()).data?.car_id,
+        deal_id: dealId,
+        category: 'SALE_PAYMENT',
+        amount,
+        description: `Payment received`,
+        created_by: '00000000-0000-0000-0000-000000000000',
+      })
 
       toast.success('Платеж принят')
       setOpen(false)

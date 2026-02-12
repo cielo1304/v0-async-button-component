@@ -12,6 +12,7 @@ import { MoneyInput } from '@/components/ui/money-input'
 import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { createAutoPurchase } from '@/app/actions/auto'
 
 const CURRENCIES = ['RUB', 'USD', 'USDT', 'EUR'] as const
 
@@ -46,7 +47,7 @@ export function AddCarDialog() {
     try {
       const supabase = createClient()
       
-      const { error } = await supabase.from('cars').insert({
+      const { data: newCar, error } = await supabase.from('cars').insert({
         vin: vin || null,
         brand,
         model,
@@ -59,11 +60,29 @@ export function AddCarDialog() {
         cost_price: purchasePrice || 0,
         list_price: listPrice,
         list_currency: purchaseCurrency,
-      })
+      }).select().single()
 
       if (error) throw error
 
-      toast.success('Автомобиль добавлен')
+      // Create purchase record in auto_ledger if purchase price is provided
+      if (newCar && purchasePrice && purchasePrice > 0) {
+        const purchaseResult = await createAutoPurchase({
+          carId: newCar.id,
+          supplierName: 'Supplier', // Could add a field for this later
+          purchaseAmount: purchasePrice,
+          description: `Initial purchase: ${brand} ${model} ${year}`,
+        })
+
+        if (!purchaseResult.success) {
+          console.error('[v0] Failed to create purchase record:', purchaseResult.error)
+          toast.warning('Автомобиль добавлен, но не удалось записать закупку')
+        } else {
+          toast.success('Автомобиль добавлен с записью о закупке')
+        }
+      } else {
+        toast.success('Автомобиль добавлен')
+      }
+
       setOpen(false)
       resetForm()
       router.refresh()

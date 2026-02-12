@@ -26,6 +26,7 @@ import { MoneyInput } from '@/components/ui/money-input'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, Wrench, Package, DollarSign } from 'lucide-react'
 import { toast } from 'sonner'
+import { recordAutoExpense } from '@/app/actions/auto'
 
 interface AddExpenseToCarDialogProps {
   carId: string
@@ -194,6 +195,17 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
             created_by: '00000000-0000-0000-0000-000000000000',
           })
 
+        // 6. Record in auto_ledger for P&L tracking
+        const expenseResult = await recordAutoExpense({
+          carId,
+          amount,
+          description: description || `${EXPENSE_CATEGORIES.find(c => c.value === category)?.label}`,
+        })
+
+        if (!expenseResult.success) {
+          console.error('[v0] Failed to record auto expense:', expenseResult.error)
+        }
+
         toast.success('Расход добавлен')
 
       } else {
@@ -280,6 +292,17 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
             description: `Запчасть со склада: ${stockItem.name} x${stockQuantity} - ${totalCost.toLocaleString('ru-RU')} ${stockItem.currency}`,
             created_by: '00000000-0000-0000-0000-000000000000',
           })
+
+        // 6. Record in auto_ledger for P&L tracking
+        const expenseResult = await recordAutoExpense({
+          carId,
+          amount: totalCost,
+          description: `Stock: ${stockItem.name} x${stockQuantity}`,
+        })
+
+        if (!expenseResult.success) {
+          console.error('[v0] Failed to record auto expense:', expenseResult.error)
+        }
 
         toast.success(`Списано со склада: ${stockItem.name} x${stockQuantity}`)
       }
