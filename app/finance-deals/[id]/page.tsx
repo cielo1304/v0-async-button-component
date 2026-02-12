@@ -27,10 +27,11 @@ import Link from 'next/link'
 import { computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
 import { evaluateCollateral, replaceCollateral, releaseCollateral, defaultWithSideEffects } from '@/app/actions/collateral-engine'
-import { addLedgerEntryWithCashbox, getFinanceDealPnl, recordFinancePayment } from '@/app/actions/finance-deals'
+import { addLedgerEntryWithCashbox, getFinanceDealPnl } from '@/app/actions/finance-deals'
 import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
+import { RecordPaymentDialog } from '@/components/finance-deals/record-payment-dialog'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -111,8 +112,6 @@ export default function FinanceDealDetailPage() {
   
   // Payment dialog
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
-  const [paymentForm, setPaymentForm] = useState({ amount: '', note: '', cashbox_id: '' })
-  const [isRecordingPayment, setIsRecordingPayment] = useState(false)
 
   const loadDeal = useCallback(async () => {
     setLoading(true)
@@ -207,31 +206,7 @@ export default function FinanceDealDetailPage() {
     } catch { toast.error('Ошибка добавления записи') }
   }
 
-  const handleRecordPayment = async () => {
-    if (!financeDeal || !paymentForm.amount) return
-    setIsRecordingPayment(true)
-    try {
-      const amount = parseFloat(paymentForm.amount)
-      const result = await recordFinancePayment({
-        finance_deal_id: financeDeal.id,
-        payment_amount: amount,
-        currency: financeDeal.contract_currency,
-        cashbox_id: paymentForm.cashbox_id || undefined,
-        note: paymentForm.note || undefined,
-      })
-      if (!result.success) {
-        throw new Error(result.error || 'Failed')
-      }
-      toast.success(`Платеж записан: ${formatMoney(result.principal_paid, financeDeal.contract_currency)} тело + ${formatMoney(result.interest_paid, financeDeal.contract_currency)} %`)
-      setIsPaymentDialogOpen(false)
-      setPaymentForm({ amount: '', note: '', cashbox_id: '' })
-      loadDeal()
-    } catch (err: any) {
-      toast.error(err.message || 'Ошибка записи платежа')
-    } finally {
-      setIsRecordingPayment(false)
-    }
-  }
+
 
   const addParticipant = async () => {
     if (!financeDeal || (!participantForm.contact_id && !participantForm.employee_id)) return
@@ -1075,53 +1050,21 @@ export default function FinanceDealDetailPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Диалог записи платежа */}
-      <Dialog open={isPaymentDialogOpen} onOpenChange={setIsPaymentDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Записать платёж</DialogTitle>
-            <DialogDescription>Платёж автоматически распределится по графику (FIFO)</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Сумма платежа</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={paymentForm.amount}
-                onChange={e => setPaymentForm(f => ({ ...f, amount: e.target.value }))}
-                placeholder="0.00"
-              />
-              <p className="text-xs text-muted-foreground">
-                Валюта: {financeDeal?.contract_currency || 'USD'}
-              </p>
-            </div>
-            <div className="space-y-2">
-              <Label>Касса (опционально)</Label>
-              <Select value={paymentForm.cashbox_id || 'none'} onValueChange={v => setPaymentForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
-                <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Без привязки</SelectItem>
-                  {cashboxes.filter(c => c.currency === financeDeal?.contract_currency).map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Если выбрана касса, деньги будут зачислены атомарно</p>
-            </div>
-            <div className="space-y-2">
-              <Label>Примечание</Label>
-              <Textarea value={paymentForm.note} onChange={e => setPaymentForm(f => ({ ...f, note: e.target.value }))} placeholder="Необязательно" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)} className="bg-transparent">Отмена</Button>
-            <Button onClick={handleRecordPayment} disabled={isRecordingPayment || !paymentForm.amount}>
-              {isRecordingPayment ? 'Записываю...' : 'Записать'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Диалог записи платежа с God mode */}
+      {financeDeal && (
+        <RecordPaymentDialog
+          financeDealId={financeDeal.id}
+          dealCurrency={financeDeal.contract_currency}
+          open={isPaymentDialogOpen}
+          onOpenChange={(open) => {
+            setIsPaymentDialogOpen(open)
+            if (!open) {
+              // Refresh deal when dialog closes (payment was recorded)
+              loadDeal()
+            }
+          }}
+        />
+      )}
     </div>
   )
 }
