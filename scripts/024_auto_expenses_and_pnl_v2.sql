@@ -197,15 +197,14 @@ BEGIN
     END IF;
 
     -- Call cashbox_operation_v2 to deduct funds (negative amount for expense)
+    -- Use minimal parameters: cashbox_id, amount, category, description, reference_id
     SELECT tx_id INTO v_tx_id
     FROM cashbox_operation_v2(
-      p_cashbox_id := p_cashbox_id,
-      p_amount := -v_company_part,
-      p_category := 'EXPENSE',
-      p_description := COALESCE(p_description, 'Auto expense: ' || p_type),
-      p_reference_id := NULL,
-      p_deal_id := p_deal_id,
-      p_created_by := v_actor_id
+      p_cashbox_id,
+      -v_company_part,
+      'EXPENSE',
+      COALESCE(p_description, 'Auto expense: ' || p_type),
+      p_deal_id  -- reference_id to link to deal
     );
 
     IF v_tx_id IS NULL THEN

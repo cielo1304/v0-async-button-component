@@ -8,7 +8,6 @@ export interface AutoActionResult {
   success: boolean
   error?: string
   data?: any
-  }
 }
 
 /**
@@ -70,6 +69,31 @@ export async function recordAutoExpenseV2(params: {
   }
 }
 
+/**
+ * Create a purchase record for a car
+ * Records the purchase in auto_ledger as negative expense
+ */
+export async function createAutoPurchase(params: {
+  carId: string
+  purchaseAmount: number
+  supplierName?: string
+  description?: string
+  actorEmployeeId?: string
+}): Promise<AutoActionResult> {
+  try {
+    const supabase = await createClient()
+
+    const { data, error } = await supabase.rpc('auto_record_purchase_v1', {
+      p_car_id: params.carId,
+      p_purchase_amount: params.purchaseAmount,
+      p_supplier_name: params.supplierName || null,
+      p_description: params.description || null,
+      p_actor_employee_id: params.actorEmployeeId || null,
+    })
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
 
     const result = data as { success: boolean; error?: string; amount?: number }
 

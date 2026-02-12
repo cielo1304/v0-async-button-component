@@ -194,26 +194,125 @@ recordAutoExpenseV2
 
 ## Миграционный путь
 
-1. ✅ Apply scripts/024_auto_expenses_and_pnl_v2.sql
-2. ✅ Use updated UI components
-3. ✅ All expenses go through recordAutoExpenseV2
+1. ✅ STEP 0: Cleaned up duplicate migrations (moved to 999_deprecated)
+2. ✅ STEP 1: Created scripts/024_auto_expenses_and_pnl_v2.sql
+3. ✅ STEP 2: Updated server actions and UI components
+4. ⚠️ **STEP 3: Apply migration 024 to database - BLOCKED**
+5. ⏳ STEP 4: Test expense recording in UI
 
-**Примечание:** Миграция еще не применена к базе данных. Требуется:
-```bash
-# Apply migration via Supabase tool
-supabase_apply_migration(
-  project_id: "tdzlnryjevqeygwwjdgp",
-  scripts: ["024_auto_expenses_and_pnl_v2.sql"]
+## ⚠️ BLOCKER: Migration 024 Cannot Be Applied
+
+### Error Message:
+```
+ERROR: 42703: column "deal_id" does not exist
+```
+
+### Root Cause:
+The live database function `cashbox_operation_v2` does not match the migrations in the codebase. Possible reasons:
+
+1. **Migrations 017/020 were not applied** to production database
+2. **Table `transactions` is missing column `deal_id`**
+3. **Function `cashbox_operation_v2` was manually modified** without proper migration
+
+### Investigation Steps:
+
+**1. Check transactions table schema:**
+```sql
+SELECT column_name, data_type 
+FROM information_schema.columns 
+WHERE table_name = 'transactions' 
+ORDER BY ordinal_position;
+```
+
+Expected columns should include:
+- `id` (uuid)
+- `cashbox_id` (uuid)
+- `amount` (numeric)
+- `balance_after` (numeric)
+- `category` (text)
+- `description` (text)
+- `deal_id` (uuid) ← **This might be missing**
+- `reference_id` (uuid)
+- `created_at` (timestamptz)
+- `created_by` (uuid)
+
+**2. Check cashbox_operation_v2 signature:**
+```sql
+SELECT 
+  p.proname AS function_name,
+  pg_get_function_arguments(p.oid) AS arguments
+FROM pg_proc p
+JOIN pg_namespace n ON p.pronamespace = n.oid
+WHERE p.proname = 'cashbox_operation_v2';
+```
+
+Expected signature (from migration 020):
+```sql
+cashbox_operation_v2(
+  p_cashbox_id UUID,
+  p_amount NUMERIC,
+  p_category TEXT,
+  p_description TEXT DEFAULT NULL,
+  p_reference_id UUID DEFAULT NULL,
+  p_deal_id UUID DEFAULT NULL,  ← **This parameter should exist**
+  p_created_by UUID DEFAULT '00000000-0000-0000-0000-000000000000',
+  p_finance_deal_id UUID DEFAULT NULL,
+  p_ledger_entry_type TEXT DEFAULT NULL,
+  p_ledger_amount NUMERIC DEFAULT NULL,
+  p_ledger_currency TEXT DEFAULT 'USD',
+  p_ledger_note TEXT DEFAULT NULL
 )
 ```
 
-## Что дальше
+### Resolution Path:
 
-- [ ] Применить миграцию 024 к базе данных
-- [ ] Добавить UI для отображения P&L в карточке сделки
-- [ ] Добавить фильтры по типам расходов
-- [ ] Добавить отчет по расходам/прибыли
+**Option A: If `transactions.deal_id` column is missing:**
+```sql
+-- Add deal_id column to transactions
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deal_id UUID;
+```
+
+**Option B: If cashbox_operation_v2 function is outdated:**
+1. Apply migration `scripts/017_fix_cashbox_operation_v2_after_016.sql`
+2. Apply migration `scripts/020_fix_cashbox_operation_v2_remove_bad_overload.sql`
+3. Then retry migration 024
+
+**Option C: Use simplified migration (workaround):**
+Edit `scripts/024_auto_expenses_and_pnl_v2.sql` line 200-207 to bypass cashbox_operation_v2 and do direct inserts (not recommended for production).
+
+### After Resolution:
+Once the database schema is fixed, apply migration 024:
+```bash
+supabase_apply_migration(
+  project_id: "tdzlnryjevqeygwwjdgp",
+  name: "auto_expenses_pnl_v2_final",
+  query: <content of scripts/024_auto_expenses_and_pnl_v2.sql>
+)
+```
+
+## What's Ready ✅
+
+### Code Files (All Updated):
+- ✅ `scripts/024_auto_expenses_and_pnl_v2.sql` - Migration ready
+- ✅ `app/actions/auto.ts` - Added `recordAutoExpenseV2` and `createAutoPurchase`
+- ✅ `components/auto-platform/add-expense-dialog.tsx` - Using server action + GodMode
+- ✅ `components/cars/add-expense-dialog.tsx` - Using server action + GodMode
+- ✅ `components/cars/add-expense-to-car-dialog.tsx` - Using server action + GodMode
+
+### Database Functions (Ready to Deploy):
+- ✅ `auto_expenses` table with proper indexes
+- ✅ `profit_total` and `profit_available` columns in `auto_deals`
+- ✅ `auto_recalc_pnl_v2(p_deal_id)` - P&L calculation function
+- ✅ `auto_record_expense_v2()` - Atomic expense recording with cashbox integration
+
+## Next Steps After Blocker is Resolved
+
+1. [ ] Fix database schema (add deal_id or update cashbox_operation_v2)
+2. [ ] Apply migration 024 successfully
+3. [ ] Test expense recording in UI
+4. [ ] Add P&L display to deal detail page
+5. [ ] Add expense filters and reports
 
 ---
 
-**Ready for database migration and production use!** 🚀
+**Status:** Code complete, waiting for database schema fix before migration can be applied.
