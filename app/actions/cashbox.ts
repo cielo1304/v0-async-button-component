@@ -196,3 +196,44 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
     return { success: false, error: 'Неизвестная ошибка exchange' }
   }
 }
+
+// ─── Update cashbox sort order ───
+
+export async function updateCashboxSortOrder(cashboxId: string, sortOrder: number) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { error } = await supabase
+      .from('cashboxes')
+      .update({ sort_order: sortOrder })
+      .eq('id', cashboxId)
+    
+    if (error) throw error
+    
+    revalidatePath('/finance')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Ошибка обновления порядка' }
+  }
+}
+
+// ─── Toggle exchange enabled flag ───
+
+export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { error } = await supabase
+      .from('cashboxes')
+      .update({ is_exchange_enabled: enabled })
+      .eq('id', cashboxId)
+    
+    if (error) throw error
+    
+    revalidatePath('/finance')
+    revalidatePath('/exchange')
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Ошибка обновления настройки обмена' }
+  }
+}

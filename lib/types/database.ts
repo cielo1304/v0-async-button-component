@@ -28,9 +28,11 @@ export interface Cashbox {
   initial_balance: number
   is_hidden: boolean
   is_archived: boolean
+  sort_order: number
   location?: string | null
   holder_name?: string | null
   holder_phone?: string | null
+  is_exchange_enabled: boolean
   created_at: string
   updated_at: string
 }
