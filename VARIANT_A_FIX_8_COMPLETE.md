@@ -13,7 +13,7 @@
 #### A) `createCashbox(input: CreateCashboxInput)`
 
 **Input:**
-```typescript
+\`\`\`typescript
 {
   name: string
   type: string
@@ -28,7 +28,7 @@
   is_exchange_enabled?: boolean
   actorEmployeeId?: string
 }
-```
+\`\`\`
 
 **Логика:**
 - Insert в `cashboxes` таблицу
@@ -39,7 +39,7 @@
 #### B) `updateCashbox(input: UpdateCashboxInput)`
 
 **Input:**
-```typescript
+\`\`\`typescript
 {
   id: string
   patch: {
@@ -54,7 +54,7 @@
   }
   actorEmployeeId?: string
 }
-```
+\`\`\`
 
 **Логика:**
 - SELECT before state для audit
@@ -66,12 +66,12 @@
 #### C) `deleteCashbox(input: DeleteCashboxInput)`
 
 **Input:**
-```typescript
+\`\`\`typescript
 {
   id: string
   actorEmployeeId?: string
 }
-```
+\`\`\`
 
 **Логика:**
 - **Проверка:** COUNT transactions по cashbox_id
@@ -84,12 +84,12 @@
 #### D) `updateCashboxSortOrders(input: UpdateCashboxSortOrdersInput)`
 
 **Input:**
-```typescript
+\`\`\`typescript
 {
   items: Array<{id: string, sort_order: number}>
   actorEmployeeId?: string
 }
-```
+\`\`\`
 
 **Логика:**
 - **Server-side loop:** для каждого item обновляет sort_order
@@ -217,7 +217,7 @@
 ## AUDIT LOG ПРИМЕРЫ
 
 ### Create:
-```json
+\`\`\`json
 {
   "action": "cashbox_create",
   "module": "finance",
@@ -239,10 +239,10 @@
   "actor_employee_id": "uuid-of-actor-or-null",
   "created_at": "2026-02-12T12:34:56.789Z"
 }
-```
+\`\`\`
 
 ### Update:
-```json
+\`\`\`json
 {
   "action": "cashbox_update",
   "module": "finance",
@@ -261,10 +261,10 @@
   "actor_employee_id": "uuid-of-actor",
   "created_at": "2026-02-12T12:35:00.000Z"
 }
-```
+\`\`\`
 
 ### Delete:
-```json
+\`\`\`json
 {
   "action": "cashbox_delete",
   "module": "finance",
@@ -273,10 +273,10 @@
   "actor_employee_id": "uuid-of-actor",
   "created_at": "2026-02-12T12:36:00.000Z"
 }
-```
+\`\`\`
 
 ### Sort Order Bulk:
-```json
+\`\`\`json
 {
   "action": "cashbox_sort_order_update_bulk",
   "module": "finance",
@@ -291,7 +291,7 @@
   "actor_employee_id": null,
   "created_at": "2026-02-12T12:37:00.000Z"
 }
-```
+\`\`\`
 
 ---
 
