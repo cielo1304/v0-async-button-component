@@ -6,6 +6,76 @@ import { writeAuditLog } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
 
 // ────────────────────────────────────────────────
+// 0. MANDATORY: Generate initial schedule (called after deal creation)
+// ────────────────────────────────────────────────
+
+/**
+ * Generates payment schedule immediately after creating a finance deal.
+ * This ensures every deal has a schedule from day one (Variant A requirement).
+ */
+export async function generateInitialSchedule(financeDealId: string, coreDealId: string) {
+  const supabase = await createServerClient()
+
+  try {
+    const { data: fd, error: fdErr } = await supabase
+      .from('finance_deals')
+      .select('*, core_deal:core_deals(*)')
+      .eq('id', financeDealId)
+      .single()
+
+    if (fdErr || !fd) return { success: false, error: 'Finance deal not found' }
+
+    // Skip manual/tranches schedules
+    if (fd.schedule_type === 'manual' || fd.schedule_type === 'tranches') {
+      return { success: true, message: 'Manual schedule — no auto-generation', rows: 0 }
+    }
+
+    const startDate = (fd.core_deal as any)?.created_at?.slice(0, 10) || new Date().toISOString().slice(0, 10)
+
+    const rows = generateSchedule({
+      principal: Number(fd.principal_amount),
+      annualRate: Number(fd.rate_percent),
+      termMonths: fd.term_months,
+      startDate,
+      scheduleType: fd.schedule_type,
+      pausePeriods: [],
+    })
+
+    if (rows.length > 0) {
+      const inserts = rows.map(r => ({
+        finance_deal_id: financeDealId,
+        due_date: r.dueDate,
+        principal_due: r.principalDue,
+        interest_due: r.interestDue,
+        total_due: r.totalDue,
+        currency: fd.contract_currency || 'USD',
+        status: 'PLANNED',
+      }))
+
+      const { error: insertErr } = await supabase
+        .from('finance_payment_schedule')
+        .insert(inserts)
+
+      if (insertErr) return { success: false, error: insertErr.message }
+    }
+
+    await writeAuditLog(supabase, {
+      action: 'generate_initial_schedule',
+      module: 'finance',
+      entityTable: 'finance_payment_schedule',
+      entityId: financeDealId,
+      after: { rows: rows.length },
+    })
+
+    revalidatePath(`/finance-deals/${coreDealId}`)
+    return { success: true, message: `Initial schedule generated: ${rows.length} payments`, rows: rows.length }
+  } catch (e) {
+    console.error('[v0] generateInitialSchedule error:', e)
+    return { success: false, error: 'Failed to generate initial schedule' }
+  }
+}
+
+// ────────────────────────────────────────────────
 // 1. Regenerate payment schedule (idempotent)
 // ────────────────────────────────────────────────
 
