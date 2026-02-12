@@ -101,16 +101,25 @@ export async function createFinanceDeal(params: {
 
   if (finErr) throw finErr
 
+  // VARIANT A: Mandatory schedule generation immediately after creation
+  const { generateInitialSchedule } = await import('./finance-engine')
+  const scheduleResult = await generateInitialSchedule(financeDeal.id, coreDeal.id)
+  
+  if (!scheduleResult.success) {
+    console.warn('[v0] Failed to generate initial schedule:', scheduleResult.error)
+    // Don't fail the whole creation, but log it
+  }
+
   await writeAuditLog(supabase, {
     action: 'create',
     module: 'finance',
     entityTable: 'finance_deals',
     entityId: financeDeal.id,
-    after: { coreDeal, financeDeal },
+    after: { coreDeal, financeDeal, scheduleGenerated: scheduleResult.success },
     actorEmployeeId: params.responsible_employee_id,
   })
 
-  return { coreDeal, financeDeal }
+  return { coreDeal, financeDeal, scheduleResult }
 }
 
 export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
@@ -398,6 +407,9 @@ export async function updatePaymentStatus(id: string, status: string) {
 /**
  * Record a payment against the schedule + update ledger atomically.
  * Uses the DB RPC to distribute payment across schedule rows (FIFO) and write ledger entries.
+ * 
+ * GOD MODE: If godmode_actor_employee_id is provided, it will be used for ALL audit logs
+ * and created_by fields, allowing admins to record actions on behalf of other employees.
  */
 export async function recordFinancePayment(params: {
   finance_deal_id: string
@@ -406,8 +418,47 @@ export async function recordFinancePayment(params: {
   cashbox_id?: string
   note?: string
   created_by?: string
+  godmode_actor_employee_id?: string  // God mode: who is actually making this action
 }) {
   const supabase = await createClient()
+  
+  // God mode validation: if godmode is used, validate it's a valid employee
+  let effectiveActor = params.created_by || '00000000-0000-0000-0000-000000000000'
+  if (params.godmode_actor_employee_id) {
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('id, name')
+      .eq('id', params.godmode_actor_employee_id)
+      .single()
+    
+    if (!employee) {
+      return { success: false, error: 'Invalid godmode_actor_employee_id' }
+    }
+    effectiveActor = params.godmode_actor_employee_id
+  }
+
+  // Currency validation: ensure cashbox currency matches deal currency if cashbox is used
+  if (params.cashbox_id) {
+    const [cashboxRes, dealRes] = await Promise.all([
+      supabase.from('cashboxes').select('currency').eq('id', params.cashbox_id).single(),
+      supabase.from('finance_deals').select('contract_currency').eq('id', params.finance_deal_id).single(),
+    ])
+
+    if (cashboxRes.error || !cashboxRes.data) {
+      return { success: false, error: 'Cashbox not found' }
+    }
+    if (dealRes.error || !dealRes.data) {
+      return { success: false, error: 'Finance deal not found' }
+    }
+
+    if (cashboxRes.data.currency !== dealRes.data.contract_currency) {
+      return {
+        success: false,
+        error: `Currency mismatch: cashbox is ${cashboxRes.data.currency}, deal requires ${dealRes.data.contract_currency}. Please exchange first.`,
+      }
+    }
+  }
+
   try {
     const { data, error } = await supabase.rpc('record_finance_payment', {
       p_finance_deal_id: params.finance_deal_id,
@@ -419,19 +470,26 @@ export async function recordFinancePayment(params: {
     })
 
     if (error) {
-      console.error('[v0] recordFinancePayment error:', error.message)
+      console.error('[v0] recordFinancePayment RPC error:', error.message)
       return { success: false, error: error.message }
     }
 
     const row = Array.isArray(data) ? data[0] : data
 
+    // Audit log with God mode support
     await writeAuditLog(supabase, {
       action: 'record_finance_payment',
       module: 'finance',
       entityTable: 'finance_payment_schedule',
       entityId: params.finance_deal_id,
-      after: { payment_amount: params.payment_amount, ...params },
-      actorEmployeeId: params.created_by,
+      before: null,
+      after: { 
+        payment_amount: params.payment_amount, 
+        ...params,
+        effective_actor: effectiveActor,
+        godmode_used: !!params.godmode_actor_employee_id,
+      },
+      actorEmployeeId: effectiveActor,
     })
 
     return {
