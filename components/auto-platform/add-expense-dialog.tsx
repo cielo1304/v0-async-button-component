@@ -26,6 +26,8 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { Loader2, Wrench } from 'lucide-react'
+import { recordAutoExpenseV2 } from '@/app/actions/auto'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const EXPENSE_TYPES = [
   { value: 'REPAIR', label: 'Ремонт' },
@@ -61,6 +63,7 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
   const [ownerShare, setOwnerShare] = useState('')
   const [cashboxId, setCashboxId] = useState('')
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0])
+  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
 
   const router = useRouter()
   const supabase = createClient()
@@ -84,72 +87,35 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
       return
     }
 
+    const amountNum = parseFloat(amount)
+    const ownerShareNum = ownerShare ? parseFloat(ownerShare) : 0
+
+    // Validate cashbox is selected if company pays
+    if (paidBy === 'COMPANY' || (paidBy === 'SHARED' && ownerShareNum < amountNum)) {
+      if (!cashboxId) {
+        toast.error('Выберите кассу для списания')
+        return
+      }
+    }
+
     setIsLoading(true)
     try {
-      const amountNum = parseFloat(amount)
-      const ownerShareNum = ownerShare ? parseFloat(ownerShare) : 0
-
-      // Если платит компания - создаем транзакцию
-      let transactionId = null
-      if (paidBy === 'COMPANY' || (paidBy === 'SHARED' && ownerShareNum < amountNum)) {
-        if (!cashboxId) {
-          toast.error('Выберите кассу для списания')
-          setIsLoading(false)
-          return
-        }
-
-        const deductAmount = paidBy === 'SHARED' ? amountNum - ownerShareNum : amountNum
-
-        // Получаем кассу
-        const { data: cashbox } = await supabase
-          .from('cashboxes')
-          .select('*')
-          .eq('id', cashboxId)
-          .single()
-
-        if (!cashbox || cashbox.balance < deductAmount) {
-          toast.error('Недостаточно средств в кассе')
-          setIsLoading(false)
-          return
-        }
-
-        // Создаем транзакцию
-        const { data: transaction } = await supabase
-          .from('transactions')
-          .insert({
-            cashbox_id: cashboxId,
-            amount: -deductAmount,
-            balance_after: cashbox.balance - deductAmount,
-            category: 'EXPENSE',
-            description: `Расход на авто ${carName}: ${description}`,
-          })
-          .select()
-          .single()
-
-        transactionId = transaction?.id
-
-        // Обновляем баланс кассы
-        await supabase
-          .from('cashboxes')
-          .update({ balance: cashbox.balance - deductAmount })
-          .eq('id', cashboxId)
-      }
-
-      // Создаем расход
-      const { error } = await supabase.from('auto_expenses').insert({
-        car_id: carId,
-        type: expenseType,
+      const result = await recordAutoExpenseV2({
+        carId,
+        dealId: undefined,
+        cashboxId: cashboxId || undefined,
         amount: amountNum,
         currency,
+        type: expenseType,
         description,
-        paid_by: paidBy,
-        owner_share: ownerShareNum,
-        cashbox_id: paidBy !== 'OWNER' ? cashboxId : null,
-        transaction_id: transactionId,
-        expense_date: expenseDate,
+        paidBy: paidBy as 'COMPANY' | 'OWNER' | 'SHARED',
+        ownerShare: ownerShareNum,
+        actorEmployeeId: actorEmployeeId || undefined,
       })
 
-      if (error) throw error
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to record expense')
+      }
 
       toast.success('Расход добавлен')
       setOpen(false)
@@ -159,9 +125,10 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
       setAmount('')
       setDescription('')
       setOwnerShare('')
+      setActorEmployeeId('')
     } catch (error) {
       console.error('[v0] Error adding expense:', error)
-      toast.error('Ошибка при добавлении расхода')
+      toast.error(error instanceof Error ? error.message : 'Ошибка при добавлении расхода')
     } finally {
       setIsLoading(false)
     }
@@ -290,6 +257,11 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
               </Select>
             </div>
           )}
+
+          <GodModeActorSelector
+            value={actorEmployeeId}
+            onChange={setActorEmployeeId}
+          />
 
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

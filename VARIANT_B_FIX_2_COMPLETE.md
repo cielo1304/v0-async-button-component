@@ -11,7 +11,7 @@
 **Решение:**
 - ✅ Убрана FK ссылка на team_members из auto_ledger.created_by
 - ✅ Исправлены все INSERT в audit_log_v2 на правильную схему:
-  ```sql
+  \`\`\`sql
   INSERT INTO audit_log_v2 (
     actor_employee_id,
     action,
@@ -21,7 +21,7 @@
     before,
     after
   )
-  ```
+  \`\`\`
 - ✅ Заменен auth.uid() на `COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000')`
 - ✅ Все RPC функции теперь работают на чистой БД
 
@@ -30,10 +30,10 @@
 
 **Решение:**
 - ✅ Правильное получение tx_id:
-  ```sql
+  \`\`\`sql
   SELECT tx_id INTO v_tx_id
   FROM cashbox_operation_v2(...)
-  ```
+  \`\`\`
 - ✅ Исправлена структура audit_log_v2 (без table_name/record_id/actor_id)
 - ✅ RPC функция теперь корректно интегрируется с cashbox_operation_v2
 
@@ -93,7 +93,7 @@
 
 ## Архитектура Variant B V2
 
-```
+\`\`\`
 UI Layer (Client)
   ↓
   createAutoDealV2 (Server Action)
@@ -111,7 +111,7 @@ UI Layer (Client)
     4. Update cars.status (server-side)
     5. writeAuditLog (audit_log_v2)
     6. revalidatePath
-```
+\`\`\`
 
 ## Транзакционная целостность
 
@@ -147,7 +147,7 @@ UI Layer (Client)
 ## Тестирование
 
 ### Проверка чистой установки:
-```sql
+\`\`\`sql
 -- 1. Создать чистую БД
 -- 2. Применить все миграции по порядку
 -- 3. Проверить что нет ошибок
@@ -160,7 +160,7 @@ SELECT auto_record_payment_v2(
   '...', '...', 100, 'RUB', 
   NULL, 'Test payment', NULL
 );
-```
+\`\`\`
 
 ### Проверка создания сделки:
 1. UI: Создать новую авто-сделку

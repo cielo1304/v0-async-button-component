@@ -26,7 +26,8 @@ import { MoneyInput } from '@/components/ui/money-input'
 import { createClient } from '@/lib/supabase/client'
 import { Plus, Wrench, Package, DollarSign } from 'lucide-react'
 import { toast } from 'sonner'
-import { recordAutoExpense } from '@/app/actions/auto'
+import { recordAutoExpense, recordAutoExpenseV2 } from '@/app/actions/auto'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 interface AddExpenseToCarDialogProps {
   carId: string
@@ -77,6 +78,9 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
   const [stockQuantity, setStockQuantity] = useState(1)
   const [stockDescription, setStockDescription] = useState('')
   
+  // God Mode
+  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
+  
   // Data
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [stockItems, setStockItems] = useState<StockItem[]>([])
@@ -121,90 +125,40 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
           return
         }
 
-        // Get cashbox
+        // Get cashbox for currency
         const cashbox = cashboxes.find(c => c.id === cashboxId)
         if (!cashbox) {
           toast.error('Касса не найдена')
           return
         }
 
-        if (cashbox.balance < amount) {
-          toast.error(`Недостаточно средств в кассе. Доступно: ${cashbox.balance.toLocaleString('ru-RU')} ${cashbox.currency}`)
-          return
+        // Call server action to record expense atomically
+        const result = await recordAutoExpenseV2({
+          carId,
+          dealId: undefined,
+          cashboxId,
+          amount,
+          currency: cashbox.currency,
+          type: category,
+          description: description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label,
+          paidBy: 'COMPANY',
+          ownerShare: 0,
+          actorEmployeeId: actorEmployeeId || undefined,
+        })
+
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to record expense')
         }
 
-        // 1. Create expense record
-        const { error: expenseError } = await supabase
-          .from('car_expenses')
-          .insert({
-            car_id: carId,
-            category: category,
-            amount: amount,
-            currency: cashbox.currency,
-            description: description || null,
-            cashbox_id: cashboxId,
-            created_by: '00000000-0000-0000-0000-000000000000', // TODO: real user
-          })
-
-        if (expenseError) throw expenseError
-
-        // 2. Update cashbox balance
-        const { error: cashboxError } = await supabase
-          .from('cashboxes')
-          .update({ balance: cashbox.balance - amount })
-          .eq('id', cashboxId)
-
-        if (cashboxError) throw cashboxError
-
-        // 3. Create transaction record
-        const { error: txError } = await supabase
-          .from('transactions')
-          .insert({
-            cashbox_id: cashboxId,
-            amount: -amount,
-            balance_after: cashbox.balance - amount,
-            category: 'EXPENSE',
-            description: `Расход на авто ${carName}: ${description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label}`,
-            created_by: '00000000-0000-0000-0000-000000000000',
-          })
-
-        if (txError) throw txError
-
-        // 4. Update car cost_price
-        const { data: carData } = await supabase
-          .from('cars')
-          .select('cost_price')
-          .eq('id', carId)
-          .single()
-
-        if (carData) {
-          const newCostPrice = Number(carData.cost_price || 0) + amount
-          await supabase
-            .from('cars')
-            .update({ cost_price: newCostPrice })
-            .eq('id', carId)
-        }
-
-        // 5. Add to timeline
+        // Add to timeline
         await supabase
           .from('car_timeline')
           .insert({
             car_id: carId,
             event_type: 'EXPENSE',
             description: `${EXPENSE_CATEGORIES.find(c => c.value === category)?.label}: ${description || ''} - ${amount.toLocaleString('ru-RU')} ${cashbox.currency}`,
-            created_by: '00000000-0000-0000-0000-000000000000',
+            created_by: actorEmployeeId || '00000000-0000-0000-0000-000000000000',
           })
-
-        // 6. Record in auto_ledger for P&L tracking
-        const expenseResult = await recordAutoExpense({
-          carId,
-          amount,
-          description: description || `${EXPENSE_CATEGORIES.find(c => c.value === category)?.label}`,
-        })
-
-        if (!expenseResult.success) {
-          console.error('[v0] Failed to record auto expense:', expenseResult.error)
-        }
 
         toast.success('Расход добавлен')
 
@@ -315,6 +269,7 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
       setStockItemId('')
       setStockQuantity(1)
       setStockDescription('')
+      setActorEmployeeId('')
       setOpen(false)
       
       onSuccess?.()
@@ -454,6 +409,11 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
             </div>
           </TabsContent>
         </Tabs>
+
+        <GodModeActorSelector
+          value={actorEmployeeId}
+          onChange={setActorEmployeeId}
+        />
 
         <div className="flex justify-end gap-2 pt-4">
           <Button variant="outline" onClick={() => setOpen(false)} className="border-border">

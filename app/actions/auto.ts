@@ -11,23 +11,82 @@ export interface AutoActionResult {
 }
 
 /**
+ * Record an expense for a car V2
+ * ATOMIC: Creates transaction via cashbox_operation_v2, updates auto_expenses and recalculates P&L
+ * Full audit trail and God Mode support
+ */
+export async function recordAutoExpenseV2(params: {
+  carId: string
+  dealId?: string
+  cashboxId?: string
+  amount: number
+  currency: string
+  type: string
+  description?: string
+  paidBy?: 'COMPANY' | 'OWNER' | 'SHARED'
+  ownerShare?: number
+  actorEmployeeId?: string
+}): Promise<AutoActionResult> {
+  try {
+    const supabase = await createClient()
+
+    const { data: expenseId, error } = await supabase.rpc('auto_record_expense_v2', {
+      p_car_id: params.carId,
+      p_deal_id: params.dealId || null,
+      p_cashbox_id: params.cashboxId || null,
+      p_amount: params.amount,
+      p_currency: params.currency,
+      p_type: params.type,
+      p_description: params.description || null,
+      p_paid_by: params.paidBy || 'COMPANY',
+      p_owner_share: params.ownerShare || 0,
+      p_actor_employee_id: params.actorEmployeeId || null,
+    })
+
+    if (error) {
+      console.error('[v0] recordAutoExpenseV2 error:', error)
+      return { success: false, error: error.message }
+    }
+
+    // Revalidate paths
+    revalidatePath('/cars')
+    revalidatePath('/cars/deals')
+    revalidatePath(`/cars/${params.carId}`)
+    if (params.dealId) {
+      revalidatePath(`/cars/deals/${params.dealId}`)
+    }
+
+    return {
+      success: true,
+      data: { expenseId },
+    }
+  } catch (err) {
+    console.error('[v0] recordAutoExpenseV2 exception:', err)
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+/**
  * Create a purchase record for a car
- * Records the purchase cost as negative in auto_ledger
+ * Records the purchase in auto_ledger as negative expense
  */
 export async function createAutoPurchase(params: {
   carId: string
-  supplierName: string
   purchaseAmount: number
+  supplierName?: string
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
     const supabase = await createClient()
 
-    const { data, error } = await supabase.rpc('auto_create_purchase_v1', {
+    const { data, error } = await supabase.rpc('auto_record_purchase_v1', {
       p_car_id: params.carId,
-      p_supplier_name: params.supplierName,
       p_purchase_amount: params.purchaseAmount,
+      p_supplier_name: params.supplierName || null,
       p_description: params.description || null,
       p_actor_employee_id: params.actorEmployeeId || null,
     })
