@@ -233,3 +233,63 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
 
   return rates
 }
+
+// ========== SYSTEM_CURRENCY_RATES (новая таблица) ==========
+
+export async function getSystemCurrencyRates() {
+  const supabase = await createServerClient()
+  const { data } = await supabase
+    .from('system_currency_rates')
+    .select('*')
+    .order('sort_order')
+  return data || []
+}
+
+export async function updateSystemRate(code: string, rate_to_rub: number, rate_to_usd: number) {
+  const supabase = await createServerClient()
+  
+  // Сохраняем предыдущий курс
+  const { data: prev } = await supabase
+    .from('system_currency_rates')
+    .select('rate_to_rub')
+    .eq('code', code)
+    .single()
+
+  const { error } = await supabase
+    .from('system_currency_rates')
+    .update({
+      rate_to_rub,
+      rate_to_usd,
+      prev_rate_to_rub: prev?.rate_to_rub || rate_to_rub,
+      change_24h: prev?.rate_to_rub ? ((rate_to_rub - prev.rate_to_rub) / prev.rate_to_rub) * 100 : 0,
+      last_updated: new Date().toISOString(),
+    })
+    .eq('code', code)
+
+  if (error) throw error
+  revalidatePath('/finance')
+}
+
+export async function refreshSystemRates() {
+  const apiResult = await fetchExternalRates()
+  
+  if (!apiResult.success || !apiResult.rates) {
+    return { success: false, error: apiResult.error }
+  }
+
+  const supabase = await createServerClient()
+  
+  // Обновляем курсы для USD, EUR, USDT (RUB = base)
+  const updates = [
+    { code: 'USD', rate_to_rub: apiResult.rates['USD']['RUB'], rate_to_usd: 1 },
+    { code: 'EUR', rate_to_rub: apiResult.rates['EUR']['RUB'], rate_to_usd: apiResult.rates['EUR']['USD'] },
+    { code: 'USDT', rate_to_rub: apiResult.rates['USD']['RUB'], rate_to_usd: 1 },
+  ]
+
+  for (const update of updates) {
+    await updateSystemRate(update.code, update.rate_to_rub, update.rate_to_usd).catch(() => {})
+  }
+
+  revalidatePath('/finance')
+  return { success: true }
+}
