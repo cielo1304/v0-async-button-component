@@ -308,6 +308,22 @@ export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean)
   const supabase = await createServerClient()
   
   try {
+    // STEP 10: Only super users can toggle exchange
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Unauthorized: user not found' }
+    }
+
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('role_code')
+      .eq('auth_user_id', user.id)
+      .single()
+
+    if (!employee || employee.role_code !== 'super') {
+      return { success: false, error: 'Access denied: only super users can toggle exchange settings' }
+    }
+
     const { error } = await supabase
       .from('cashboxes')
       .update({ is_exchange_enabled: enabled })

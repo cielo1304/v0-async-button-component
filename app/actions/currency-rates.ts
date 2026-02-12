@@ -267,6 +267,22 @@ export async function updateSystemRate(code: string, rate_to_rub: number, rate_t
     .eq('code', code)
 
   if (error) throw error
+
+  // STEP 5: Write to currency_rate_history for audit trail
+  try {
+    await supabase
+      .from('currency_rate_history')
+      .insert({
+        currency_code: code,
+        rate_to_rub,
+        rate_to_usd,
+        source: 'system_update',
+      })
+  } catch (historyErr) {
+    console.error('[v0] Failed to write currency_rate_history:', historyErr)
+    // Non-blocking: don't fail the main update
+  }
+
   revalidatePath('/finance')
 }
 
@@ -290,6 +306,73 @@ export async function refreshSystemRates() {
     await updateSystemRate(update.code, update.rate_to_rub, update.rate_to_usd).catch(() => {})
   }
 
+  // STEP 5: Also save to currency_rates for legacy compatibility
+  const ratesToInsert = []
+  for (const from of Object.keys(apiResult.rates)) {
+    for (const to of Object.keys(apiResult.rates[from])) {
+      if (from !== to) {
+        ratesToInsert.push({
+          from_currency: from,
+          to_currency: to,
+          rate: apiResult.rates[from][to],
+          source: 'auto_refresh'
+        })
+      }
+    }
+  }
+
+  if (ratesToInsert.length > 0) {
+    await supabase
+      .from('currency_rates')
+      .insert(ratesToInsert)
+      .catch(() => {}) // Non-blocking
+  }
+
   revalidatePath('/finance')
   return { success: true }
+}
+
+// STEP 6: Get historical rate for a specific date
+export async function getRateAtDate(
+  currencyCode: string,
+  targetDate: string | Date
+): Promise<{ rate_to_rub: number; rate_to_usd: number; recorded_at: string } | null> {
+  const supabase = await createServerClient()
+  
+  const dateStr = typeof targetDate === 'string' ? targetDate : targetDate.toISOString()
+  
+  // Find the closest rate on or before the target date
+  const { data } = await supabase
+    .from('currency_rate_history')
+    .select('rate_to_rub, rate_to_usd, recorded_at')
+    .eq('currency_code', currencyCode)
+    .lte('recorded_at', dateStr)
+    .order('recorded_at', { ascending: false })
+    .limit(1)
+    .single()
+  
+  if (data) {
+    return {
+      rate_to_rub: Number(data.rate_to_rub),
+      rate_to_usd: Number(data.rate_to_usd),
+      recorded_at: data.recorded_at,
+    }
+  }
+  
+  // Fallback: get current rate from system_currency_rates
+  const { data: current } = await supabase
+    .from('system_currency_rates')
+    .select('rate_to_rub, rate_to_usd')
+    .eq('code', currencyCode)
+    .single()
+  
+  if (current) {
+    return {
+      rate_to_rub: Number(current.rate_to_rub),
+      rate_to_usd: Number(current.rate_to_usd),
+      recorded_at: new Date().toISOString(),
+    }
+  }
+  
+  return null
 }

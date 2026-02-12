@@ -3,6 +3,31 @@
 import { createServerClient } from '@/lib/supabase/server'
 import { writeAuditLog } from '@/lib/audit'
 
+// ==================== STEP 9: Categories from DB ====================
+
+let _cachedCategories: { in: string; out: string } | null = null
+
+async function getExchangeCategories(): Promise<{ in: string; out: string }> {
+  if (_cachedCategories) return _cachedCategories
+
+  const supabase = await createServerClient()
+  
+  const { data: categories } = await supabase
+    .from('cashbox_transaction_categories')
+    .select('code')
+    .in('code', ['CLIENT_EXCHANGE_IN', 'CLIENT_EXCHANGE_OUT'])
+
+  const hasIn = categories?.some(c => c.code === 'CLIENT_EXCHANGE_IN')
+  const hasOut = categories?.some(c => c.code === 'CLIENT_EXCHANGE_OUT')
+
+  _cachedCategories = {
+    in: hasIn ? 'CLIENT_EXCHANGE_IN' : 'DEPOSIT',
+    out: hasOut ? 'CLIENT_EXCHANGE_OUT' : 'WITHDRAWAL',
+  }
+
+  return _cachedCategories
+}
+
 // ==================== Types ====================
 
 export interface ExchangeLine {
@@ -59,6 +84,8 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
   const supabase = await createServerClient()
 
   try {
+    // STEP 9: Get categories from DB
+    const categories = await getExchangeCategories()
     // -1. Validate beneficiary rule: if >1 client-side participant => beneficiary required
     const clientParticipants = (input.participants || []).filter(p =>
       p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
@@ -170,7 +197,7 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       await supabase.rpc('cashbox_operation', {
         p_cashbox_id: line.cashboxId,
         p_amount: amount,
-        p_category: 'CLIENT_EXCHANGE_IN',
+        p_category: categories.in,
         p_description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
         p_reference_id: operation.id,
         p_created_by: input.actorEmployeeId,
@@ -199,7 +226,7 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       await supabase.rpc('cashbox_operation', {
         p_cashbox_id: line.cashboxId,
         p_amount: -amount,
-        p_category: 'CLIENT_EXCHANGE_OUT',
+        p_category: categories.out,
         p_description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
         p_reference_id: operation.id,
         p_created_by: input.actorEmployeeId,
@@ -294,6 +321,8 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
   const supabase = await createServerClient()
 
   try {
+    // STEP 9: Get categories from DB
+    const categories = await getExchangeCategories()
     // 1. Get operation with details
     const { data: operation, error: fetchErr } = await supabase
       .from('client_exchange_operations')
@@ -312,7 +341,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
       await supabase.rpc('cashbox_operation', {
         p_cashbox_id: detail.cashbox_id,
         p_amount: reverseAmount,
-        p_category: detail.direction === 'give' ? 'CLIENT_EXCHANGE_OUT' : 'CLIENT_EXCHANGE_IN',
+        p_category: detail.direction === 'give' ? categories.out : categories.in,
         p_description: `Отмена обмена ${operation.operation_number}: возврат ${Math.abs(reverseAmount)} ${detail.currency}`,
         p_reference_id: operationId,
         p_created_by: actorEmployeeId,
