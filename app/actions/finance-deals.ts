@@ -395,6 +395,57 @@ export async function updatePaymentStatus(id: string, status: string) {
   if (error) throw error
 }
 
+/**
+ * Record a payment against the schedule + update ledger atomically.
+ * Uses the DB RPC to distribute payment across schedule rows (FIFO) and write ledger entries.
+ */
+export async function recordFinancePayment(params: {
+  finance_deal_id: string
+  payment_amount: number
+  currency: string
+  cashbox_id?: string
+  note?: string
+  created_by?: string
+}) {
+  const supabase = await createClient()
+  try {
+    const { data, error } = await supabase.rpc('record_finance_payment', {
+      p_finance_deal_id: params.finance_deal_id,
+      p_payment_amount: params.payment_amount,
+      p_currency: params.currency,
+      p_cashbox_id: params.cashbox_id || null,
+      p_note: params.note || null,
+      p_created_by: params.created_by || '00000000-0000-0000-0000-000000000000',
+    })
+
+    if (error) {
+      console.error('[v0] recordFinancePayment error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    const row = Array.isArray(data) ? data[0] : data
+
+    await writeAuditLog(supabase, {
+      action: 'record_finance_payment',
+      module: 'finance',
+      entityTable: 'finance_payment_schedule',
+      entityId: params.finance_deal_id,
+      after: { payment_amount: params.payment_amount, ...params },
+      actorEmployeeId: params.created_by,
+    })
+
+    return {
+      success: true,
+      principal_paid: row?.principal_paid,
+      interest_paid: row?.interest_paid,
+      ledger_ids: row?.ledger_ids,
+    }
+  } catch (err: any) {
+    console.error('[v0] recordFinancePayment error:', err)
+    return { success: false, error: err.message || 'Unknown error' }
+  }
+}
+
 // ==================== UNIFIED DEALS ====================
 
 export async function getUnifiedDeals() {

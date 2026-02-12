@@ -21,7 +21,7 @@ import { Cashbox, CurrencyRate } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { ArrowRight, RefreshCw, ArrowLeftRight, Loader2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
-import { executeExchange } from '@/app/actions/exchange'
+import { cashboxExchange } from '@/app/actions/cashbox'
 import { refreshCurrencyRates, getExchangeRate } from '@/app/actions/currency-rates'
 import { toast } from 'sonner'
 
@@ -145,14 +145,13 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
 
     setIsLoading(true)
     try {
-      const result = await executeExchange({
-        fromBoxId,
-        toBoxId,
-        sentAmount,
-        receivedAmount: receivedAmount || sentAmount * rate,
+      const result = await cashboxExchange({
+        fromCashboxId: fromBoxId,
+        toCashboxId: toBoxId,
+        fromAmount: sentAmount,
+        toAmount: receivedAmount || sentAmount * rate,
         rate,
-        fee: 0,
-        description: description || undefined,
+        note: description || undefined,
       })
 
       if (result.success) {

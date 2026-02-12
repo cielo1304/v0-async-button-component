@@ -23,6 +23,7 @@ import { AsyncButton } from '@/components/ui/async-button'
 import { MoneyInput } from '@/components/ui/money-input'
 import { Cashbox } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
+import { cashboxTransfer } from '@/app/actions/cashbox'
 import { toast } from 'sonner'
 import { ArrowRightLeft } from 'lucide-react'
 
@@ -77,61 +78,23 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
     setIsLoading(true)
 
     try {
-      const toCashbox = cashboxes.find(c => c.id === toCashboxId)
-      if (!toCashbox) throw new Error('Касса получателя не найдена')
+      const result = await cashboxTransfer({
+        fromCashboxId: fromCashbox.id,
+        toCashboxId,
+        amount,
+        note: description || undefined,
+      })
 
-      const newFromBalance = Number(fromCashbox.balance) - amount
-      const newToBalance = Number(toCashbox.balance) + amount
-
-      // Транзакция списания
-      const { error: txOutError } = await supabase
-        .from('transactions')
-        .insert({
-          cashbox_id: fromCashbox.id,
-          amount: -amount,
-          balance_after: newFromBalance,
-          category: 'TRANSFER_OUT',
-          description: `Перевод в "${toCashbox.name}"${description ? ': ' + description : ''}`,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
-
-      if (txOutError) throw txOutError
-
-      // Транзакция зачисления
-      const { error: txInError } = await supabase
-        .from('transactions')
-        .insert({
-          cashbox_id: toCashboxId,
-          amount: amount,
-          balance_after: newToBalance,
-          category: 'TRANSFER_IN',
-          description: `Перевод из "${fromCashbox.name}"${description ? ': ' + description : ''}`,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
-
-      if (txInError) throw txInError
-
-      // Обновляем балансы касс
-      const { error: fromError } = await supabase
-        .from('cashboxes')
-        .update({ balance: newFromBalance })
-        .eq('id', fromCashbox.id)
-
-      if (fromError) throw fromError
-
-      const { error: toError } = await supabase
-        .from('cashboxes')
-        .update({ balance: newToBalance })
-        .eq('id', toCashboxId)
-
-      if (toError) throw toError
-
-      toast.success('Перевод выполнен')
-      setOpen(false)
-      setAmount(null)
-      setToCashboxId('')
-      setDescription('')
-      onSuccess?.()
+      if (result.success) {
+        toast.success(`Перевод выполнен: ${amount.toLocaleString('ru-RU')} ${fromCashbox.currency}`)
+        setOpen(false)
+        setAmount(null)
+        setToCashboxId('')
+        setDescription('')
+        onSuccess?.()
+      } else {
+        toast.error(result.error || 'Ошибка при выполнении перевода')
+      }
     } catch {
       toast.error('Ошибка при выполнении перевода')
     } finally {

@@ -133,3 +133,86 @@ export async function getVerifiedBalances() {
   const { data } = await supabase.from('v_cashbox_verified_balance').select('*')
   return data || []
 }
+
+// ─── Atomic cashbox transfer (same currency) ───
+
+export type CashboxTransferInput = {
+  fromCashboxId: string
+  toCashboxId: string
+  amount: number
+  note?: string
+  createdBy?: string
+}
+
+export async function cashboxTransfer(input: CashboxTransferInput) {
+  const supabase = await createServerClient()
+  try {
+    const { data, error } = await supabase.rpc('cashbox_transfer', {
+      p_from_cashbox_id: input.fromCashboxId,
+      p_to_cashbox_id: input.toCashboxId,
+      p_amount: input.amount,
+      p_note: input.note || null,
+      p_created_by: input.createdBy || '00000000-0000-0000-0000-000000000000',
+    })
+
+    if (error) {
+      return { success: false, error: `Transfer error: ${error.message}` }
+    }
+
+    const row = Array.isArray(data) ? data[0] : data
+    revalidatePath('/finance')
+    return {
+      success: true,
+      fromTxId: row?.from_tx_id,
+      toTxId: row?.to_tx_id,
+      fromBalance: row?.from_balance,
+      toBalance: row?.to_balance,
+    }
+  } catch {
+    return { success: false, error: 'Неизвестная ошибка transfer' }
+  }
+}
+
+// ─── Atomic cashbox exchange (different currencies) ───
+
+export type CashboxExchangeInput = {
+  fromCashboxId: string
+  toCashboxId: string
+  fromAmount: number
+  toAmount: number
+  rate: number
+  note?: string
+  createdBy?: string
+}
+
+export async function cashboxExchange(input: CashboxExchangeInput) {
+  const supabase = await createServerClient()
+  try {
+    const { data, error } = await supabase.rpc('cashbox_exchange', {
+      p_from_cashbox_id: input.fromCashboxId,
+      p_to_cashbox_id: input.toCashboxId,
+      p_from_amount: input.fromAmount,
+      p_to_amount: input.toAmount,
+      p_rate: input.rate,
+      p_note: input.note || null,
+      p_created_by: input.createdBy || '00000000-0000-0000-0000-000000000000',
+    })
+
+    if (error) {
+      return { success: false, error: `Exchange error: ${error.message}` }
+    }
+
+    const row = Array.isArray(data) ? data[0] : data
+    revalidatePath('/finance')
+    revalidatePath('/exchange')
+    return {
+      success: true,
+      fromTxId: row?.from_tx_id,
+      toTxId: row?.to_tx_id,
+      fromBalance: row?.from_balance,
+      toBalance: row?.to_balance,
+    }
+  } catch {
+    return { success: false, error: 'Неизвестная ошибка exchange' }
+  }
+}
