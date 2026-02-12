@@ -917,7 +917,7 @@ export interface AssetSaleEvent {
 export type CoreDealKind = 'finance'
 export type CoreDealStatus = 'NEW' | 'ACTIVE' | 'PAUSED' | 'CLOSED' | 'DEFAULT' | 'CANCELLED'
 export type FinanceScheduleType = 'annuity' | 'diff' | 'interest_only' | 'manual' | 'tranches'
-export type FinancePaymentStatus = 'PLANNED' | 'PAID' | 'OVERDUE' | 'ADJUSTED'
+export type FinancePaymentStatus = 'PLANNED' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'ADJUSTED'
 export type FinanceLedgerEntryType = 'disbursement' | 'repayment_principal' | 'repayment_interest' | 'fee' | 'penalty_manual' | 'adjustment' | 'offset' | 'collateral_sale_proceeds'
 export type CollateralLinkStatus = 'active' | 'released' | 'foreclosed' | 'replaced'
 
@@ -984,7 +984,12 @@ export interface FinancePaymentScheduleItem {
   total_due: number
   currency: string
   status: FinancePaymentStatus
-}
+  principal_paid?: number
+  interest_paid?: number
+  amount_paid?: number
+  paid_date?: string
+  notes?: string
+  }
 
 export interface FinanceLedgerEntry {
   id: string

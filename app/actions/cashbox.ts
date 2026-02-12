@@ -15,30 +15,10 @@ export async function depositWithdraw(input: DepositWithdrawInput) {
   const supabase = await createServerClient()
 
   try {
-    // 1. Получаем кассу для проверок
-    const { data: cashbox, error: fetchError } = await supabase
-      .from('cashboxes')
-      .select('*')
-      .eq('id', input.cashboxId)
-      .single()
-
-    if (fetchError || !cashbox) {
-      return { success: false, error: 'Касса не найдена' }
-    }
-
-    if (cashbox.is_archived) {
-      return { success: false, error: 'Касса архивирована' }
-    }
-
-    // 2. Проверяем баланс для вывода
-    if (input.type === 'WITHDRAW' && Number(cashbox.balance) < input.amount) {
-      return { success: false, error: `Недостаточно средств. Доступно: ${cashbox.balance} ${cashbox.currency}` }
-    }
-
     const transactionAmount = input.type === 'DEPOSIT' ? input.amount : -input.amount
 
-    // 3. Атомарно: обновляем баланс + создаем транзакцию через RPC
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('cashbox_operation', {
+    // Use cashbox_operation_v2 for balance validation at DB level
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('cashbox_operation_v2', {
       p_cashbox_id: input.cashboxId,
       p_amount: transactionAmount,
       p_category: input.type,
@@ -51,7 +31,7 @@ export async function depositWithdraw(input: DepositWithdrawInput) {
     }
 
     revalidatePath('/finance')
-    return { success: true, message: `${input.type === 'DEPOSIT' ? 'Внесено' : 'Выведено'} ${input.amount} ${cashbox.currency}` }
+    return { success: true, message: `${input.type === 'DEPOSIT' ? 'Внесено' : 'Выведено'} ${input.amount}` }
 
   } catch {
     return { success: false, error: 'Неизвестная ошибка' }
