@@ -163,7 +163,7 @@ export function DepositWithdrawDialog({ type, cashboxId, children, onSuccess }: 
 
           <GodModeActorSelector
             value={godmodeActorId}
-            onValueChange={setGodmodeActorId}
+            onChange={setGodmodeActorId}
           />
         </div>
         

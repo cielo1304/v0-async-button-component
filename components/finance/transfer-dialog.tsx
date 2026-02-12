@@ -168,7 +168,7 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
 
           <GodModeActorSelector
             value={godmodeActorId}
-            onValueChange={setGodmodeActorId}
+            onChange={setGodmodeActorId}
           />
         </div>
 
