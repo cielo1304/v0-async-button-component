@@ -254,10 +254,11 @@ export async function getDealSummary(financeDealId: string) {
   const supabase = await createServerClient()
 
   try {
-    const [fdRes, ledgerRes, pausesRes] = await Promise.all([
+    const [fdRes, ledgerRes, pausesRes, scheduleRes] = await Promise.all([
       supabase.from('finance_deals').select('principal_amount, contract_currency').eq('id', financeDealId).single(),
       supabase.from('finance_ledger').select('entry_type, amount').eq('finance_deal_id', financeDealId),
       supabase.from('finance_pause_periods').select('start_date, end_date').eq('finance_deal_id', financeDealId),
+      supabase.from('finance_payment_schedule').select('interest_due, interest_paid, due_date').eq('finance_deal_id', financeDealId),
     ])
 
     if (!fdRes.data) return { success: false, error: 'Сделка не найдена' }
@@ -271,10 +272,24 @@ export async function getDealSummary(financeDealId: string) {
       (pausesRes.data || []).map(p => ({ startDate: p.start_date, endDate: p.end_date })),
     )
 
+    // Calculate unpaid_interest from schedule
+    const today = new Date().toISOString().slice(0, 10)
+    const unpaid_interest = (scheduleRes.data || [])
+      .filter(s => s.due_date <= today)
+      .reduce((sum, s) => {
+        const due = Number(s.interest_due || 0)
+        const paid = Number(s.interest_paid || 0)
+        return sum + Math.max(0, due - paid)
+      }, 0)
+
+    // Update totalOwed to include unpaid_interest
+    const totalOwed = balances.outstandingPrincipal + unpaid_interest
+
     return {
       success: true,
-      balances,
+      balances: { ...balances, totalOwed },
       pausedDays,
+      unpaid_interest,
       currency: fdRes.data.contract_currency,
     }
   } catch {
