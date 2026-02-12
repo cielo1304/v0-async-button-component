@@ -5,13 +5,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
 import { AsyncButton } from '@/components/ui/async-button'
 import { MoneyInput } from '@/components/ui/money-input'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { CreditCard } from 'lucide-react'
 import { Cashbox, AutoPayment } from '@/lib/types/database'
-import { recordAutoPayment } from '@/app/actions/auto'
+import { recordAutoPaymentV2 } from '@/app/actions/auto'
 
 interface AddPaymentDialogProps {
   dealId: string
@@ -29,6 +31,8 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
   const [selectedPaymentId, setSelectedPaymentId] = useState('')
   const [amount, setAmount] = useState<number | null>(null)
   const [cashboxId, setCashboxId] = useState('')
+  const [note, setNote] = useState('')
+  const [actorEmployeeId, setActorEmployeeId] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -62,94 +66,27 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
     setIsLoading(true)
 
     try {
-      const cashbox = cashboxes.find(cb => cb.id === cashboxId)
-      if (!cashbox) throw new Error('Касса не найдена')
-
-      // Если выбран платеж из графика
-      if (selectedPaymentId && selectedPayment) {
-        const newPaidAmount = Number(selectedPayment.paid_amount) + amount
-        const isPaidInFull = newPaidAmount >= Number(selectedPayment.amount)
-
-        // Обновляем платеж
-        await supabase
-          .from('auto_payments')
-          .update({
-            paid_amount: newPaidAmount,
-            status: isPaidInFull ? 'PAID' : 'PARTIAL',
-            paid_date: isPaidInFull ? new Date().toISOString().split('T')[0] : null,
-            cashbox_id: cashboxId,
-          })
-          .eq('id', selectedPaymentId)
-      } else {
-        // Создаем новый платеж
-        const { data: lastPayment } = await supabase
-          .from('auto_payments')
-          .select('payment_number')
-          .eq('deal_id', dealId)
-          .order('payment_number', { ascending: false })
-          .limit(1)
-          .single()
-
-        const nextNumber = (lastPayment?.payment_number || 0) + 1
-
-        await supabase.from('auto_payments').insert({
-          deal_id: dealId,
-          payment_number: nextNumber,
-          due_date: new Date().toISOString().split('T')[0],
-          amount,
-          currency,
-          paid_amount: amount,
-          paid_date: new Date().toISOString().split('T')[0],
-          status: 'PAID',
-          cashbox_id: cashboxId,
-        })
-      }
-
-      // Атомарно: обновляем баланс кассы + создаем транзакцию
-      await supabase.rpc('cashbox_operation', {
-        p_cashbox_id: cashboxId,
-        p_amount: amount,
-        p_category: 'DEPOSIT',
-        p_description: `Платеж по сделке автоплощадки`,
-        p_created_by: '00000000-0000-0000-0000-000000000000',
-      })
-
-      // Обновляем сумму оплаченного в сделке
-      const { data: deal } = await supabase
-        .from('auto_deals')
-        .select('total_paid, total_debt')
-        .eq('id', dealId)
-        .single()
-
-      if (deal) {
-        const newTotalPaid = Number(deal.total_paid) + amount
-        const newTotalDebt = Math.max(0, Number(deal.total_debt) - amount)
-
-        await supabase
-          .from('auto_deals')
-          .update({
-            total_paid: newTotalPaid,
-            total_debt: newTotalDebt,
-            status: newTotalDebt <= 0 ? 'COMPLETED' : 'IN_PROGRESS',
-          })
-          .eq('id', dealId)
-      }
-
-      // Record payment in auto_ledger for P&L tracking
-      await supabase.from('auto_ledger').insert({
-        car_id: (await supabase.from('auto_deals').select('car_id').eq('id', dealId).single()).data?.car_id,
-        deal_id: dealId,
-        category: 'SALE_PAYMENT',
+      const result = await recordAutoPaymentV2({
+        dealId,
+        cashboxId,
         amount,
-        description: `Payment received`,
-        created_by: '00000000-0000-0000-0000-000000000000',
+        currency,
+        schedulePaymentId: selectedPaymentId || undefined,
+        note: note || undefined,
+        actorEmployeeId: actorEmployeeId || undefined,
       })
+
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при проведении платежа')
+        return
+      }
 
       toast.success('Платеж принят')
       setOpen(false)
       setAmount(null)
       setCashboxId('')
       setSelectedPaymentId('')
+      setNote('')
       onSuccess?.()
     } catch (error) {
       console.error('[v0] Error processing payment:', error)
@@ -237,6 +174,23 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
               </SelectContent>
             </Select>
           </div>
+
+          {/* Примечание */}
+          <div>
+            <Label>Примечание</Label>
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Дополнительная информация о платеже"
+              rows={2}
+            />
+          </div>
+
+          {/* God Mode */}
+          <GodModeActorSelector
+            value={actorEmployeeId}
+            onChange={setActorEmployeeId}
+          />
         </div>
 
         <div className="flex justify-end gap-2">
