@@ -31,14 +31,14 @@ Fixed TypeScript errors with GodModeActorSelector and enforced ledger currency =
 **Changes:**
 
 ### A) Added God Mode State
-```typescript
+\`\`\`typescript
 const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
-```
+\`\`\`
 
 ### B) Defined Deal Currency
-```typescript
+\`\`\`typescript
 const dealCurrency = financeDeal?.contract_currency || 'USD'
-```
+\`\`\`
 
 ### C) Updated Ledger Form
 - **Removed:** `currency` field from `ledgerForm` state (was editable select)
@@ -48,7 +48,7 @@ const dealCurrency = financeDeal?.contract_currency || 'USD'
 
 ### D) Updated handleAddLedgerEntry
 Now passes:
-```typescript
+\`\`\`typescript
 await addLedgerEntryWithCashbox({
   finance_deal_id: financeDeal.id,
   entry_type: ledgerForm.entry_type,
@@ -58,7 +58,7 @@ await addLedgerEntryWithCashbox({
   cashbox_id: ledgerForm.cashbox_id,
   created_by_employee_id: godmodeActorId,  // God mode support
 })
-```
+\`\`\`
 
 **Result:** UI now enforces that all ledger entries use the deal's contract currency. Admins can specify who created the entry via God Mode.
 
@@ -76,7 +76,7 @@ await addLedgerEntryWithCashbox({
 2. **Uses** `ledgerCurrency = fd.contract_currency` (ignores `params.currency`)
 3. **Passes** `p_ledger_currency: ledgerCurrency` to RPC
 
-```typescript
+\`\`\`typescript
 if (params.cashbox_id) {
   // STEP 3: Server hardening - enforce deal currency
   const { data: fd } = await supabase
@@ -92,7 +92,7 @@ if (params.cashbox_id) {
     p_ledger_currency: ledgerCurrency, // Use deal currency, not params.currency
   })
 }
-```
+\`\`\`
 
 **Result:** Server-side protection ensures ledger entries always match deal currency when cashbox is linked.
 
@@ -104,7 +104,7 @@ if (params.cashbox_id) {
 
 **Change:** Added validation in `cashbox_operation_v2` function:
 
-```sql
+\`\`\`sql
 -- STEP 4: NEW HARDENING - Ledger currency MUST match deal currency
 IF p_ledger_entry_type IS NOT NULL AND p_ledger_currency IS NOT NULL THEN
   IF p_ledger_currency <> v_deal_currency THEN
@@ -112,7 +112,7 @@ IF p_ledger_entry_type IS NOT NULL AND p_ledger_currency IS NOT NULL THEN
       p_ledger_currency, v_deal_currency;
   END IF;
 END IF;
-```
+\`\`\`
 
 **Result:** Database-level protection ensures ledger entries cannot be created in wrong currency even if client/server validation is bypassed.
 
@@ -121,9 +121,9 @@ END IF;
 ## Testing Checklist
 
 ### ✅ TypeScript Build
-```bash
+\`\`\`bash
 npm run build
-```
+\`\`\`
 Expected: No TS errors related to GodModeActorSelector props.
 
 ### ✅ UI: New Ledger Entry Dialog
@@ -149,17 +149,17 @@ Expected: No TS errors related to GodModeActorSelector props.
 ## Deployment Instructions
 
 ### 1. Run Migration 019
-```sql
+\`\`\`sql
 -- Run on database:
 \i scripts/019_enforce_ledger_currency_in_cashbox_operation_v2.sql
-```
+\`\`\`
 
 ### 2. Deploy Code
-```bash
+\`\`\`bash
 git add .
 git commit -m "fix: enforce ledger currency = deal currency (UI + server + DB)"
 git push
-```
+\`\`\`
 
 ### 3. Verify
 - Check finance deal ledger entries have correct currency
@@ -216,7 +216,7 @@ git push
 **Purpose:** Final DB-level enforcement that ledger currency = deal currency
 
 **Validation Logic:**
-```sql
+\`\`\`sql
 IF p_finance_deal_id IS NOT NULL 
    AND p_ledger_entry_type IS NOT NULL 
    AND p_ledger_currency IS NOT NULL 
@@ -226,7 +226,7 @@ THEN
       p_ledger_currency, v_deal_currency;
   END IF;
 END IF;
-```
+\`\`\`
 
 **When It Runs:**
 - Only when creating finance_ledger entry via cashbox_operation_v2
