@@ -40,7 +40,7 @@ Completed final fixes for Variant A implementation with God mode support, mandat
 1. **Added parameter**: `actor_employee_id?: string` to `createFinanceDeal()`
 
 2. **Schedule generation logic**:
-   ```typescript
+   \`\`\`typescript
    // If schedule generation failed for non-manual/non-tranches deals, rollback
    if (!scheduleResult.success && 
        params.schedule_type !== 'manual' && 
@@ -56,7 +56,7 @@ Completed final fixes for Variant A implementation with God mode support, mandat
        error: scheduleResult.error || 'Schedule generation failed'
      }
    }
-   ```
+   \`\`\`
 
 3. **Audit log update**:
    - Now uses `actorEmployeeId: params.actor_employee_id || params.responsible_employee_id`
@@ -78,7 +78,7 @@ Completed final fixes for Variant A implementation with God mode support, mandat
 2. **Form state**: Added `actor_employee_id: ''` field
 
 3. **handleCreate function**:
-   ```typescript
+   \`\`\`typescript
    const result = await createFinanceDeal({
      title: form.title,
      contact_id: form.contact_id || undefined,
@@ -100,7 +100,7 @@ Completed final fixes for Variant A implementation with God mode support, mandat
    toast.success('Финансовая сделка создана')
    setIsCreateOpen(false)
    // ... rest of success handling
-   ```
+   \`\`\`
 
 4. **UI form**:
    - Added "Актор (создатель)" field with employee selector

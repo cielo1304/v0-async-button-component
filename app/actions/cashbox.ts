@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
+import { writeAuditLog } from '@/lib/audit'
 
 export type DepositWithdrawInput = {
   cashboxId: string
@@ -28,6 +29,27 @@ export async function depositWithdraw(input: DepositWithdrawInput) {
 
     if (rpcError) {
       return { success: false, error: `Ошибка операции: ${rpcError.message}` }
+    }
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_deposit_withdraw',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: input.cashboxId,
+        after: {
+          type: input.type,
+          amount: input.amount,
+          description: input.description,
+          tx_id: rpcResult?.[0]?.tx_id,
+          new_balance: rpcResult?.[0]?.new_balance,
+          effective_actor: input.actorEmployeeId || '00000000-0000-0000-0000-000000000000',
+        },
+        actorEmployeeId: input.actorEmployeeId,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for depositWithdraw:', auditErr)
     }
 
     revalidatePath('/finance')
@@ -135,23 +157,47 @@ export async function cashboxTransfer(input: CashboxTransferInput) {
       p_created_by: input.createdBy || '00000000-0000-0000-0000-000000000000',
     })
 
-    if (error) {
-      return { success: false, error: `Transfer error: ${error.message}` }
-    }
-
-    const row = Array.isArray(data) ? data[0] : data
-    revalidatePath('/finance')
-    return {
-      success: true,
-      fromTxId: row?.from_tx_id,
-      toTxId: row?.to_tx_id,
-      fromBalance: row?.from_balance,
-      toBalance: row?.to_balance,
-    }
-  } catch {
-    return { success: false, error: 'Неизвестная ошибка transfer' }
+  if (error) {
+  return { success: false, error: `Transfer error: ${error.message}` }
   }
-}
+  
+  const row = Array.isArray(data) ? data[0] : data
+
+  // Write audit log (non-blocking)
+  try {
+    await writeAuditLog(supabase, {
+      action: 'cashbox_transfer',
+      module: 'finance',
+      entityTable: 'cashboxes',
+      entityId: input.fromCashboxId,
+      after: {
+        toCashboxId: input.toCashboxId,
+        amount: input.amount,
+        note: input.note,
+        from_tx_id: row?.from_tx_id,
+        to_tx_id: row?.to_tx_id,
+        from_balance: row?.from_balance,
+        to_balance: row?.to_balance,
+        effective_actor: input.createdBy || '00000000-0000-0000-0000-000000000000',
+      },
+      actorEmployeeId: input.createdBy,
+    })
+  } catch (auditErr) {
+    console.error('[v0] Audit log failed for cashboxTransfer:', auditErr)
+  }
+
+  revalidatePath('/finance')
+  return {
+  success: true,
+  fromTxId: row?.from_tx_id,
+  toTxId: row?.to_tx_id,
+  fromBalance: row?.from_balance,
+  toBalance: row?.to_balance,
+  }
+  } catch {
+  return { success: false, error: 'Неизвестная ошибка transfer' }
+  }
+  }
 
 // ─── Atomic cashbox exchange (different currencies) ───
 
@@ -183,6 +229,32 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
     }
 
     const row = Array.isArray(data) ? data[0] : data
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_exchange',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: input.fromCashboxId,
+        after: {
+          toCashboxId: input.toCashboxId,
+          fromAmount: input.fromAmount,
+          toAmount: input.toAmount,
+          rate: input.rate,
+          note: input.note,
+          from_tx_id: row?.from_tx_id,
+          to_tx_id: row?.to_tx_id,
+          from_balance: row?.from_balance,
+          to_balance: row?.to_balance,
+          effective_actor: input.createdBy || '00000000-0000-0000-0000-000000000000',
+        },
+        actorEmployeeId: input.createdBy,
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for cashboxExchange:', auditErr)
+    }
+
     revalidatePath('/finance')
     revalidatePath('/exchange')
     return {
@@ -209,6 +281,19 @@ export async function updateCashboxSortOrder(cashboxId: string, sortOrder: numbe
       .eq('id', cashboxId)
     
     if (error) throw error
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_sort_order_update',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: cashboxId,
+        after: { sort_order: sortOrder },
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for updateCashboxSortOrder:', auditErr)
+    }
     
     revalidatePath('/finance')
     return { success: true }
@@ -229,6 +314,19 @@ export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean)
       .eq('id', cashboxId)
     
     if (error) throw error
+
+    // Write audit log (non-blocking)
+    try {
+      await writeAuditLog(supabase, {
+        action: 'cashbox_exchange_enabled_toggle',
+        module: 'finance',
+        entityTable: 'cashboxes',
+        entityId: cashboxId,
+        after: { is_exchange_enabled: enabled },
+      })
+    } catch (auditErr) {
+      console.error('[v0] Audit log failed for toggleExchangeEnabled:', auditErr)
+    }
     
     revalidatePath('/finance')
     revalidatePath('/exchange')

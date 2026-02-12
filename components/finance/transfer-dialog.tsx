@@ -26,6 +26,7 @@ import { createClient } from '@/lib/supabase/client'
 import { cashboxTransfer } from '@/app/actions/cashbox'
 import { toast } from 'sonner'
 import { ArrowRightLeft } from 'lucide-react'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 interface TransferDialogProps {
   fromCashbox: Cashbox
@@ -38,6 +39,7 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
   const [toCashboxId, setToCashboxId] = useState('')
   const [amount, setAmount] = useState<number | null>(null)
   const [description, setDescription] = useState('')
+  const [godmodeActorId, setGodmodeActorId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
   const supabase = useMemo(() => createClient(), [])
 
@@ -83,6 +85,7 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
         toCashboxId,
         amount,
         note: description || undefined,
+        createdBy: godmodeActorId || undefined,
       })
 
       if (result.success) {
@@ -162,6 +165,11 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
               className="bg-secondary border-border text-foreground"
             />
           </div>
+
+          <GodModeActorSelector
+            value={godmodeActorId}
+            onValueChange={setGodmodeActorId}
+          />
         </div>
 
         <div className="flex justify-end gap-2">
