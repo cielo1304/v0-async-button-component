@@ -5,7 +5,13 @@
 -- transactions table schema (balance_after NOT NULL, reference_id UUID).
 -- It also adds currency validation for finance deals and proper audit support.
 
-CREATE OR REPLACE FUNCTION cashbox_operation_v2(
+-- Drop all existing versions of cashbox_operation_v2 to avoid ambiguity
+DROP FUNCTION IF EXISTS cashbox_operation_v2(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID, UUID, UUID, TEXT, NUMERIC, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS cashbox_operation_v2(UUID, NUMERIC, TEXT, TEXT, UUID, UUID, UUID, UUID, TEXT, NUMERIC, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS cashbox_operation_v2 CASCADE;
+
+-- Create the new correct version
+CREATE FUNCTION cashbox_operation_v2(
   p_cashbox_id       UUID,
   p_amount           NUMERIC,
   p_category         TEXT,

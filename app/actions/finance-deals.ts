@@ -437,27 +437,8 @@ export async function recordFinancePayment(params: {
     effectiveActor = params.godmode_actor_employee_id
   }
 
-  // Currency validation: ensure cashbox currency matches deal currency if cashbox is used
-  if (params.cashbox_id) {
-    const [cashboxRes, dealRes] = await Promise.all([
-      supabase.from('cashboxes').select('currency').eq('id', params.cashbox_id).single(),
-      supabase.from('finance_deals').select('contract_currency').eq('id', params.finance_deal_id).single(),
-    ])
-
-    if (cashboxRes.error || !cashboxRes.data) {
-      return { success: false, error: 'Cashbox not found' }
-    }
-    if (dealRes.error || !dealRes.data) {
-      return { success: false, error: 'Finance deal not found' }
-    }
-
-    if (cashboxRes.data.currency !== dealRes.data.contract_currency) {
-      return {
-        success: false,
-        error: `Currency mismatch: cashbox is ${cashboxRes.data.currency}, deal requires ${dealRes.data.contract_currency}. Please exchange first.`,
-      }
-    }
-  }
+  // Currency validation is now handled by record_finance_payment RPC and cashbox_operation_v2
+  // No need to duplicate it here - let the database handle it atomically
 
   try {
     const { data, error } = await supabase.rpc('record_finance_payment', {
