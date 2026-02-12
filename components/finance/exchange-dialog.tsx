@@ -317,7 +317,7 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
 
           <GodModeActorSelector
             value={godmodeActorId}
-            onValueChange={setGodmodeActorId}
+            onChange={setGodmodeActorId}
           />
 
           <AsyncButton

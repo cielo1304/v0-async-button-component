@@ -14,7 +14,7 @@
 - Поддержка source для отслеживания источника курса
 
 **Структура:**
-```sql
+\`\`\`sql
 CREATE TABLE currency_rate_history (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   currency_code TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE currency_rate_history (
 CREATE INDEX idx_currency_rate_history_currency ON currency_rate_history(currency_code);
 CREATE INDEX idx_currency_rate_history_recorded_at ON currency_rate_history(recorded_at DESC);
 CREATE INDEX idx_currency_rate_history_currency_date ON currency_rate_history(currency_code, recorded_at DESC);
-```
+\`\`\`
 
 ---
 
@@ -42,16 +42,16 @@ CREATE INDEX idx_currency_rate_history_currency_date ON currency_rate_history(cu
 - **Результат:** чистая установка БД больше не будет падать на миграции 016
 
 **До:**
-```sql
+\`\`\`sql
 -- ==================== 3. STRENGTHEN cashbox_operation_v2 ====================
 CREATE OR REPLACE FUNCTION cashbox_operation_v2(...) -- 120 строк
-```
+\`\`\`
 
 **После:**
-```sql
+\`\`\`sql
 -- ==================== 3. INDEXES ====================
 -- Note: cashbox_operation_v2 function is defined in migration 017
-```
+\`\`\`
 
 ---
 
@@ -69,7 +69,7 @@ CREATE OR REPLACE FUNCTION cashbox_operation_v2(...) -- 120 строк
 - UI компонент `<GodModeActorSelector>` после полей описания во всех формах
 
 **Пример использования:**
-```tsx
+\`\`\`tsx
 // State
 const [godmodeActorId, setGodmodeActorId] = useState<string>('')
 
@@ -87,7 +87,7 @@ const result = await depositWithdraw({
   value={godmodeActorId}
   onValueChange={setGodmodeActorId}
 />
-```
+\`\`\`
 
 ---
 
@@ -105,7 +105,7 @@ const result = await depositWithdraw({
   5. **toggleExchangeEnabled** - логирует включение/выключение обмена
 
 **Структура лога:**
-```typescript
+\`\`\`typescript
 await writeAuditLog(supabase, {
   action: 'cashbox_deposit_withdraw',
   module: 'finance',
@@ -119,7 +119,7 @@ await writeAuditLog(supabase, {
   },
   actorEmployeeId: input.actorEmployeeId,
 })
-```
+\`\`\`
 
 **Важно:** Все логи пишутся в try-catch блоках, чтобы не блокировать основную операцию при ошибке аудита.
 
@@ -135,7 +135,7 @@ await writeAuditLog(supabase, {
 - Non-blocking: ошибка записи истории не блокирует основное обновление
 
 **Код:**
-```typescript
+\`\`\`typescript
 // STEP 5: Write to currency_rate_history for audit trail
 try {
   await supabase
@@ -150,7 +150,7 @@ try {
   console.error('[v0] Failed to write currency_rate_history:', historyErr)
   // Non-blocking: don't fail the main update
 }
-```
+\`\`\`
 
 ---
 
@@ -164,7 +164,7 @@ try {
 - Fallback на текущий курс из `system_currency_rates` если истории нет
 
 **API:**
-```typescript
+\`\`\`typescript
 export async function getRateAtDate(
   currencyCode: string,
   targetDate: string | Date
@@ -173,13 +173,13 @@ export async function getRateAtDate(
   rate_to_usd: number
   recorded_at: string 
 } | null>
-```
+\`\`\`
 
 **Использование:**
-```typescript
+\`\`\`typescript
 const historicalRate = await getRateAtDate('USD', '2024-01-15')
 // Вернет: { rate_to_rub: 92.5, rate_to_usd: 1.0, recorded_at: '...' }
-```
+\`\`\`
 
 ---
 
@@ -202,7 +202,7 @@ const historicalRate = await getRateAtDate('USD', '2024-01-15')
 - Fallback на `'DEPOSIT'` и `'WITHDRAWAL'` если кастомные категории не найдены
 
 **Новая функция:**
-```typescript
+\`\`\`typescript
 async function getExchangeCategories(): Promise<{ in: string; out: string }> {
   if (_cachedCategories) return _cachedCategories
 
@@ -223,17 +223,17 @@ async function getExchangeCategories(): Promise<{ in: string; out: string }> {
 
   return _cachedCategories
 }
-```
+\`\`\`
 
 **Использование:**
-```typescript
+\`\`\`typescript
 // В начале submitExchange и cancelExchange
 const categories = await getExchangeCategories()
 
 // Затем вместо хардкода:
 p_category: categories.in,  // вместо 'CLIENT_EXCHANGE_IN'
 p_category: categories.out, // вместо 'CLIENT_EXCHANGE_OUT'
-```
+\`\`\`
 
 ---
 
@@ -247,7 +247,7 @@ p_category: categories.out, // вместо 'CLIENT_EXCHANGE_OUT'
 - Возврат ошибки `'Access denied'` для обычных пользователей
 
 **Код защиты:**
-```typescript
+\`\`\`typescript
 // STEP 10: Only super users can toggle exchange
 const { data: { user } } = await supabase.auth.getUser()
 if (!user) {
@@ -266,7 +266,7 @@ if (!employee || employee.role_code !== 'super') {
     error: 'Access denied: only super users can toggle exchange settings' 
   }
 }
-```
+\`\`\`
 
 ---
 
@@ -289,9 +289,9 @@ if (!employee || employee.role_code !== 'super') {
 ## 🔄 Следующие шаги
 
 1. **Выполнить миграцию 018** в production базе данных:
-   ```bash
+   \`\`\`bash
    psql -d your_db -f scripts/018_currency_rate_history.sql
-   ```
+   \`\`\`
 
 2. **Протестировать все кассовые операции:**
    - Внесение/изъятие с God mode

@@ -32,6 +32,7 @@ import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
 import { RecordPaymentDialog } from '@/components/finance-deals/record-payment-dialog'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -105,13 +106,17 @@ export default function FinanceDealDetailPage() {
   const [cashboxes, setCashboxes] = useState<Array<{ id: string; name: string; currency: string; balance: number }>>([])
 
   // Формы
-  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'principal_repayment' as string, amount: '', currency: 'USD', note: '', cashbox_id: '' })
+  const [ledgerForm, setLedgerForm] = useState({ entry_type: 'principal_repayment' as string, amount: '', note: '', cashbox_id: '' })
   const [participantForm, setParticipantForm] = useState({ contact_id: '', employee_id: '', participant_role: 'borrower', note: '' })
   const [collateralForm, setCollateralForm] = useState({ asset_id: '', note: '' })
   const [pauseForm, setPauseForm] = useState({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
+  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
   
   // Payment dialog
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
+
+  // STEP 2B: Определяем валюту сделки
+  const dealCurrency = financeDeal?.contract_currency || 'USD'
 
   const loadDeal = useCallback(async () => {
     setLoading(true)
@@ -194,14 +199,16 @@ export default function FinanceDealDetailPage() {
         finance_deal_id: financeDeal.id,
         entry_type: ledgerForm.entry_type as any,
         amount,
-        currency: ledgerForm.currency,
+        currency: dealCurrency,
         note: ledgerForm.note || undefined,
         cashbox_id: ledgerForm.cashbox_id || undefined,
+        created_by_employee_id: godmodeActorId,
       })
       if (!result.success) throw new Error('Failed')
       toast.success('Запись добавлена' + (ledgerForm.cashbox_id ? ' + касса обновлена' : ''))
       setIsLedgerOpen(false)
-      setLedgerForm({ entry_type: 'principal_repayment', amount: '', currency: 'USD', note: '', cashbox_id: '' })
+      setLedgerForm({ entry_type: 'principal_repayment', amount: '', note: '', cashbox_id: '' })
+      setGodmodeActorId(undefined)
       loadDeal()
     } catch { toast.error('Ошибка добавления записи') }
   }
@@ -822,38 +829,33 @@ export default function FinanceDealDetailPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Сумма</Label>
-                <Input type="number" value={ledgerForm.amount} onChange={e => setLedgerForm(f => ({ ...f, amount: e.target.value }))} />
-              </div>
-              <div className="space-y-2">
-                <Label>Валюта</Label>
-                <Select value={ledgerForm.currency} onValueChange={v => setLedgerForm(f => ({ ...f, currency: v }))}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="GEL">GEL</SelectItem>
-                    <SelectItem value="RUB">RUB</SelectItem>
-                    <SelectItem value="USDT">USDT</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Касса (опционально)</Label>
-              <Select value={ledgerForm.cashbox_id || 'none'} onValueChange={v => setLedgerForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
-                <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Без привязки</SelectItem>
-                  {cashboxes.filter(c => c.currency === ledgerForm.currency).map(c => (
-                    <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Если выбрана касса, деньги будут списаны/зачислены атомарно</p>
-            </div>
+  <div className="grid grid-cols-2 gap-3">
+  <div className="space-y-2">
+  <Label>Сумма</Label>
+  <Input type="number" value={ledgerForm.amount} onChange={e => setLedgerForm(f => ({ ...f, amount: e.target.value }))} />
+  </div>
+  <div className="space-y-2">
+  <Label>Валюта (валюта сделки)</Label>
+  <Input value={dealCurrency} disabled className="bg-muted" />
+  </div>
+  </div>
+  <div className="space-y-2">
+  <Label>Касса (опционально)</Label>
+  <Select value={ledgerForm.cashbox_id || 'none'} onValueChange={v => setLedgerForm(f => ({ ...f, cashbox_id: v === 'none' ? '' : v }))}>
+  <SelectTrigger><SelectValue placeholder="Без привязки к кассе" /></SelectTrigger>
+  <SelectContent>
+  <SelectItem value="none">Без привязки</SelectItem>
+  {cashboxes.filter(c => c.currency === dealCurrency).map(c => (
+  <SelectItem key={c.id} value={c.id}>{c.name} ({formatMoney(Number(c.balance), c.currency)})</SelectItem>
+  ))}
+  </SelectContent>
+  </Select>
+  <p className="text-xs text-muted-foreground">Показаны только кассы с валютой {dealCurrency}. Деньги будут списаны/зачислены атомарно.</p>
+  </div>
+  <GodModeActorSelector
+    value={godmodeActorId}
+    onChange={setGodmodeActorId}
+  />
             <div className="space-y-2">
               <Label>Примечание</Label>
               <Textarea value={ledgerForm.note} onChange={e => setLedgerForm(f => ({ ...f, note: e.target.value }))} />

@@ -225,22 +225,35 @@ export async function addLedgerEntryWithCashbox(params: {
 
   // If cashbox is linked, use the v2 RPC for atomicity
   if (params.cashbox_id) {
-  // disbursement = money OUT of cashbox (negative), repayments = money IN (positive)
-  const isOutflow = params.entry_type === 'disbursement'
-  const cashboxAmount = isOutflow ? -params.amount : params.amount
+    // STEP 3: Server hardening - enforce deal currency when cashbox is linked
+    const { data: fd } = await supabase
+      .from('finance_deals')
+      .select('contract_currency')
+      .eq('id', params.finance_deal_id)
+      .single()
+
+    if (!fd) {
+      throw new Error('Finance deal not found')
+    }
+
+    const ledgerCurrency = fd.contract_currency // Always use deal currency, ignore params.currency
+
+    // disbursement = money OUT of cashbox (negative), repayments = money IN (positive)
+    const isOutflow = params.entry_type === 'disbursement'
+    const cashboxAmount = isOutflow ? -params.amount : params.amount
   
-  const { data, error } = await supabase.rpc('cashbox_operation_v2', {
-  p_cashbox_id: params.cashbox_id,
-  p_amount: cashboxAmount,
-  p_category: 'DEAL_PAYMENT',
-  p_description: params.note || `Фин.сделка: ${params.entry_type}`,
-  p_created_by: params.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
-  p_finance_deal_id: params.finance_deal_id,
-  p_ledger_entry_type: params.entry_type,
-  p_ledger_amount: params.amount,
-  p_ledger_currency: params.currency,
-  p_ledger_note: params.note || null,
-  })
+    const { data, error } = await supabase.rpc('cashbox_operation_v2', {
+      p_cashbox_id: params.cashbox_id,
+      p_amount: cashboxAmount,
+      p_category: 'DEAL_PAYMENT',
+      p_description: params.note || `Фин.сделка: ${params.entry_type}`,
+      p_created_by: params.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
+      p_finance_deal_id: params.finance_deal_id,
+      p_ledger_entry_type: params.entry_type,
+      p_ledger_amount: params.amount,
+      p_ledger_currency: ledgerCurrency, // Use deal currency
+      p_ledger_note: params.note || null,
+    })
 
     if (error) throw error
 
