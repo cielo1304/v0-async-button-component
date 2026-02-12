@@ -15,7 +15,8 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { FilePlus, Car, User, Calculator, Calendar, Percent } from 'lucide-react'
 import { AutoClient, Car as CarType, Cashbox } from '@/lib/types/database'
-import { createAutoDeal } from '@/app/actions/auto'
+import { createAutoDealV2 } from '@/app/actions/auto'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const DEAL_TYPES = [
   { value: 'CASH_SALE', label: 'Наличная продажа', description: 'Продажа авто с полной оплатой' },
@@ -71,6 +72,7 @@ export function AddAutoDealDialog() {
   const [paymentCashboxId, setPaymentCashboxId] = useState('')
 
   const [notes, setNotes] = useState('')
+  const [actorEmployeeId, setActorEmployeeId] = useState<string | null>(null)
 
   // Загрузка справочников
   useEffect(() => {
@@ -175,162 +177,33 @@ export function AddAutoDealDialog() {
     setIsLoading(true)
 
     try {
-      const dealNumber = generateDealNumber()
-
-      // Рассчитываем total_debt
-      let totalDebt = 0
-      if (dealType === 'CASH_SALE') {
-        totalDebt = (salePrice || 0) - (initialPayment || 0)
-      } else if (dealType === 'COMMISSION_SALE') {
-        totalDebt = (salePrice || 0) - (initialPayment || 0)
-      } else if (dealType === 'INSTALLMENT') {
-        totalDebt = (salePrice || 0) - (downPayment || 0) - (initialPayment || 0)
-      } else if (dealType === 'RENT') {
-        totalDebt = rentTotal + (depositAmount || 0) - (initialPayment || 0)
-      }
-
-      // Получаем contact_id из auto_clients
-      const buyer = clients.find(c => c.id === buyerId)
-      const seller = clients.find(c => c.id === sellerId)
-      const buyerContactId = buyer?.contact_id || null
-      const sellerContactId = seller?.contact_id || null
-
-      const { data: deal, error: dealError } = await supabase
-        .from('auto_deals')
-        .insert({
-          deal_number: dealNumber,
-          deal_type: dealType,
-          status: initialPayment && initialPayment > 0 ? 'IN_PROGRESS' : 'NEW',
-          car_id: carId,
-          buyer_id: buyerId || null,
-          seller_id: sellerId || null, // Комитент для комиссии
-          buyer_contact_id: buyerContactId,
-          seller_contact_id: sellerContactId,
-          sale_price: dealType !== 'RENT' ? salePrice : null,
-          sale_currency: currency,
-          commission_percent: dealType === 'COMMISSION_SALE' ? commissionPercent : null,
-          commission_amount: dealType === 'COMMISSION_SALE' ? commissionAmount : null,
-          down_payment: dealType === 'INSTALLMENT' ? downPayment : null,
-          installment_months: dealType === 'INSTALLMENT' ? installmentMonths : null,
-          monthly_payment: dealType === 'INSTALLMENT' ? monthlyPayment : null,
-          interest_rate: dealType === 'INSTALLMENT' ? interestRate : null,
-          rent_price_daily: dealType === 'RENT' ? rentPriceDaily : null,
-          rent_start_date: dealType === 'RENT' ? rentStartDate : null,
-          rent_end_date: dealType === 'RENT' ? rentEndDate : null,
-          deposit_amount: dealType === 'RENT' ? depositAmount : null,
-          total_paid: initialPayment || 0,
-          total_debt: totalDebt > 0 ? totalDebt : 0,
-          notes: notes || null,
-        })
-        .select()
-        .single()
-
-      if (dealError) throw dealError
-
-      // Если есть начальный платеж - создаем запись в auto_payments и транзакцию
-      if (initialPayment && initialPayment > 0 && paymentCashboxId) {
-        // Создаем платеж
-        const { error: paymentError } = await supabase.from('auto_payments').insert({
-          deal_id: deal.id,
-          payment_number: 1,
-          due_date: new Date().toISOString().split('T')[0],
-          amount: initialPayment,
-          currency,
-          paid_amount: initialPayment,
-          paid_date: new Date().toISOString().split('T')[0],
-          status: 'PAID',
-          cashbox_id: paymentCashboxId,
-        })
-
-        if (paymentError) throw paymentError
-
-        // Атомарно: обновляем баланс кассы + создаем транзакцию
-        await supabase.rpc('cashbox_operation', {
-          p_cashbox_id: paymentCashboxId,
-          p_amount: initialPayment,
-          p_category: 'DEPOSIT',
-          p_description: `Оплата по сделке ${dealNumber} (${DEAL_TYPES.find(t => t.value === dealType)?.label})`,
-          p_created_by: '00000000-0000-0000-0000-000000000000',
-        })
-      }
-
-      // Обновляем статус авто
-      await supabase
-        .from('cars')
-        .update({ 
-          status: dealType === 'RENT' ? 'RESERVED' : 'RESERVED',
-          platform_status: dealType === 'RENT' ? 'RENTED' : 'RESERVED',
-        })
-        .eq('id', carId)
-
-      // Генерируем график платежей для рассрочки
-      if (dealType === 'INSTALLMENT' && installmentMonths && monthlyPayment) {
-        const payments = []
-        const startDate = new Date()
-        
-        for (let i = 0; i < installmentMonths; i++) {
-          const dueDate = new Date(startDate)
-          dueDate.setMonth(dueDate.getMonth() + i + 1)
-          
-          payments.push({
-            deal_id: deal.id,
-            payment_number: i + 2, // +2 потому что 1 - первоначальный взнос
-            due_date: dueDate.toISOString().split('T')[0],
-            amount: monthlyPayment,
-            currency,
-            paid_amount: 0,
-            status: 'PENDING',
-          })
-        }
-
-        await supabase.from('auto_payments').insert(payments)
-      }
-
-      // Логируем события контактов
-      const eventPayload = {
-        deal_type: dealType,
-        total_amount: salePrice || rentTotal,
+      const result = await createAutoDealV2({
+        carId,
+        buyerId: buyerId || undefined,
+        sellerId: sellerId || undefined,
+        dealType,
+        salePrice: salePrice || undefined,
         currency,
-        status: deal.status,
-        deal_number: dealNumber
-      }
-      
-      if (buyerContactId) {
-        await supabase.rpc('log_contact_event', {
-          p_contact_id: buyerContactId,
-          p_module: 'auto',
-          p_entity_type: 'auto_deal',
-          p_entity_id: deal.id,
-          p_title: `Авто-сделка ${dealNumber} создана`,
-          p_payload: eventPayload
-        })
-      }
-      
-      if (sellerContactId && sellerContactId !== buyerContactId) {
-        await supabase.rpc('log_contact_event', {
-          p_contact_id: sellerContactId,
-          p_module: 'auto',
-          p_entity_type: 'auto_deal',
-          p_entity_id: deal.id,
-          p_title: `Авто-сделка ${dealNumber} создана (комитент)`,
-          p_payload: eventPayload
-        })
+        rentPriceDaily: rentPriceDaily || undefined,
+        rentStartDate: rentStartDate || undefined,
+        rentEndDate: rentEndDate || undefined,
+        commissionMode: dealType === 'COMMISSION_SALE' ? (commissionPercent ? 'PERCENT' : 'FIXED') : undefined,
+        commissionFixedAmount: dealType === 'COMMISSION_SALE' ? commissionAmount || undefined : undefined,
+        description: notes || undefined,
+        installmentMonths: dealType === 'INSTALLMENT' ? installmentMonths || undefined : undefined,
+        installmentMonthlyPayment: dealType === 'INSTALLMENT' ? monthlyPayment || undefined : undefined,
+        installmentStartDate: dealType === 'INSTALLMENT' ? new Date().toISOString().split('T')[0] : undefined,
+        initialPayment: initialPayment || undefined,
+        cashboxId: paymentCashboxId || undefined,
+        actorEmployeeId: actorEmployeeId || undefined,
+      })
+
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка при создании сделки')
+        return
       }
 
-      // Record sale revenue in auto_ledger for P&L tracking
-      const totalAmount = dealType === 'RENT' ? rentTotal : (salePrice || 0)
-      if (totalAmount > 0) {
-        await supabase.from('auto_ledger').insert({
-          car_id: carId,
-          deal_id: deal.id,
-          category: 'SALE_REVENUE',
-          amount: totalAmount,
-          description: `${DEAL_TYPES.find(t => t.value === dealType)?.label} - ${dealNumber}`,
-          created_by: '00000000-0000-0000-0000-000000000000',
-        })
-      }
-
-      toast.success(`Сделка ${dealNumber} создана`)
+      toast.success(`Сделка ${result.data.dealNumber} создана`)
       resetForm()
       setOpen(false)
       router.refresh()
@@ -657,15 +530,21 @@ export function AddAutoDealDialog() {
               placeholder="Дополнительная информация о сделке..."
               rows={2}
             />
-          </div>
-        </div>
+  </div>
+  </div>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setOpen(false)}>Отмена</Button>
-          <AsyncButton onClick={handleSubmit} isLoading={isLoading}>
-            Создать сделку
-          </AsyncButton>
-        </div>
+  {/* God Mode */}
+  <GodModeActorSelector
+    value={actorEmployeeId}
+    onChange={setActorEmployeeId}
+  />
+  
+  <div className="flex justify-end gap-2">
+  <Button variant="outline" onClick={() => setOpen(false)}>Отмена</Button>
+  <AsyncButton onClick={handleSubmit} isLoading={isLoading}>
+  Создать сделку
+  </AsyncButton>
+  </div>
       </DialogContent>
     </Dialog>
   )

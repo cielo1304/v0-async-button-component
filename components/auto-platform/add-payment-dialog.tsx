@@ -117,12 +117,12 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
               <Label>Платеж из графика (опционально)</Label>
               <Select value={selectedPaymentId} onValueChange={setSelectedPaymentId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Выберите платеж или оставьте пустым" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value=" ">Новый платеж</SelectItem>
-                  {pendingPayments.map((payment) => (
-                    <SelectItem key={payment.id} value={payment.id}>
+  <SelectValue placeholder="Выберите платеж или оставьте пустым" />
+  </SelectTrigger>
+  <SelectContent>
+  <SelectItem value="">Новый платеж</SelectItem>
+  {pendingPayments.map((payment) => (
+  <SelectItem key={payment.id} value={payment.id}>
                       Платеж #{payment.payment_number} - {Number(payment.amount).toLocaleString()} {payment.currency}
                       {Number(payment.paid_amount) > 0 && ` (оплачено ${Number(payment.paid_amount).toLocaleString()})`}
                     </SelectItem>

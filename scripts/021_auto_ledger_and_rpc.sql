@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS auto_ledger (
   amount NUMERIC(15, 2) NOT NULL CHECK (amount <> 0),
   description TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  created_by UUID REFERENCES team_members(id) ON DELETE SET NULL
+  created_by UUID NULL
 );
 
 -- Add category constraint
@@ -94,11 +94,7 @@ BEGIN
   END IF;
 
   -- Determine actor
-  IF p_actor_employee_id IS NOT NULL THEN
-    v_actor_id := p_actor_employee_id;
-  ELSE
-    v_actor_id := auth.uid();
-  END IF;
+  v_actor_id := COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000');
 
   -- Check car exists
   SELECT status INTO v_car_status FROM cars WHERE id = p_car_id;
@@ -159,16 +155,20 @@ BEGIN
 
   -- Create audit log
   INSERT INTO audit_log_v2 (
-    table_name,
-    record_id,
+    actor_employee_id,
     action,
-    actor_id,
-    new_data
+    module,
+    entity_table,
+    entity_id,
+    before,
+    after
   ) VALUES (
+    v_actor_id,
+    'auto_deal_create',
+    'auto',
     'auto_deals',
     v_new_deal_id,
-    'INSERT',
-    v_actor_id,
+    NULL,
     jsonb_build_object(
       'deal_number', v_deal_number,
       'car_id', p_car_id,
@@ -216,11 +216,7 @@ BEGIN
   END IF;
 
   -- Determine actor
-  IF p_actor_employee_id IS NOT NULL THEN
-    v_actor_id := p_actor_employee_id;
-  ELSE
-    v_actor_id := auth.uid();
-  END IF;
+  v_actor_id := COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000');
 
   -- Check car exists
   IF NOT EXISTS (SELECT 1 FROM cars WHERE id = p_car_id) THEN
@@ -249,16 +245,20 @@ BEGIN
 
   -- Create audit log
   INSERT INTO audit_log_v2 (
-    table_name,
-    record_id,
+    actor_employee_id,
     action,
-    actor_id,
-    new_data
+    module,
+    entity_table,
+    entity_id,
+    before,
+    after
   ) VALUES (
-    'auto_ledger',
-    p_car_id,
-    'INSERT',
     v_actor_id,
+    'auto_purchase',
+    'auto',
+    'cars',
+    p_car_id,
+    NULL,
     jsonb_build_object(
       'car_id', p_car_id,
       'category', 'PURCHASE',
@@ -307,11 +307,7 @@ BEGIN
   END IF;
 
   -- Determine actor
-  IF p_actor_employee_id IS NOT NULL THEN
-    v_actor_id := p_actor_employee_id;
-  ELSE
-    v_actor_id := auth.uid();
-  END IF;
+  v_actor_id := COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000');
 
   -- Get deal details
   SELECT car_id, deal_type, total_amount, paid_amount
@@ -366,16 +362,20 @@ BEGIN
 
   -- Create audit log
   INSERT INTO audit_log_v2 (
-    table_name,
-    record_id,
+    actor_employee_id,
     action,
-    actor_id,
-    new_data
+    module,
+    entity_table,
+    entity_id,
+    before,
+    after
   ) VALUES (
+    v_actor_id,
+    'auto_payment',
+    'auto',
     'auto_deals',
     p_deal_id,
-    'UPDATE',
-    v_actor_id,
+    jsonb_build_object('paid_amount', v_current_paid, 'status', (SELECT status FROM auto_deals WHERE id = p_deal_id)),
     jsonb_build_object(
       'paid_amount', v_new_paid_amount,
       'status', v_new_status,
@@ -419,11 +419,7 @@ BEGIN
   END IF;
 
   -- Determine actor
-  IF p_actor_employee_id IS NOT NULL THEN
-    v_actor_id := p_actor_employee_id;
-  ELSE
-    v_actor_id := auth.uid();
-  END IF;
+  v_actor_id := COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000');
 
   -- Check car exists
   IF NOT EXISTS (SELECT 1 FROM cars WHERE id = p_car_id) THEN
@@ -449,16 +445,20 @@ BEGIN
 
   -- Create audit log
   INSERT INTO audit_log_v2 (
-    table_name,
-    record_id,
+    actor_employee_id,
     action,
-    actor_id,
-    new_data
+    module,
+    entity_table,
+    entity_id,
+    before,
+    after
   ) VALUES (
-    'auto_ledger',
-    p_car_id,
-    'INSERT',
     v_actor_id,
+    'auto_expense',
+    'auto',
+    'cars',
+    p_car_id,
+    NULL,
     jsonb_build_object(
       'car_id', p_car_id,
       'category', 'EXPENSE',

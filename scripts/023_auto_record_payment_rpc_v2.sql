@@ -58,7 +58,8 @@ BEGIN
   END IF;
 
   -- Call cashbox_operation_v2 to create transaction
-  SELECT * INTO v_tx_id
+  -- cashbox_operation_v2 returns (new_balance, tx_id, ledger_id)
+  SELECT tx_id INTO v_tx_id
   FROM cashbox_operation_v2(
     p_cashbox_id := p_cashbox_id,
     p_amount := p_amount,
@@ -162,17 +163,19 @@ BEGIN
 
   -- Write audit log
   INSERT INTO audit_log_v2 (
-    table_name,
-    record_id,
+    actor_employee_id,
     action,
-    actor_id,
-    old_data,
-    new_data
+    module,
+    entity_table,
+    entity_id,
+    before,
+    after
   ) VALUES (
+    v_actor_id,
+    'auto_payment',
+    'auto',
     'auto_deals',
     p_deal_id,
-    'auto_payment',
-    v_actor_id,
     jsonb_build_object(
       'total_paid', v_deal_record.total_paid,
       'total_debt', v_deal_record.total_debt,
@@ -185,8 +188,7 @@ BEGIN
       'payment_id', v_payment_id,
       'total_paid', v_total_paid,
       'total_debt', v_total_debt,
-      'status', v_new_status,
-      'actor', v_actor_id
+      'status', v_new_status
     )
   );
 

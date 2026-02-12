@@ -35,7 +35,7 @@
 ### Таблицы
 
 #### `auto_ledger`
-```sql
+\`\`\`sql
 id               UUID PRIMARY KEY
 car_id           UUID NOT NULL → cars(id)
 deal_id          UUID → auto_deals(id)
@@ -44,10 +44,10 @@ amount           NUMERIC(15,2)  -- положительный для доход�
 description      TEXT
 created_at       TIMESTAMPTZ
 created_by       UUID
-```
+\`\`\`
 
 #### `auto_deals` (расширения)
-```sql
+\`\`\`sql
 -- Новые поля для V2
 buyer_contact_id         UUID → contacts(id)
 seller_contact_id        UUID → contacts(id)
@@ -63,27 +63,27 @@ commission_fixed_amount NUMERIC
 profit_total            NUMERIC DEFAULT 0
 profit_available        NUMERIC DEFAULT 0
 rules                   JSONB DEFAULT '{}'
-```
+\`\`\`
 
 #### `auto_payments` (расширения)
-```sql
+\`\`\`sql
 -- Новые поля для V2
 due_date                DATE
 paid_amount             NUMERIC DEFAULT 0
 paid_date               DATE
 created_by_employee_id  UUID
-```
+\`\`\`
 
 #### `auto_clients` (расширения)
-```sql
+\`\`\`sql
 -- Новые поля для V2
 contact_id              UUID → contacts(id)
-```
+\`\`\`
 
 ### Views
 
 #### `auto_car_pnl`
-```sql
+\`\`\`sql
 SELECT 
   car_id,
   brand, model, year, status,
@@ -97,7 +97,7 @@ SELECT
 FROM cars
 LEFT JOIN auto_ledger ...
 GROUP BY car_id
-```
+\`\`\`
 
 ---
 
@@ -106,7 +106,7 @@ GROUP BY car_id
 ### `auto_record_payment_v2()`
 **Атомарная запись платежа с полной интеграцией**
 
-```sql
+\`\`\`sql
 PARAMETERS:
   p_deal_id UUID
   p_cashbox_id UUID
@@ -125,7 +125,7 @@ OPERATIONS (ATOMIC):
 4. Пересчитывает total_paid/total_debt в auto_deals
 5. Обновляет статус сделки (NEW → IN_PROGRESS → COMPLETED)
 6. audit_log_v2 запись
-```
+\`\`\`
 
 ### Существующие RPC (из V1)
 - `auto_create_purchase_v1()` - запись закупки
@@ -139,7 +139,7 @@ OPERATIONS (ATOMIC):
 ### `/app/actions/auto.ts`
 
 #### `recordAutoPaymentV2()`
-```typescript
+\`\`\`typescript
 export async function recordAutoPaymentV2(params: {
   dealId: string
   cashboxId: string
@@ -149,7 +149,7 @@ export async function recordAutoPaymentV2(params: {
   note?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult>
-```
+\`\`\`
 
 **Основная функция для приема платежей:**
 - ✅ Атомарность через RPC
@@ -238,7 +238,7 @@ export async function recordAutoPaymentV2(params: {
 ## 🎯 Кейсы использования
 
 ### 1. Принять платеж от клиента
-```
+\`\`\`
 Пользователь → add-payment-dialog → выбирает кассу, сумму, актора
   ↓
 recordAutoPaymentV2()
@@ -252,10 +252,10 @@ auto_record_payment_v2() RPC
 5. audit_log_v2
   ↓
 UI refresh → баланс кассы, статус сделки, график платежей обновлены
-```
+\`\`\`
 
 ### 2. Посмотреть P&L по автомобилю
-```sql
+\`\`\`sql
 SELECT * FROM auto_car_pnl WHERE car_id = '...';
 
 Результат:
@@ -264,17 +264,17 @@ SELECT * FROM auto_car_pnl WHERE car_id = '...';
 - Выручка: +$15,000
 - Платежи: +$12,000
 - Чистая прибыль: -$500 (еще $3,000 долг)
-```
+\`\`\`
 
 ### 3. God Mode - внести платеж от имени другого сотрудника
-```
+\`\`\`
 1. Включить God Mode переключатель
 2. Выбрать сотрудника в GodModeActorSelector
 3. Внести платеж
   ↓
 audit_log_v2.actor_id = выбранный сотрудник
 audit_log_v2.new_data содержит все детали
-```
+\`\`\`
 
 ---
 
