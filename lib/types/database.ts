@@ -309,6 +309,13 @@ export interface AutoDeal {
   contract_date: string
   completion_date: string | null
   
+  // P&L fields
+  commission_mode: string | null
+  commission_fixed_amount: number | null
+  profit_total: number | null
+  profit_available: number | null
+  rules: any | null
+  
   notes: string | null
   created_by: string | null
   created_at: string

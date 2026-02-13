@@ -146,6 +146,32 @@ export function AutoDealList() {
       },
     },
     {
+      key: 'profit',
+      header: 'P&L',
+      className: 'text-right font-mono',
+      cell: (row: DealWithRelations) => {
+        const profitTotal = row.profit_total != null ? Number(row.profit_total) : null
+        const profitAvailable = row.profit_available != null ? Number(row.profit_available) : null
+        
+        if (profitTotal == null) {
+          return <span className="text-muted-foreground text-sm">-</span>
+        }
+
+        return (
+          <div className="text-right">
+            <div className={profitTotal >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              {profitTotal.toLocaleString()}
+            </div>
+            {row.deal_type === 'INSTALLMENT' && profitAvailable != null && (
+              <div className="text-sm text-muted-foreground">
+                Доступно: {profitAvailable.toLocaleString()}
+              </div>
+            )}
+          </div>
+        )
+      },
+    },
+    {
       key: 'status',
       header: 'Статус',
       cell: (row: DealWithRelations) => {
