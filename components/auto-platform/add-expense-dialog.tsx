@@ -111,6 +111,7 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
         paidBy: paidBy as 'COMPANY' | 'OWNER' | 'SHARED',
         ownerShare: ownerShareNum,
         actorEmployeeId: actorEmployeeId || undefined,
+        expenseDate: expenseDate || undefined,
       })
 
       if (!result.success) {

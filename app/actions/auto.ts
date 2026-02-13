@@ -26,6 +26,7 @@ export async function recordAutoExpenseV2(params: {
   paidBy?: 'COMPANY' | 'OWNER' | 'SHARED'
   ownerShare?: number
   actorEmployeeId?: string
+  expenseDate?: string
 }): Promise<AutoActionResult> {
   try {
     const supabase = await createClient()
@@ -41,6 +42,7 @@ export async function recordAutoExpenseV2(params: {
       p_paid_by: params.paidBy || 'COMPANY',
       p_owner_share: params.ownerShare || 0,
       p_actor_employee_id: params.actorEmployeeId || null,
+      p_expense_date: params.expenseDate || null,
     })
 
     if (error) {

@@ -19,7 +19,7 @@
 **Создан:** `scripts/024_auto_expenses_and_pnl_v2.sql`
 
 #### 1. Таблица auto_expenses
-```sql
+\`\`\`sql
 CREATE TABLE auto_expenses (
   id UUID PRIMARY KEY,
   car_id UUID NOT NULL REFERENCES cars(id) ON DELETE CASCADE,
@@ -36,7 +36,7 @@ CREATE TABLE auto_expenses (
   created_by_employee_id UUID NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-```
+\`\`\`
 
 **Индексы:**
 - `idx_auto_expenses_car_id_date` - для фильтрации по машине и дате
@@ -45,11 +45,11 @@ CREATE TABLE auto_expenses (
 - `idx_auto_expenses_cashbox_id` - для связи с кассами
 
 #### 2. Колонки P&L в auto_deals
-```sql
+\`\`\`sql
 ALTER TABLE auto_deals 
   ADD COLUMN profit_total NUMERIC(15, 2) NULL,
   ADD COLUMN profit_available NUMERIC(15, 2) NULL;
-```
+\`\`\`
 
 #### 3. Функция auto_recalc_pnl_v2(p_deal_id UUID)
 Пересчитывает прибыль сделки:
@@ -93,7 +93,7 @@ ALTER TABLE auto_deals
 #### Server Action: recordAutoExpenseV2
 **Файл:** `app/actions/auto.ts`
 
-```typescript
+\`\`\`typescript
 export async function recordAutoExpenseV2(params: {
   carId: string
   dealId?: string
@@ -106,7 +106,7 @@ export async function recordAutoExpenseV2(params: {
   ownerShare?: number
   actorEmployeeId?: string
 }): Promise<AutoActionResult>
-```
+\`\`\`
 
 Вызывает RPC `auto_record_expense_v2` и делает `revalidatePath` для:
 - /cars
@@ -137,7 +137,7 @@ export async function recordAutoExpenseV2(params: {
 
 ### Атомарность операций
 Все денежные расходы теперь проходят через RPC:
-```
+\`\`\`
 recordAutoExpenseV2 
   → auto_record_expense_v2 (RPC)
     → cashbox_operation_v2 (RPC)
@@ -146,7 +146,7 @@ recordAutoExpenseV2
     → UPDATE cars.cost_price
     → INSERT audit_log_v2
     → auto_recalc_pnl_v2 (если deal_id)
-```
+\`\`\`
 
 ### Audit Trail
 Каждый расход записывается в `audit_log_v2`:
@@ -203,9 +203,9 @@ recordAutoExpenseV2
 ## ⚠️ BLOCKER: Migration 024 Cannot Be Applied
 
 ### Error Message:
-```
+\`\`\`
 ERROR: 42703: column "deal_id" does not exist
-```
+\`\`\`
 
 ### Root Cause:
 The live database function `cashbox_operation_v2` does not match the migrations in the codebase. Possible reasons:
@@ -217,12 +217,12 @@ The live database function `cashbox_operation_v2` does not match the migrations 
 ### Investigation Steps:
 
 **1. Check transactions table schema:**
-```sql
+\`\`\`sql
 SELECT column_name, data_type 
 FROM information_schema.columns 
 WHERE table_name = 'transactions' 
 ORDER BY ordinal_position;
-```
+\`\`\`
 
 Expected columns should include:
 - `id` (uuid)
@@ -237,17 +237,17 @@ Expected columns should include:
 - `created_by` (uuid)
 
 **2. Check cashbox_operation_v2 signature:**
-```sql
+\`\`\`sql
 SELECT 
   p.proname AS function_name,
   pg_get_function_arguments(p.oid) AS arguments
 FROM pg_proc p
 JOIN pg_namespace n ON p.pronamespace = n.oid
 WHERE p.proname = 'cashbox_operation_v2';
-```
+\`\`\`
 
 Expected signature (from migration 020):
-```sql
+\`\`\`sql
 cashbox_operation_v2(
   p_cashbox_id UUID,
   p_amount NUMERIC,
@@ -262,15 +262,15 @@ cashbox_operation_v2(
   p_ledger_currency TEXT DEFAULT 'USD',
   p_ledger_note TEXT DEFAULT NULL
 )
-```
+\`\`\`
 
 ### Resolution Path:
 
 **Option A: If `transactions.deal_id` column is missing:**
-```sql
+\`\`\`sql
 -- Add deal_id column to transactions
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deal_id UUID;
-```
+\`\`\`
 
 **Option B: If cashbox_operation_v2 function is outdated:**
 1. Apply migration `scripts/017_fix_cashbox_operation_v2_after_016.sql`
@@ -282,13 +282,13 @@ Edit `scripts/024_auto_expenses_and_pnl_v2.sql` line 200-207 to bypass cashbox_o
 
 ### After Resolution:
 Once the database schema is fixed, apply migration 024:
-```bash
+\`\`\`bash
 supabase_apply_migration(
   project_id: "tdzlnryjevqeygwwjdgp",
   name: "auto_expenses_pnl_v2_final",
   query: <content of scripts/024_auto_expenses_and_pnl_v2.sql>
 )
-```
+\`\`\`
 
 ## What's Ready ✅
 

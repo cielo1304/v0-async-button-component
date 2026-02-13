@@ -438,6 +438,29 @@ export default function AutoDealPage({ params }: { params: Promise<{ id: string 
                       <span className="font-mono text-red-400">{totalDebt.toLocaleString()} {deal.sale_currency}</span>
                     </div>
                   )}
+
+                  {/* P&L Section */}
+                  {deal.profit_total != null && (
+                    <>
+                      <div className="border-t border-border pt-3 mt-3">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Прибыль (всего)</span>
+                          <span className={`font-mono font-bold ${Number(deal.profit_total) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {Number(deal.profit_total).toLocaleString()} {deal.sale_currency}
+                          </span>
+                        </div>
+                      </div>
+
+                      {deal.deal_type === 'INSTALLMENT' && deal.profit_available != null && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Прибыль (доступная)</span>
+                          <span className={`font-mono ${Number(deal.profit_available) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {Number(deal.profit_available).toLocaleString()} {deal.sale_currency}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               </CardContent>
             </Card>
