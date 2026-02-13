@@ -67,21 +67,21 @@ Fixed and fully integrated auto expenses system with P&L (profit & loss) calcula
 ### 4. Type Definitions: lib/types/database.ts
 
 **Added to AutoDeal interface:**
-```typescript
+\`\`\`typescript
 // P&L fields
 commission_mode: string | null
 commission_fixed_amount: number | null
 profit_total: number | null
 profit_available: number | null
 rules: any | null
-```
+\`\`\`
 
 ## Technical Implementation
 
 ### Cashbox Integration Flow
 
 1. **Expense Creation:**
-   ```
+   \`\`\`
    auto_record_expense_v2(car_id, deal_id, amount, ..., expense_date)
      ↓
    INSERT auto_expenses (transaction_id=NULL)
@@ -97,10 +97,10 @@ rules: any | null
    UPDATE cars SET cost_price += amount
      ↓
    auto_recalc_pnl_v2(deal_id)
-   ```
+   \`\`\`
 
 2. **Payment Creation:**
-   ```
+   \`\`\`
    auto_record_payment_v2(deal_id, amount, ...)
      ↓
    cashbox_operation_v2(...)
@@ -110,27 +110,27 @@ rules: any | null
    UPDATE auto_deals SET total_paid
      ↓
    auto_recalc_pnl_v2(deal_id)  ← NEW
-   ```
+   \`\`\`
 
 ### P&L Calculation Logic (auto_recalc_pnl_v2)
 
 **For CASH_SALE / INSTALLMENT:**
-```
+\`\`\`
 profit_total = sale_price - car_cost - expenses
 profit_available = profit_total * (paid / sale_price)
-```
+\`\`\`
 
 **For COMMISSION_SALE:**
-```
+\`\`\`
 profit_total = commission_amount - expenses
 profit_available = profit_total (immediately available)
-```
+\`\`\`
 
 **For RENT:**
-```
+\`\`\`
 profit_total = total_paid - expenses
 profit_available = profit_total (immediately available)
-```
+\`\`\`
 
 ## Acceptance Criteria - All Met ✅
 
@@ -170,10 +170,10 @@ profit_available = profit_total (immediately available)
 
 1. ✅ Created scripts/025_fix_auto_expense_rpc_and_pnl_hooks.sql
 2. ⏳ Apply migration to database:
-   ```sql
+   \`\`\`sql
    -- Run migration 025
    \i scripts/025_fix_auto_expense_rpc_and_pnl_hooks.sql
-   ```
+   \`\`\`
 3. ✅ Server actions updated
 4. ✅ UI components updated
 5. ✅ Types updated
