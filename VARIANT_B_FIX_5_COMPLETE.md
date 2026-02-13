@@ -23,7 +23,7 @@
 
 **PART B: Correct Payment Function + P&L**
 - Replaces `auto_record_payment_v2` with the correct signature from 023:
-  ```sql
+  \`\`\`sql
   auto_record_payment_v2(
     p_deal_id UUID,
     p_cashbox_id UUID,
@@ -33,21 +33,21 @@
     p_note TEXT DEFAULT NULL,
     p_actor_employee_id UUID DEFAULT NULL
   )
-  ```
+  \`\`\`
 - Adds P&L recalculation at the end:
-  ```sql
+  \`\`\`sql
   BEGIN
     PERFORM auto_recalc_pnl_v2(p_deal_id);
   EXCEPTION WHEN OTHERS THEN
     NULL;
   END;
-  ```
+  \`\`\`
 
 **PART C: Null-Safe Expense Date**
 - Makes `auto_record_expense_v2` handle null `p_expense_date` safely:
-  ```sql
+  \`\`\`sql
   v_safe_expense_date := COALESCE(p_expense_date, CURRENT_DATE);
-  ```
+  \`\`\`
 - Uses `v_safe_expense_date` in INSERT and audit log
 
 ---
@@ -58,7 +58,7 @@
 
 **recordAutoExpenseV2**:
 - Changed to conditionally add `p_expense_date` only if provided:
-  ```typescript
+  \`\`\`typescript
   const rpcArgs: any = {
     p_car_id: params.carId,
     // ... other args
@@ -70,7 +70,7 @@
   }
 
   const { data: expenseId, error } = await supabase.rpc('auto_record_expense_v2', rpcArgs)
-  ```
+  \`\`\`
 - This prevents sending `null` explicitly, letting DB use COALESCE default
 
 ---
@@ -139,12 +139,12 @@
 
 ## Migration Order
 
-```
+\`\`\`
 001-020: Foundation + Finance + Currency
 021-024: Auto module foundation + P&L
 025: Auto expense/payment P&L hooks (had issues)
 026: ← THIS FIX (payment overload, P&L integration, null-safe dates)
-```
+\`\`\`
 
 ---
 
