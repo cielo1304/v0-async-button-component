@@ -31,7 +31,8 @@ export async function recordAutoExpenseV2(params: {
   try {
     const supabase = await createClient()
 
-    const { data: expenseId, error } = await supabase.rpc('auto_record_expense_v2', {
+    // Build RPC args - only include p_expense_date if provided
+    const rpcArgs: any = {
       p_car_id: params.carId,
       p_deal_id: params.dealId || null,
       p_cashbox_id: params.cashboxId || null,
@@ -42,8 +43,14 @@ export async function recordAutoExpenseV2(params: {
       p_paid_by: params.paidBy || 'COMPANY',
       p_owner_share: params.ownerShare || 0,
       p_actor_employee_id: params.actorEmployeeId || null,
-      p_expense_date: params.expenseDate || null,
-    })
+    }
+
+    // Only add p_expense_date if explicitly provided
+    if (params.expenseDate) {
+      rpcArgs.p_expense_date = params.expenseDate
+    }
+
+    const { data: expenseId, error } = await supabase.rpc('auto_record_expense_v2', rpcArgs)
 
     if (error) {
       console.error('[v0] recordAutoExpenseV2 error:', error)
