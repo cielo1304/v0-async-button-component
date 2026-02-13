@@ -220,8 +220,13 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 COMMENT ON FUNCTION auto_record_payment_v2 IS 'Atomically record auto payment through cashbox_operation_v2 with full audit trail and P&L recalc';
 
 -- =====================================================
--- PART C: Make expense_date null-safe in auto_record_expense_v2
+-- PART C: Fix auto_record_expense_v2 for clean DB compatibility
 -- =====================================================
+
+-- Drop any existing overloads
+DROP FUNCTION IF EXISTS auto_record_expense_v2(
+  UUID, UUID, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID, DATE
+);
 
 CREATE OR REPLACE FUNCTION auto_record_expense_v2(
   p_car_id UUID,
@@ -239,13 +244,12 @@ CREATE OR REPLACE FUNCTION auto_record_expense_v2(
 RETURNS UUID AS $$
 DECLARE
   v_expense_id UUID;
-  v_car_cost_currency TEXT;
   v_company_part NUMERIC;
-  v_owner_part NUMERIC;
   v_tx_id UUID;
   v_actor_id UUID;
   v_active_deal_id UUID;
   v_safe_expense_date DATE;
+  v_cashbox_currency TEXT;
 BEGIN
   -- Set actor
   v_actor_id := COALESCE(p_actor_employee_id, '00000000-0000-0000-0000-000000000000');
@@ -258,70 +262,74 @@ BEGIN
     RAISE EXCEPTION 'Expense amount must be positive';
   END IF;
 
-  -- Validate car exists
-  IF NOT EXISTS (SELECT 1 FROM auto_cars WHERE id = p_car_id) THEN
+  -- Validate car exists in cars table (NOT auto_cars)
+  IF NOT EXISTS (SELECT 1 FROM cars WHERE id = p_car_id) THEN
     RAISE EXCEPTION 'Car not found: %', p_car_id;
   END IF;
 
-  -- Get car currency
-  SELECT cost_currency INTO v_car_cost_currency
-  FROM auto_cars
-  WHERE id = p_car_id;
-
-  -- Validate cost currency matches
-  IF v_car_cost_currency IS NOT NULL AND v_car_cost_currency != p_currency THEN
-    RAISE EXCEPTION 'Expense currency % does not match car cost currency %', p_currency, v_car_cost_currency;
-  END IF;
-
-  -- Calculate company/owner parts
+  -- Calculate company part based on paid_by logic
   IF p_paid_by = 'COMPANY' THEN
     v_company_part := p_amount;
-    v_owner_part := 0;
   ELSIF p_paid_by = 'OWNER' THEN
     v_company_part := 0;
-    v_owner_part := p_amount;
   ELSIF p_paid_by = 'SHARED' THEN
-    v_owner_part := p_owner_share;
-    v_company_part := p_amount - p_owner_share;
+    v_company_part := GREATEST(0, p_amount - COALESCE(p_owner_share, 0));
   ELSE
-    RAISE EXCEPTION 'Invalid paid_by value: %', p_paid_by;
+    RAISE EXCEPTION 'Invalid paid_by value: %. Must be COMPANY, OWNER, or SHARED', p_paid_by;
   END IF;
 
   -- STEP 1: Create expense record FIRST (before cashbox transaction)
+  -- Insert only fields that exist in auto_expenses table
   INSERT INTO auto_expenses (
     car_id,
     deal_id,
     type,
     amount,
     currency,
-    paid_by,
-    company_part,
-    owner_part,
     description,
-    expense_date,
-    created_by_employee_id
+    paid_by,
+    owner_share,
+    cashbox_id,
+    transaction_id,
+    created_by_employee_id,
+    expense_date
   ) VALUES (
     p_car_id,
     p_deal_id,
     p_type,
     p_amount,
     p_currency,
-    p_paid_by,
-    v_company_part,
-    v_owner_part,
     p_description,
-    v_safe_expense_date,
-    v_actor_id
+    p_paid_by,
+    COALESCE(p_owner_share, 0),
+    NULL,  -- Will be updated after cashbox operation
+    NULL,  -- Will be updated after cashbox operation
+    v_actor_id,
+    v_safe_expense_date
   )
   RETURNING id INTO v_expense_id;
 
   -- STEP 2: Create cashbox transaction (if cashbox provided and company part > 0)
   IF p_cashbox_id IS NOT NULL AND v_company_part > 0 THEN
+    -- Validate cashbox currency matches
+    SELECT currency INTO v_cashbox_currency
+    FROM cashboxes
+    WHERE id = p_cashbox_id;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Cashbox not found: %', p_cashbox_id;
+    END IF;
+
+    IF v_cashbox_currency != p_currency THEN
+      RAISE EXCEPTION 'Cashbox currency % does not match expense currency %', v_cashbox_currency, p_currency;
+    END IF;
+
+    -- Create transaction with category EXPENSE (not AUTO_EXPENSE)
     SELECT tx_id INTO v_tx_id
     FROM cashbox_operation_v2(
       p_cashbox_id := p_cashbox_id,
       p_amount := -v_company_part,
-      p_category := 'AUTO_EXPENSE',
+      p_category := 'EXPENSE',
       p_description := COALESCE(p_description, 'Auto expense: ' || p_type),
       p_reference_id := v_expense_id,
       p_deal_id := p_deal_id,
@@ -332,16 +340,16 @@ BEGIN
       RAISE EXCEPTION 'Failed to create cashbox transaction for expense';
     END IF;
 
-    -- STEP 3: Update expense with transaction_id
+    -- STEP 3: Update expense with transaction_id and cashbox_id
     UPDATE auto_expenses
     SET transaction_id = v_tx_id,
         cashbox_id = p_cashbox_id
     WHERE id = v_expense_id;
   END IF;
 
-  -- STEP 4: Update car cost_price
-  UPDATE auto_cars
-  SET cost_price = cost_price + v_company_part
+  -- STEP 4: Update car cost_price with FULL amount (not just company_part)
+  UPDATE cars
+  SET cost_price = COALESCE(cost_price, 0) + p_amount
   WHERE id = p_car_id;
 
   -- STEP 5: Write audit log
@@ -374,7 +382,7 @@ BEGIN
     )
   );
 
-  -- STEP 6: Recalculate P&L
+  -- STEP 6: Recalculate P&L (wrapped in exception handler)
   IF p_deal_id IS NOT NULL THEN
     -- Direct deal specified
     BEGIN
@@ -405,4 +413,4 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-COMMENT ON FUNCTION auto_record_expense_v2 IS 'Record auto expense with null-safe expense_date, cashbox integration, and P&L recalc';
+COMMENT ON FUNCTION auto_record_expense_v2 IS 'Record auto expense with null-safe expense_date, cashbox integration via EXPENSE category, and P&L recalc';
