@@ -214,40 +214,58 @@ export type CashboxExchangeInput = {
 export async function cashboxExchange(input: CashboxExchangeInput) {
   const supabase = await createServerClient()
   try {
-    const { data, error } = await supabase.rpc('cashbox_exchange', {
-      p_from_cashbox_id: input.fromCashboxId,
-      p_to_cashbox_id: input.toCashboxId,
-      p_from_amount: input.fromAmount,
-      p_to_amount: input.toAmount,
-      p_rate: input.rate,
-      p_note: input.note || null,
-      p_created_by: input.createdBy || '00000000-0000-0000-0000-000000000000',
+    // Fix #4.2 C1: Use secure internal_exchange_post RPC instead of old cashbox_exchange
+    // 1. Get company_id from cashbox (strict - not "first company")
+    const { data: fromCashbox, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('company_id, currency')
+      .eq('id', input.fromCashboxId)
+      .single()
+
+    if (cashboxError || !fromCashbox) {
+      return { success: false, error: `From cashbox not found: ${cashboxError?.message || 'unknown'}` }
+    }
+
+    const companyId = fromCashbox.company_id
+    if (!companyId) {
+      return { success: false, error: 'Cashbox has no company_id' }
+    }
+
+    // 2. Generate request_id for idempotency
+    const requestId = crypto.randomUUID()
+
+    // 3. Call internal_exchange_post RPC
+    const { data: exchangeLogId, error } = await supabase.rpc('internal_exchange_post', {
+      request_id: requestId,
+      p_company_id: companyId,
+      from_cashbox_id: input.fromCashboxId,
+      to_cashbox_id: input.toCashboxId,
+      from_amount: input.fromAmount,
+      rate: input.rate,
+      fee: 0, // No fee for internal exchanges
+      comment: input.note || null,
+      acted_by: input.createdBy ? input.createdBy : null,
     })
 
     if (error) {
       return { success: false, error: `Exchange error: ${error.message}` }
     }
 
-    const row = Array.isArray(data) ? data[0] : data
-
-    // Write audit log (non-blocking)
+    // 4. Audit log handled by RPC, but write additional app-level log
     try {
       await writeAuditLog(supabase, {
-        action: 'cashbox_exchange',
+        action: 'internal_exchange',
         module: 'finance',
-        entityTable: 'cashboxes',
-        entityId: input.fromCashboxId,
+        entityTable: 'exchange_logs',
+        entityId: exchangeLogId as string,
         after: {
+          fromCashboxId: input.fromCashboxId,
           toCashboxId: input.toCashboxId,
           fromAmount: input.fromAmount,
-          toAmount: input.toAmount,
           rate: input.rate,
           note: input.note,
-          from_tx_id: row?.from_tx_id,
-          to_tx_id: row?.to_tx_id,
-          from_balance: row?.from_balance,
-          to_balance: row?.to_balance,
-          effective_actor: input.createdBy || '00000000-0000-0000-0000-000000000000',
+          companyId,
+          requestId,
         },
         actorEmployeeId: input.createdBy,
       })
@@ -259,13 +277,11 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
     revalidatePath('/exchange')
     return {
       success: true,
-      fromTxId: row?.from_tx_id,
-      toTxId: row?.to_tx_id,
-      fromBalance: row?.from_balance,
-      toBalance: row?.to_balance,
+      exchangeLogId: exchangeLogId as string,
     }
-  } catch {
-    return { success: false, error: 'Неизвестная ошибка exchange' }
+  } catch (err: any) {
+    console.error('[v0] cashboxExchange error:', err)
+    return { success: false, error: err.message || 'Неизвестная ошибка exchange' }
   }
 }
 
