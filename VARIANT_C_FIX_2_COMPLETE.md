@@ -45,13 +45,13 @@
 ## Технические детали
 
 ### RPC функция exchange_deal_create
-```sql
+\`\`\`sql
 - Валидирует входные данные
 - INSERT в exchange_deals
 - INSERT всех legs в exchange_legs
 - Возвращает deal_id
 - Всё атомарно в транзакции
-```
+\`\`\`
 
 ### Не затронуто
 - Кассы и transactions не используются (для совместимости с существующим /exchange)
