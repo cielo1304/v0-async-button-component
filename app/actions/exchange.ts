@@ -576,3 +576,141 @@ export async function postExchangeDealToCashboxes(dealId: string) {
     return { success: false, error: err.message || 'Unknown error' }
   }
 }
+
+// =============================================
+// Fix #4: Internal Exchange & Client Settlement RPCs
+// =============================================
+
+// ─── Internal Exchange Post (for /finance) ───
+
+export type InternalExchangeInput = {
+  requestId: string
+  fromCashboxId: string
+  toCashboxId: string
+  fromAmount: number
+  rate: number
+  fee?: number
+  comment?: string
+}
+
+export async function internalExchangePost(input: InternalExchangeInput) {
+  const supabase = await createServerClient()
+  
+  try {
+    // Get current user and company
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Пользователь не авторизован', exchangeLogId: null }
+    }
+
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!teamMember) {
+      return { success: false, error: 'Пользователь не привязан к компании', exchangeLogId: null }
+    }
+
+    // Call RPC
+    const { data: exchangeLogId, error } = await supabase.rpc('internal_exchange_post', {
+      request_id: input.requestId,
+      p_company_id: teamMember.company_id,
+      from_cashbox_id: input.fromCashboxId,
+      to_cashbox_id: input.toCashboxId,
+      from_amount: input.fromAmount,
+      rate: input.rate,
+      fee: input.fee || 0,
+      comment: input.comment || null,
+      acted_by: user.id
+    })
+
+    if (error) {
+      console.error('[v0] Error in internal_exchange_post:', error)
+      return { success: false, error: error.message, exchangeLogId: null }
+    }
+
+    revalidatePath('/finance')
+    revalidatePath('/')
+    return { success: true, exchangeLogId, error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in internalExchangePost:', err)
+    return { success: false, error: err.message || 'Unknown error', exchangeLogId: null }
+  }
+}
+
+// ─── Apply Settlement to Exchange Leg ───
+
+export async function applySettlement(dealId: string, legId: string, transactionId: string) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { error } = await supabase.rpc('exchange_apply_settlement', {
+      p_deal_id: dealId,
+      p_leg_id: legId,
+      p_transaction_id: transactionId
+    })
+
+    if (error) {
+      console.error('[v0] Error in exchange_apply_settlement:', error)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/exchange')
+    revalidatePath(`/exchange-deals/${dealId}`)
+    return { success: true, error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in applySettlement:', err)
+    return { success: false, error: err.message || 'Unknown error' }
+  }
+}
+
+// ─── Set Exchange Deal Status ───
+
+export async function setExchangeStatus(dealId: string, statusCode: string) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { error } = await supabase.rpc('exchange_set_status', {
+      p_deal_id: dealId,
+      p_status_code: statusCode
+    })
+
+    if (error) {
+      console.error('[v0] Error in exchange_set_status:', error)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/exchange')
+    revalidatePath(`/exchange-deals/${dealId}`)
+    return { success: true, error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in setExchangeStatus:', err)
+    return { success: false, error: err.message || 'Unknown error' }
+  }
+}
+
+// ─── Get Exchange Statuses ───
+
+export async function getExchangeStatuses() {
+  const supabase = await createServerClient()
+  
+  try {
+    const { data, error } = await supabase
+      .from('exchange_statuses')
+      .select('*')
+      .eq('is_active', true)
+      .order('code')
+
+    if (error) {
+      console.error('[v0] Error fetching exchange statuses:', error)
+      return { success: false, error: error.message, statuses: [] }
+    }
+
+    return { success: true, statuses: data || [], error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in getExchangeStatuses:', err)
+    return { success: false, error: err.message || 'Unknown error', statuses: [] }
+  }
+}

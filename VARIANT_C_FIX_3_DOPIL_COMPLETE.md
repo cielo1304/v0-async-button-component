@@ -36,7 +36,7 @@ Critical fixes for exchange deals module addressing runtime errors, security reg
 
 **Plus Security Fixes:**
 - **Multi-membership support:** Changed company check from "user has any company" to "user is member of THIS company"
-  ```sql
+  \`\`\`sql
   -- OLD (032): Only checked if user had ANY company
   SELECT company_id INTO v_user_company_id
   FROM team_members WHERE user_id = auth.uid() LIMIT 1;
@@ -47,17 +47,17 @@ Critical fixes for exchange deals module addressing runtime errors, security reg
     SELECT 1 FROM team_members
     WHERE user_id = auth.uid() AND company_id = p_company_id
   ) THEN RAISE EXCEPTION 'User is not a member of company %', p_company_id;
-  ```
+  \`\`\`
 
 **Safe NULL Handling:**
 - Optional fields (`cashbox_id`, `rate`, `fee`) now use safe casting:
-  ```sql
+  \`\`\`sql
   CASE 
     WHEN v_leg ? 'cashbox_id' AND NULLIF(v_leg->>'cashbox_id', '') IS NOT NULL 
     THEN (v_leg->>'cashbox_id')::uuid 
     ELSE NULL 
   END
-  ```
+  \`\`\`
 - Prevents crashes from empty strings or null JSON values
 
 **Best Practice:**
@@ -75,7 +75,7 @@ Critical fixes for exchange deals module addressing runtime errors, security reg
 **Solution - Enhanced Security:**
 
 1. **Prevent Double-Posting:**
-   ```sql
+   \`\`\`sql
    IF v_deal.status = 'completed' THEN
      RAISE EXCEPTION 'Deal % is already completed and cannot be posted again', p_deal_id;
    END IF;
@@ -83,20 +83,20 @@ Critical fixes for exchange deals module addressing runtime errors, security reg
    IF v_deal.status = 'cancelled' THEN
      RAISE EXCEPTION 'Deal % is cancelled and cannot be posted', p_deal_id;
    END IF;
-   ```
+   \`\`\`
 
 2. **Multi-Membership Support:**
    - Changed from "user has any company" to "user is member of deal's company"
-   ```sql
+   \`\`\`sql
    IF NOT EXISTS (
      SELECT 1 FROM team_members
      WHERE user_id = auth.uid() AND company_id = v_deal.company_id
    ) THEN RAISE EXCEPTION 'User is not a member of deal company %', v_deal.company_id;
-   ```
+   \`\`\`
 
 3. **Cross-Company Cashbox Prevention:**
    - Added company_id check in JOIN to prevent accessing other companies' cashboxes
-   ```sql
+   \`\`\`sql
    -- OLD (033): Could access any cashbox
    FROM exchange_legs el
    JOIN cashboxes cb ON cb.id = el.cashbox_id
@@ -105,16 +105,16 @@ Critical fixes for exchange deals module addressing runtime errors, security reg
    FROM exchange_legs el
    JOIN cashboxes cb ON cb.id = el.cashbox_id 
                      AND cb.company_id = v_deal.company_id
-   ```
+   \`\`\`
 
 4. **Explicit Company Check:**
    - Added redundant but explicit verification inside loop:
-   ```sql
+   \`\`\`sql
    IF v_leg.cashbox_company_id != v_deal.company_id THEN
      RAISE EXCEPTION 'Cashbox % does not belong to deal company %',
        v_leg.cashbox_id, v_deal.company_id;
    END IF;
-   ```
+   \`\`\`
 
 5. **No Valid Cashboxes Check:**
    - Raises error if no legs with valid company-owned cashboxes found

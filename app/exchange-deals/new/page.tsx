@@ -1,3 +1,12 @@
+import { redirect } from 'next/navigation'
+
+// Ghost route - redirects to /exchange
+export default async function NewExchangeDealPage() {
+  redirect('/exchange')
+}
+
+/* 
+// DEPRECATED - This route is now a ghost route
 'use client'
 
 import { useState } from 'react'
@@ -22,7 +31,7 @@ type Leg = {
   fee: string
 }
 
-export default function NewExchangeDealPage() {
+function NewExchangeDealPageDeprecated() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -320,3 +329,4 @@ export default function NewExchangeDealPage() {
     </div>
   )
 }
+*/
