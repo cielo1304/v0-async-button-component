@@ -123,6 +123,24 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       capturedAt: new Date().toISOString(),
     }
 
+    // 0.7 Fix #4.2 C4: Get company_id from first cashbox (strict)
+    const firstCashboxId = input.clientGives[0]?.cashboxId || input.clientReceives[0]?.cashboxId
+    if (!firstCashboxId) {
+      return { success: false, error: 'No cashbox selected' }
+    }
+
+    const { data: cashboxData, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('company_id')
+      .eq('id', firstCashboxId)
+      .single()
+
+    if (cashboxError || !cashboxData) {
+      return { success: false, error: `Failed to get company_id from cashbox: ${cashboxError?.message || 'unknown'}` }
+    }
+
+    const companyId = cashboxData.company_id
+
     // 1. Determine mode and status
     const mode = input.mode || 'instant'
     const isPending = mode === 'pending'
@@ -202,21 +220,24 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       })
 
       if (isPending) {
-        // Pending: create counterparty ledger entry (+ we owe them)
+        // Pending: create counterparty ledger entry
+        // clientGives: client owes us => -delta (STANDARD: minus = client owes us)
         if (contactId) {
           await supabase.from('counterparty_ledger').insert({
+            company_id: companyId, // Fix #4.2 C4
             counterparty_id: contactId,
             asset_code: line.currency,
-            delta: amount, // + we owe them
+            delta: -amount, // - client owes us (they gave us money, now owe us exchange completion)
             ref_type: 'client_exchange',
             ref_id: operation.id,
             created_by: input.actorEmployeeId,
-            notes: `Pending exchange ${operation.operation_number}: we owe ${amount} ${line.currency}`,
+            notes: `Pending exchange ${operation.operation_number}: client owes ${amount} ${line.currency}`,
           })
         }
         
         // Create cashbox reservation for 'in' side
         await supabase.from('cashbox_reservations').insert({
+          company_id: companyId, // Fix #4.2 C4
           cashbox_id: line.cashboxId,
           asset_code: line.currency,
           amount,
@@ -259,21 +280,24 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       })
 
       if (isPending) {
-        // Pending: create counterparty ledger entry (- they owe us)
+        // Pending: create counterparty ledger entry
+        // clientReceives: we owe client => +delta (STANDARD: plus = we owe client)
         if (contactId) {
           await supabase.from('counterparty_ledger').insert({
+            company_id: companyId, // Fix #4.2 C4
             counterparty_id: contactId,
             asset_code: line.currency,
-            delta: -amount, // - they owe us
+            delta: amount, // + we owe client (we must give them money)
             ref_type: 'client_exchange',
             ref_id: operation.id,
             created_by: input.actorEmployeeId,
-            notes: `Pending exchange ${operation.operation_number}: they owe ${amount} ${line.currency}`,
+            notes: `Pending exchange ${operation.operation_number}: we owe ${amount} ${line.currency}`,
           })
         }
         
         // Create cashbox reservation for 'out' side
         await supabase.from('cashbox_reservations').insert({
+          company_id: companyId, // Fix #4.2 C4
           cashbox_id: line.cashboxId,
           asset_code: line.currency,
           amount,
@@ -387,6 +411,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
   try {
     // STEP 9: Get categories from DB
     const categories = await getExchangeCategories()
+    
     // 1. Get operation with details
     const { data: operation, error: fetchErr } = await supabase
       .from('client_exchange_operations')
@@ -397,19 +422,73 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
     if (fetchErr || !operation) return { success: false, error: 'Операция не найдена' }
     if (operation.status === 'cancelled') return { success: false, error: 'Операция уже отменена' }
 
-    // 2. Reverse all cashbox movements
-    for (const detail of (operation.client_exchange_details || [])) {
-      if (!detail.cashbox_id) continue
-      const reverseAmount = detail.direction === 'give' ? -detail.amount : detail.amount
+    const isPending = operation.status.startsWith('waiting_')
 
-      await supabase.rpc('cashbox_operation', {
-        p_cashbox_id: detail.cashbox_id,
-        p_amount: reverseAmount,
-        p_category: detail.direction === 'give' ? categories.out : categories.in,
-        p_description: `Отмена обмена ${operation.operation_number}: возврат ${Math.abs(reverseAmount)} ${detail.currency}`,
-        p_reference_id: operationId,
-        p_created_by: actorEmployeeId,
-      })
+    // Fix #4.2 C3: Different cancel logic for pending vs completed
+    if (isPending) {
+      // ═══════════════════════════════════════════
+      // Pending cancellation: Release reservations + compensate ledger
+      // ═══════════════════════════════════════════
+      
+      // 2a. Release cashbox reservations
+      const { error: reserveError } = await supabase
+        .from('cashbox_reservations')
+        .update({
+          status: 'released',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('ref_type', 'client_exchange')
+        .eq('ref_id', operationId)
+        .eq('status', 'active')
+
+      if (reserveError) {
+        console.error('[v0] Failed to release reservations:', reserveError)
+      }
+
+      // 2b. Compensate counterparty_ledger to zero out debt
+      if (operation.contact_id) {
+        // Get all ledger entries for this operation
+        const { data: ledgerEntries } = await supabase
+          .from('counterparty_ledger')
+          .select('*')
+          .eq('ref_type', 'client_exchange')
+          .eq('ref_id', operationId)
+
+        // Create compensating entries
+        if (ledgerEntries && ledgerEntries.length > 0) {
+          for (const entry of ledgerEntries) {
+            await supabase.from('counterparty_ledger').insert({
+              counterparty_id: entry.counterparty_id,
+              asset_code: entry.asset_code,
+              delta: -entry.delta, // Opposite sign to cancel out
+              ref_type: 'client_exchange_cancel',
+              ref_id: operationId,
+              created_by: actorEmployeeId,
+              notes: `Cancel pending exchange ${operation.operation_number}: compensate ${entry.delta}`,
+            })
+          }
+        }
+      }
+
+    } else {
+      // ═══════════════════════════════════════════
+      // Completed cancellation: Reverse cashbox movements (old logic)
+      // ═══════════════════════════════════════════
+      
+      // 2. Reverse all cashbox movements
+      for (const detail of (operation.client_exchange_details || [])) {
+        if (!detail.cashbox_id) continue
+        const reverseAmount = detail.direction === 'give' ? -detail.amount : detail.amount
+
+        await supabase.rpc('cashbox_operation', {
+          p_cashbox_id: detail.cashbox_id,
+          p_amount: reverseAmount,
+          p_category: detail.direction === 'give' ? categories.out : categories.in,
+          p_description: `Отмена обмена ${operation.operation_number}: возврат ${Math.abs(reverseAmount)} ${detail.currency}`,
+          p_reference_id: operationId,
+          p_created_by: actorEmployeeId,
+        })
+      }
     }
 
     // 3. Mark operation cancelled
@@ -431,7 +510,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
       entityTable: 'client_exchange_operations',
       entityId: operationId,
       before: { status: operation.status },
-      after: { status: 'cancelled', reason },
+      after: { status: 'cancelled', reason, isPending },
     })
 
     return { success: true, operationNumber: operation.operation_number }

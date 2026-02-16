@@ -97,6 +97,10 @@ export default function ExchangePage() {
   const [employees, setEmployees] = useState<Array<{ id: string; full_name: string }>>([])
   const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
   
+  // Fix #4.2: Pending mode (Advanced)
+  const [exchangeMode, setExchangeMode] = useState<'instant' | 'pending'>('instant')
+  const [pendingStatus, setPendingStatus] = useState<string>('waiting_client')
+  
   // Для редактирования курса из панели (используем EditRateDialog)
   const [selectedRate, setSelectedRate] = useState<ExchangeRate | null>(null)
   const [isRateDialogOpen, setIsRateDialogOpen] = useState(false)
@@ -641,6 +645,9 @@ export default function ExchangePage() {
         beneficiaryContactId: beneficiaryContactId || undefined,
         followupAt: followupAt || undefined,
         followupNote: followupNote || undefined,
+        // Fix #4.2: Pending mode
+        mode: exchangeMode,
+        pendingStatus: exchangeMode === 'pending' ? pendingStatus : undefined,
       })
       
       if (!result.success) {
@@ -648,7 +655,7 @@ export default function ExchangePage() {
         return
       }
       
-      toast.success(`Обмен ${result.operationNumber} выполнен!`)
+      toast.success(`Обмен ${result.operationNumber} ${exchangeMode === 'instant' ? 'выполнен' : 'создан (pending)'}!`)
       
       // Reset form
       setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
@@ -659,6 +666,8 @@ export default function ExchangePage() {
       setBeneficiaryContactId('')
       setFollowupAt('')
       setFollowupNote('')
+      setExchangeMode('instant')
+      setPendingStatus('waiting_client')
       
       // Refresh data
       loadData()
@@ -689,6 +698,8 @@ export default function ExchangePage() {
     setBeneficiaryContactId('')
     setFollowupAt('')
     setFollowupNote('')
+    setExchangeMode('instant')
+    setPendingStatus('waiting_client')
   }
   
   if (isLoading) {
@@ -1303,6 +1314,42 @@ export default function ExchangePage() {
                       className="h-8 text-sm"
                     />
                   </div>
+                </div>
+
+                {/* Fix #4.2: Advanced - Pending Mode */}
+                <div className="space-y-2">
+                  <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+                    <Settings className="h-3.5 w-3.5" />
+                    Advanced
+                  </Label>
+                  <div className="flex gap-2 items-center">
+                    <Select value={exchangeMode} onValueChange={(v: 'instant' | 'pending') => setExchangeMode(v)}>
+                      <SelectTrigger className="h-8 w-[140px] text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="instant">Instant</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    {exchangeMode === 'pending' && (
+                      <Select value={pendingStatus} onValueChange={setPendingStatus}>
+                        <SelectTrigger className="h-8 flex-1 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="waiting_client">Waiting Client</SelectItem>
+                          <SelectItem value="waiting_payout">Waiting Payout</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                  {exchangeMode === 'pending' && (
+                    <p className="text-xs text-amber-400/80">
+                      Pending: деньги не движутся, создаются резервы и записи в леджере
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
