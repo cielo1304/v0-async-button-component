@@ -17,7 +17,7 @@ Migration 026 PART C had a broken `auto_record_expense_v2` function that:
 Fixed scripts/026 PART C with correct architecture:
 
 ### 1. Function Signature (Unchanged)
-```sql
+\`\`\`sql
 auto_record_expense_v2(
   p_car_id UUID,
   p_deal_id UUID DEFAULT NULL,
@@ -32,25 +32,25 @@ auto_record_expense_v2(
   p_expense_date DATE DEFAULT NULL
 )
 RETURNS UUID
-```
+\`\`\`
 
 ### 2. Key Changes
 
 **✅ Drop Function Overload**
-```sql
+\`\`\`sql
 DROP FUNCTION IF EXISTS auto_record_expense_v2(
   UUID, UUID, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID, DATE
 );
-```
+\`\`\`
 
 **✅ Validate Car in Correct Table**
-```sql
+\`\`\`sql
 -- OLD: SELECT 1 FROM auto_cars WHERE id = p_car_id
 -- NEW: SELECT 1 FROM cars WHERE id = p_car_id
-```
+\`\`\`
 
 **✅ Insert Only Existing Columns**
-```sql
+\`\`\`sql
 INSERT INTO auto_expenses (
   car_id,
   deal_id,
@@ -66,23 +66,23 @@ INSERT INTO auto_expenses (
   expense_date
 ) VALUES (...)
 -- NO company_part, NO owner_part columns
-```
+\`\`\`
 
 **✅ Use Correct Category**
-```sql
+\`\`\`sql
 -- OLD: p_category := 'AUTO_EXPENSE'
 -- NEW: p_category := 'EXPENSE'
-```
+\`\`\`
 
 **✅ Update Cars Table Cost**
-```sql
+\`\`\`sql
 -- OLD: UPDATE auto_cars SET cost_price = cost_price + v_company_part
 -- NEW: UPDATE cars SET cost_price = COALESCE(cost_price, 0) + p_amount
-```
+\`\`\`
 Note: Full `p_amount` is added to cost_price, not just company_part
 
 **✅ Company Part Calculation**
-```sql
+\`\`\`sql
 IF p_paid_by = 'COMPANY' THEN
   v_company_part := p_amount;
 ELSIF p_paid_by = 'OWNER' THEN
@@ -92,7 +92,7 @@ ELSIF p_paid_by = 'SHARED' THEN
 ELSE
   RAISE EXCEPTION 'Invalid paid_by value';
 END IF;
-```
+\`\`\`
 
 ### 3. Execution Flow
 

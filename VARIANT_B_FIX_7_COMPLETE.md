@@ -13,7 +13,7 @@ Created migration **027** to drop the old 10-parameter overload, leaving only th
 ## Changes Made
 
 ### 1. New Migration: `scripts/027_drop_auto_record_expense_v2_old_overload.sql`
-```sql
+\`\`\`sql
 -- Drop the old 10-parameter signature (without p_expense_date)
 DROP FUNCTION IF EXISTS auto_record_expense_v2(
   UUID,    -- p_car_id
@@ -27,7 +27,7 @@ DROP FUNCTION IF EXISTS auto_record_expense_v2(
   NUMERIC, -- p_owner_share
   UUID     -- p_actor_employee_id
 );
-```
+\`\`\`
 
 ### 2. Result After Migration 027
 - **Single function signature**: Only the 11-parameter version from migration 026 remains
@@ -44,7 +44,7 @@ DROP FUNCTION IF EXISTS auto_record_expense_v2(
 
 ## Function Signature After Fix
 
-```typescript
+\`\`\`typescript
 auto_record_expense_v2(
   p_car_id: UUID,
   p_deal_id: UUID = NULL,
@@ -58,7 +58,7 @@ auto_record_expense_v2(
   p_actor_employee_id: UUID = NULL,
   p_expense_date: DATE = NULL  // ← Defaults to CURRENT_DATE inside function
 )
-```
+\`\`\`
 
 ## Testing
 1. Call `recordAutoExpenseV2` without `expenseDate` → Should use `CURRENT_DATE`
