@@ -13,7 +13,7 @@ Migration 027 (из PR #26) был недостаточно безопасен:
 
 ### 1. Создана миграция: `scripts/028_harden_auto_record_expense_v2_drop_and_comment.sql`
 
-```sql
+\`\`\`sql
 -- Drop old 10-param overload точно по схеме
 DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
   UUID, UUID, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID
@@ -23,7 +23,7 @@ DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
 COMMENT ON FUNCTION public.auto_record_expense_v2(
   UUID, UUID, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID, DATE
 ) IS 'Record auto expense with null-safe expense_date, cashbox integration via EXPENSE category, and P&L recalc. Single function signature after migration 027/028.';
-```
+\`\`\`
 
 ## Что делает миграция
 
@@ -69,9 +69,9 @@ COMMENT ON FUNCTION public.auto_record_expense_v2(
 ## Deployment
 
 Выполнить в Supabase SQL Editor:
-```sql
+\`\`\`sql
 \i scripts/028_harden_auto_record_expense_v2_drop_and_comment.sql
-```
+\`\`\`
 
 Или через GitHub Actions/CI (если настроено).
 
@@ -79,7 +79,7 @@ COMMENT ON FUNCTION public.auto_record_expense_v2(
 
 После deployment проверить:
 
-```sql
+\`\`\`sql
 -- Должна быть только одна функция
 SELECT 
   proname,
@@ -90,7 +90,7 @@ WHERE proname = 'auto_record_expense_v2'
   AND pronamespace = 'public'::regnamespace;
 
 -- Ожидаемый результат: 1 строка с 11 параметрами
-```
+\`\`\`
 
 ---
 

@@ -343,3 +343,104 @@ export async function fetchExternalRate(fromCurrency: string, toCurrency: string
     return { rate: null, error: 'Ошибка загрузки курса' }
   }
 }
+
+// =============================================
+// Variant C: Exchange Deals (новый модуль обмена)
+// =============================================
+
+export type ExchangeDealWithLegs = {
+  id: string
+  company_id: string
+  created_by: string | null
+  created_at: string
+  deal_date: string
+  status: string
+  comment: string | null
+  leg_count?: number
+}
+
+export type ExchangeLeg = {
+  id: string
+  company_id: string
+  deal_id: string
+  created_at: string
+  direction: 'out' | 'in'
+  asset_kind: 'fiat' | 'crypto' | 'gold' | 'other'
+  asset_code: string
+  amount: number
+  cashbox_id: string | null
+  rate: number | null
+  fee: number | null
+}
+
+// ─── Get Exchange Deals List ───
+
+export async function getExchangeDeals() {
+  const supabase = await createServerClient()
+  
+  try {
+    // Get deals (RLS will filter by company_id automatically)
+    const { data: deals, error } = await supabase
+      .from('exchange_deals')
+      .select('*')
+      .order('deal_date', { ascending: false })
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('[v0] Error fetching exchange deals:', error)
+      return { success: false, error: error.message, deals: [] }
+    }
+
+    // Get leg counts for each deal
+    const dealIds = deals?.map(d => d.id) || []
+    if (dealIds.length === 0) {
+      return { success: true, deals: [] }
+    }
+
+    const { data: legCounts } = await supabase
+      .from('exchange_legs')
+      .select('deal_id')
+      .in('deal_id', dealIds)
+
+    // Count legs per deal
+    const legCountMap: Record<string, number> = {}
+    legCounts?.forEach(leg => {
+      legCountMap[leg.deal_id] = (legCountMap[leg.deal_id] || 0) + 1
+    })
+
+    // Attach leg count to each deal
+    const dealsWithCounts = deals?.map(deal => ({
+      ...deal,
+      leg_count: legCountMap[deal.id] || 0
+    })) || []
+
+    return { success: true, deals: dealsWithCounts }
+  } catch (err: any) {
+    console.error('[v0] Exception in getExchangeDeals:', err)
+    return { success: false, error: err.message || 'Unknown error', deals: [] }
+  }
+}
+
+// ─── Get Exchange Legs by Deal ID ───
+
+export async function getExchangeLegsByDeal(dealId: string) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { data: legs, error } = await supabase
+      .from('exchange_legs')
+      .select('*')
+      .eq('deal_id', dealId)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      console.error('[v0] Error fetching exchange legs:', error)
+      return { success: false, error: error.message, legs: [] }
+    }
+
+    return { success: true, legs: legs || [] }
+  } catch (err: any) {
+    console.error('[v0] Exception in getExchangeLegsByDeal:', err)
+    return { success: false, error: err.message || 'Unknown error', legs: [] }
+  }
+}
