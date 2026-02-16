@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import Link from 'next/link'
 import { ArrowLeft, ArrowDown, ArrowUp } from 'lucide-react'
 import { notFound } from 'next/navigation'
+import { PostToCashboxesButton } from '@/components/exchange/post-to-cashboxes-button'
 
 const statusVariants: Record<string, 'default' | 'secondary' | 'destructive'> = {
   draft: 'secondary',
@@ -35,20 +36,30 @@ export default async function ExchangeDealDetailsPage({ params }: { params: { id
 
   const { deal, legs } = result
 
+  // Check if deal has legs with cashbox_id
+  const hasLegsWithCashbox = legs.some(leg => leg.cashbox_id !== null)
+  const canPost = hasLegsWithCashbox && deal.status === 'draft'
+
   return (
     <div className="container mx-auto p-6 max-w-4xl space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link href="/exchange-deals">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Назад
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold">Детали сделки обмена</h1>
-          <p className="text-sm text-muted-foreground">ID: {deal.id}</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <Link href="/exchange-deals">
+            <Button variant="ghost" size="sm">
+              <ArrowLeft className="w-4 h-4 mr-2" />
+              Назад
+            </Button>
+          </Link>
+          <div>
+            <h1 className="text-2xl font-bold">Детали сделки обмена</h1>
+            <p className="text-sm text-muted-foreground">ID: {deal.id}</p>
+          </div>
         </div>
+
+        {canPost && (
+          <PostToCashboxesButton dealId={deal.id} />
+        )}
       </div>
 
       {/* Deal Info */}

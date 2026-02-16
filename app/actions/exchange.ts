@@ -551,3 +551,28 @@ export async function createExchangeDeal(input: CreateExchangeDealInput) {
     return { success: false, error: err.message || 'Unknown error', dealId: null }
   }
 }
+
+// ─── Post Exchange Deal to Cashboxes ───
+
+export async function postExchangeDealToCashboxes(dealId: string) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { error } = await supabase.rpc('exchange_deal_post_to_cashboxes', {
+      p_deal_id: dealId
+    })
+
+    if (error) {
+      console.error('[v0] Error posting exchange deal to cashboxes:', error)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/exchange-deals')
+    revalidatePath(`/exchange-deals/${dealId}`)
+    revalidatePath('/finance')
+    return { success: true, error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in postExchangeDealToCashboxes:', err)
+    return { success: false, error: err.message || 'Unknown error' }
+  }
+}
