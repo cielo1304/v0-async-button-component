@@ -15,7 +15,8 @@ Created migration **027** to drop the old 10-parameter overload, leaving only th
 ### 1. New Migration: `scripts/027_drop_auto_record_expense_v2_old_overload.sql`
 \`\`\`sql
 -- Drop the old 10-parameter signature (without p_expense_date)
-DROP FUNCTION IF EXISTS auto_record_expense_v2(
+-- Uses explicit public. schema prefix for safety
+DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
   UUID,    -- p_car_id
   UUID,    -- p_deal_id
   UUID,    -- p_cashbox_id
