@@ -45,10 +45,10 @@ Recreated `exchange_deal_create()` RPC with additional security checks:
    - Prevents cross-tenant operations
 
 **Error Messages:**
-```sql
+\`\`\`sql
 RAISE EXCEPTION 'p_created_by must match authenticated user'
 RAISE EXCEPTION 'p_company_id must match user company'
-```
+\`\`\`
 
 **Existing Logic Preserved:**
 - Minimum 2 legs validation
@@ -110,7 +110,7 @@ RAISE EXCEPTION 'p_company_id must match user company'
 ### Server Action: `app/actions/exchange.ts`
 
 Added `postExchangeDealToCashboxes(dealId: string)`:
-```typescript
+\`\`\`typescript
 export async function postExchangeDealToCashboxes(dealId: string) {
   const supabase = await createServerClient()
   
@@ -133,7 +133,7 @@ export async function postExchangeDealToCashboxes(dealId: string) {
     return { success: false, error: err.message || 'Unknown error' }
   }
 }
-```
+\`\`\`
 
 ### UI Component: `components/exchange/post-to-cashboxes-button.tsx`
 
@@ -145,10 +145,10 @@ export async function postExchangeDealToCashboxes(dealId: string) {
 - Auto-refresh page on success
 
 **Display Logic:**
-```typescript
+\`\`\`typescript
 const hasLegsWithCashbox = legs.some(leg => leg.cashbox_id !== null)
 const canPost = hasLegsWithCashbox && deal.status === 'draft'
-```
+\`\`\`
 
 Button only shown when:
 - At least one leg has `cashbox_id`
@@ -165,15 +165,15 @@ Button only shown when:
 ## Security Improvements
 
 ### Before (Variant C Fix #2):
-```sql
+\`\`\`sql
 -- Allow-all policies
 CREATE POLICY "Allow all operations on exchange_deals for authenticated users"
 ON exchange_deals FOR ALL
 USING (auth.uid() IS NOT NULL);
-```
+\`\`\`
 
 ### After (Variant C Fix #3):
-```sql
+\`\`\`sql
 -- Tenant-isolated policies
 CREATE POLICY "exchange_deals_select_by_company"
 ON exchange_deals FOR SELECT
@@ -181,7 +181,7 @@ USING (
   company_id IN (SELECT company_id FROM team_members WHERE user_id = auth.uid())
 );
 -- ... + INSERT, UPDATE, DELETE policies
-```
+\`\`\`
 
 **Impact:**
 - User A (Company X) cannot see deals from User B (Company Y)
@@ -243,7 +243,7 @@ USING (
 ## Migration Order
 
 **Execute in this order:**
-```bash
+\`\`\`bash
 # 1. Secure RLS
 psql < scripts/031_exchange_rls_tenant_isolation.sql
 
@@ -252,7 +252,7 @@ psql < scripts/032_exchange_deal_create_enforce_auth.sql
 
 # 3. Add cashbox posting
 psql < scripts/033_exchange_deal_post_to_cashboxes.sql
-```
+\`\`\`
 
 ---
 
