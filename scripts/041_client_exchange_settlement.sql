@@ -27,20 +27,15 @@ DECLARE
   v_counterparty_id UUID;
 BEGIN
   -- ═══════════════════════════════════════════
-  -- 1. Auth check: verify user belongs to company
+  -- 1. Auth check: verify user is authenticated
   -- ═══════════════════════════════════════════
   
-  SELECT company_id INTO v_company_id
-  FROM team_members
-  WHERE user_id = auth.uid()
-  LIMIT 1;
-  
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'User not found in any company';
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 2. Fetch deal and verify company membership
+  -- 2. Fetch deal first to get company_id
   -- ═══════════════════════════════════════════
   
   SELECT * INTO v_deal
@@ -51,12 +46,22 @@ BEGIN
     RAISE EXCEPTION 'Exchange deal not found: %', p_deal_id;
   END IF;
   
-  IF v_deal.company_id != v_company_id THEN
-    RAISE EXCEPTION 'Deal does not belong to user company';
+  -- ═══════════════════════════════════════════
+  -- 3. Verify user belongs to deal's company
+  -- ═══════════════════════════════════════════
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM team_members
+    WHERE user_id = auth.uid()
+    AND company_id = v_deal.company_id
+  ) THEN
+    RAISE EXCEPTION 'User does not belong to deal company';
   END IF;
   
+  v_company_id := v_deal.company_id;
+  
   -- ═══════════════════════════════════════════
-  -- 3. Fetch leg
+  -- 4. Fetch leg
   -- ═══════════════════════════════════════════
   
   SELECT * INTO v_leg
@@ -68,7 +73,7 @@ BEGIN
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 4. Fetch transaction and verify it belongs to leg's cashbox
+  -- 5. Fetch transaction and verify it belongs to leg's cashbox
   -- ═══════════════════════════════════════════
   
   SELECT * INTO v_transaction
@@ -84,13 +89,13 @@ BEGIN
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 5. Calculate settled amount (absolute value of transaction)
+  -- 6. Calculate settled amount (absolute value of transaction)
   -- ═══════════════════════════════════════════
   
   v_settled_amount := ABS(v_transaction.amount);
   
   -- ═══════════════════════════════════════════
-  -- 6. Update amount_settled on leg
+  -- 7. Update amount_settled on leg
   -- ═══════════════════════════════════════════
   
   -- Add amount_settled column if it doesn't exist
@@ -110,7 +115,7 @@ BEGIN
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 7. Determine counterparty from deal metadata
+  -- 8. Determine counterparty from deal metadata
   -- ═══════════════════════════════════════════
   
   -- Check if deal has counterparty_id field
@@ -132,7 +137,7 @@ BEGIN
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 8. Create counterparty ledger entry
+  -- 9. Create counterparty ledger entry
   -- ═══════════════════════════════════════════
   -- Convention: +delta = we owe them, -delta = they owe us
   
@@ -167,7 +172,7 @@ BEGIN
   );
   
   -- ═══════════════════════════════════════════
-  -- 9. Optionally release/update reservations
+  -- 10. Optionally release/update reservations
   -- ═══════════════════════════════════════════
   
   -- Mark reservation as settled if it exists

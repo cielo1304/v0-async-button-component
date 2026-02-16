@@ -16,6 +16,11 @@ const ExchangeSchema = z.object({
 
 export type ExchangeInput = z.infer<typeof ExchangeSchema>
 
+/**
+ * @deprecated Use internalExchangePost instead for better security and atomicity.
+ * This function uses compensating transactions which are not truly atomic.
+ * Will be removed in a future version.
+ */
 export async function executeExchange(input: ExchangeInput) {
   const supabase = await createServerClient()
   

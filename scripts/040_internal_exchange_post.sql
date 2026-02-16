@@ -36,6 +36,22 @@ DECLARE
   v_available_balance NUMERIC;
 BEGIN
   -- ═══════════════════════════════════════════
+  -- 0. SECURITY: Auth and company membership check
+  -- ═══════════════════════════════════════════
+  
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM team_members 
+    WHERE user_id = auth.uid() 
+    AND company_id = p_company_id
+  ) THEN
+    RAISE EXCEPTION 'User does not belong to company';
+  END IF;
+  
+  -- ═══════════════════════════════════════════
   -- 1. Idempotency check
   -- ═══════════════════════════════════════════
   
