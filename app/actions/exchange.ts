@@ -379,7 +379,7 @@ export async function getExchangeDeals() {
   const supabase = await createServerClient()
   
   try {
-    // Get deals (RLS will filter by company_id automatically)
+    // Get deals
     const { data: deals, error } = await supabase
       .from('exchange_deals')
       .select('*')
