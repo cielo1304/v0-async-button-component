@@ -71,7 +71,7 @@ This fix implements a secure separation between internal exchange (between compa
 
 New wrapper functions in `/app/actions/exchange.ts`:
 
-```typescript
+\`\`\`typescript
 // Internal exchange (for /finance)
 await internalExchangePost({
   requestId: crypto.randomUUID(),
@@ -91,7 +91,7 @@ await setExchangeStatus(dealId, 'completed')
 
 // Get available statuses
 await getExchangeStatuses()
-```
+\`\`\`
 
 ## Migration Instructions
 
@@ -99,7 +99,7 @@ await getExchangeStatuses()
 
 Run migrations in order using your Supabase dashboard or SQL editor:
 
-```bash
+\`\`\`bash
 # In Supabase SQL Editor, run each file in order:
 1. scripts/037_exchange_statuses.sql
 2. scripts/038_cashbox_reservations.sql
@@ -107,28 +107,28 @@ Run migrations in order using your Supabase dashboard or SQL editor:
 4. scripts/040_internal_exchange_post.sql
 5. scripts/041_client_exchange_settlement.sql
 6. scripts/042_client_exchange_status_change.sql
-```
+\`\`\`
 
 ### Step 2: Update Route Inventory
 
-```bash
+\`\`\`bash
 npm run route-audit
-```
+\`\`\`
 
 ### Step 3: Add CI Check (Optional)
 
 Add to your CI pipeline:
 
-```yaml
+\`\`\`yaml
 - name: Check route inventory
   run: npm run route-check
-```
+\`\`\`
 
 ## Usage Examples
 
 ### Internal Exchange (/finance)
 
-```typescript
+\`\`\`typescript
 import { internalExchangePost } from '@/app/actions/exchange'
 
 const result = await internalExchangePost({
@@ -144,11 +144,11 @@ const result = await internalExchangePost({
 if (result.success) {
   console.log('Exchange completed:', result.exchangeLogId)
 }
-```
+\`\`\`
 
 ### Client Exchange with Settlement (/exchange)
 
-```typescript
+\`\`\`typescript
 // 1. Create exchange deal (existing functionality)
 const deal = await createExchangeDeal({
   dealDate: new Date().toISOString(),
@@ -173,22 +173,22 @@ await applySettlement(deal.dealId, inLegId, txId)
 // 5. Complete the deal
 await setExchangeStatus(deal.dealId, 'completed')
 // This releases all reservations and finalizes the deal
-```
+\`\`\`
 
 ### Check Available Balance
 
-```sql
+\`\`\`sql
 -- In Supabase SQL Editor or via RPC
 SELECT cashbox_available_balance('cashbox-uuid-here');
 
 -- Or use the view
 SELECT * FROM cashbox_balances_with_reserved
 WHERE company_id = 'company-uuid';
-```
+\`\`\`
 
 ### Check Counterparty Balance
 
-```sql
+\`\`\`sql
 -- Get specific asset balance
 SELECT counterparty_balance(
   'company-uuid',
@@ -203,7 +203,7 @@ SELECT * FROM counterparty_total_balances(
   'company-uuid',
   'client-uuid'
 );
-```
+\`\`\`
 
 ## Architecture Notes
 

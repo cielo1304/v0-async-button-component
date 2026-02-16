@@ -69,6 +69,9 @@ export interface SubmitExchangeInput {
   followupNote?: string
   visibilityMode?: 'public' | 'restricted'
   allowedRoleCodes?: string[]
+  // Fix #4.1: Pending mode support
+  mode?: 'instant' | 'pending'
+  pendingStatus?: string // Status code like 'waiting_client' or 'waiting_payout'
 }
 
 export interface ExchangeResult {
@@ -120,7 +123,12 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       capturedAt: new Date().toISOString(),
     }
 
-    // 1. Create main operation
+    // 1. Determine mode and status
+    const mode = input.mode || 'instant'
+    const isPending = mode === 'pending'
+    const operationStatus = isPending ? (input.pendingStatus || 'waiting_client') : 'completed'
+    
+    // 1.5 Create main operation
     const { data: operation, error: opError } = await supabase
       .from('client_exchange_operations')
       .insert({
@@ -139,10 +147,10 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
         rates_snapshot: ratesSnapshot,
         visibility_mode: input.visibilityMode || 'public',
         allowed_role_codes: input.allowedRoleCodes || [],
-        status: 'completed',
-        completed_at: new Date().toISOString(),
+        status: operationStatus,
+        completed_at: isPending ? null : new Date().toISOString(),
         created_by: input.actorEmployeeId,
-        completed_by: input.actorEmployeeId,
+        completed_by: isPending ? null : input.actorEmployeeId,
         responsible_employee_id: input.actorEmployeeId,
       })
       .select()
@@ -193,15 +201,43 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
         amount_in_base: rateInfo?.amountInBase || null,
       })
 
-      // Atomic: update cashbox + insert transaction
-      await supabase.rpc('cashbox_operation', {
-        p_cashbox_id: line.cashboxId,
-        p_amount: amount,
-        p_category: categories.in,
-        p_description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
-        p_reference_id: operation.id,
-        p_created_by: input.actorEmployeeId,
-      })
+      if (isPending) {
+        // Pending: create counterparty ledger entry (+ we owe them)
+        if (contactId) {
+          await supabase.from('counterparty_ledger').insert({
+            counterparty_id: contactId,
+            asset_code: line.currency,
+            delta: amount, // + we owe them
+            ref_type: 'client_exchange',
+            ref_id: operation.id,
+            created_by: input.actorEmployeeId,
+            notes: `Pending exchange ${operation.operation_number}: we owe ${amount} ${line.currency}`,
+          })
+        }
+        
+        // Create cashbox reservation for 'in' side
+        await supabase.from('cashbox_reservations').insert({
+          cashbox_id: line.cashboxId,
+          asset_code: line.currency,
+          amount,
+          side: 'in',
+          ref_type: 'client_exchange',
+          ref_id: operation.id,
+          status: 'active',
+          created_by: input.actorEmployeeId,
+          notes: `Pending exchange ${operation.operation_number}: awaiting ${amount} ${line.currency}`,
+        })
+      } else {
+        // Instant: update cashbox + insert transaction
+        await supabase.rpc('cashbox_operation', {
+          p_cashbox_id: line.cashboxId,
+          p_amount: amount,
+          p_category: categories.in,
+          p_description: `Клиентский обмен ${operation.operation_number}: получено ${amount} ${line.currency}`,
+          p_reference_id: operation.id,
+          p_created_by: input.actorEmployeeId,
+        })
+      }
     }
 
     // 3. Process "receives" - client receives, we give from cashbox
@@ -222,15 +258,43 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
         amount_in_base: rateInfo?.amountInBase || null,
       })
 
-      // Atomic: decrease cashbox + insert transaction
-      await supabase.rpc('cashbox_operation', {
-        p_cashbox_id: line.cashboxId,
-        p_amount: -amount,
-        p_category: categories.out,
-        p_description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
-        p_reference_id: operation.id,
-        p_created_by: input.actorEmployeeId,
-      })
+      if (isPending) {
+        // Pending: create counterparty ledger entry (- they owe us)
+        if (contactId) {
+          await supabase.from('counterparty_ledger').insert({
+            counterparty_id: contactId,
+            asset_code: line.currency,
+            delta: -amount, // - they owe us
+            ref_type: 'client_exchange',
+            ref_id: operation.id,
+            created_by: input.actorEmployeeId,
+            notes: `Pending exchange ${operation.operation_number}: they owe ${amount} ${line.currency}`,
+          })
+        }
+        
+        // Create cashbox reservation for 'out' side
+        await supabase.from('cashbox_reservations').insert({
+          cashbox_id: line.cashboxId,
+          asset_code: line.currency,
+          amount,
+          side: 'out',
+          ref_type: 'client_exchange',
+          ref_id: operation.id,
+          status: 'active',
+          created_by: input.actorEmployeeId,
+          notes: `Pending exchange ${operation.operation_number}: reserved ${amount} ${line.currency}`,
+        })
+      } else {
+        // Instant: decrease cashbox + insert transaction
+        await supabase.rpc('cashbox_operation', {
+          p_cashbox_id: line.cashboxId,
+          p_amount: -amount,
+          p_category: categories.out,
+          p_description: `Клиентский обмен ${operation.operation_number}: выдано ${amount} ${line.currency}`,
+          p_reference_id: operation.id,
+          p_created_by: input.actorEmployeeId,
+        })
+      }
     }
 
     // 4. Log contact event

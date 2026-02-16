@@ -28,10 +28,10 @@
 - **CI/CD Integration**: `npm run route-check` fails if ROUTES.md is stale
 
 **NPM Scripts Added:**
-```json
+\`\`\`json
 "route-audit": "npx ts-node scripts/route-audit.ts",
 "route-check": "npx ts-node scripts/route-audit.ts && git diff --exit-code ROUTES.md"
-```
+\`\`\`
 
 ---
 
@@ -53,7 +53,7 @@
 - RLS policies for multi-tenancy
 
 **Schema:**
-```sql
+\`\`\`sql
 CREATE TABLE exchange_statuses (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id),
@@ -68,7 +68,7 @@ CREATE TABLE exchange_statuses (
   display_order INTEGER DEFAULT 0,
   UNIQUE(company_id, code)
 );
-```
+\`\`\`
 
 ---
 
@@ -88,7 +88,7 @@ CREATE TABLE exchange_statuses (
 - **Status**: `active`, `released`, `expired`, `consumed`
 
 **Functions:**
-```sql
+\`\`\`sql
 -- Reserve funds for a deal
 reserve_cashbox_amount(p_cashbox_id, p_currency_code, p_amount, p_reason, p_expires_at)
 
@@ -100,10 +100,10 @@ release_expired_reservations()
 
 -- Get available balance (total - reserved)
 get_available_balance(p_cashbox_id, p_currency_code) RETURNS NUMERIC
-```
+\`\`\`
 
 **View:**
-```sql
+\`\`\`sql
 CREATE VIEW cashbox_reserved_sums AS
 SELECT 
   cashbox_id,
@@ -113,7 +113,7 @@ SELECT
 FROM cashbox_reservations
 WHERE status = 'active' AND (expires_at IS NULL OR expires_at > NOW())
 GROUP BY cashbox_id, currency_code;
-```
+\`\`\`
 
 ---
 
@@ -127,7 +127,7 @@ GROUP BY cashbox_id, currency_code;
 - View for current balance per client per currency
 
 **Schema:**
-```sql
+\`\`\`sql
 CREATE TABLE counterparty_ledger (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_id UUID NOT NULL REFERENCES companies(id),
@@ -143,10 +143,10 @@ CREATE TABLE counterparty_ledger (
   created_at TIMESTAMPTZ DEFAULT NOW(),
   created_by UUID REFERENCES auth.users(id)
 );
-```
+\`\`\`
 
 **View:**
-```sql
+\`\`\`sql
 CREATE VIEW counterparty_balances AS
 SELECT 
   company_id,
@@ -156,7 +156,7 @@ SELECT
 FROM counterparty_ledger
 GROUP BY company_id, contact_id, currency_code
 HAVING SUM(CASE WHEN direction = 'debit' THEN amount ELSE -amount END) != 0;
-```
+\`\`\`
 
 **Use Cases:**
 - Client owes us 1000 RUB → `debit` entry
@@ -175,7 +175,7 @@ HAVING SUM(CASE WHEN direction = 'debit' THEN amount ELSE -amount END) != 0;
 - Atomic transaction with rollback on error
 
 **Function Signature:**
-```sql
+\`\`\`sql
 CREATE OR REPLACE FUNCTION internal_exchange_post(
   request_id TEXT,
   p_company_id UUID,
@@ -187,7 +187,7 @@ CREATE OR REPLACE FUNCTION internal_exchange_post(
   comment TEXT DEFAULT NULL,
   acted_by UUID DEFAULT NULL
 ) RETURNS UUID  -- Returns exchange_log.id
-```
+\`\`\`
 
 **Flow:**
 1. Validate cashboxes belong to company
@@ -215,13 +215,13 @@ CREATE OR REPLACE FUNCTION internal_exchange_post(
 - Posts to counterparty_ledger for tracking
 
 **Function Signature:**
-```sql
+\`\`\`sql
 CREATE OR REPLACE FUNCTION exchange_apply_settlement(
   p_deal_id UUID,
   p_leg_id UUID,
   p_transaction_id UUID
 ) RETURNS VOID
-```
+\`\`\`
 
 **Flow:**
 1. Validate leg belongs to deal
@@ -249,15 +249,15 @@ CREATE OR REPLACE FUNCTION exchange_apply_settlement(
 - Creates audit log entry
 
 **Function Signature:**
-```sql
+\`\`\`sql
 CREATE OR REPLACE FUNCTION exchange_set_status(
   p_deal_id UUID,
   p_status_code TEXT
 ) RETURNS VOID
-```
+\`\`\`
 
 **Status Workflow:**
-```
+\`\`\`
 draft → waiting_client (reserve our payout funds)
   ↓
 waiting_payout (client paid, waiting to pay them)
@@ -266,7 +266,7 @@ completed (both sides settled)
 
 cancelled (release reservations)
 failed (release reservations, log error)
-```
+\`\`\`
 
 **Reservation Logic:**
 - When entering `waiting_client`: Reserve funds for all `out` legs in our cashboxes
@@ -281,7 +281,7 @@ failed (release reservations, log error)
 
 **New Functions Added:**
 
-```typescript
+\`\`\`typescript
 // Internal exchange for /finance (no deal, immediate posting)
 export async function internalExchangePost(input: InternalExchangeInput): Promise<{
   success: boolean
@@ -308,10 +308,10 @@ export async function getExchangeStatuses(): Promise<{
   statuses: ExchangeStatus[]
   error: string | null
 }>
-```
+\`\`\`
 
 **Type Definitions:**
-```typescript
+\`\`\`typescript
 export type InternalExchangeInput = {
   requestId: string
   fromCashboxId: string
@@ -335,7 +335,7 @@ export type ExchangeStatus = {
   is_active: boolean
   display_order: number
 }
-```
+\`\`\`
 
 ---
 
@@ -347,7 +347,7 @@ export type ExchangeStatus = {
 - `/exchange-deals/new` → redirects to `/exchange`
 
 **Implementation Pattern:**
-```typescript
+\`\`\`typescript
 import { redirect } from 'next/navigation'
 
 // Ghost route - redirects to /exchange
@@ -356,7 +356,7 @@ export default async function ExchangeDealsPage() {
 }
 
 /* DEPRECATED - Original code commented out for reference */
-```
+\`\`\`
 
 **Why Ghost Routes?**
 - `/exchange-deals` was legacy internal exchange UI
@@ -382,7 +382,7 @@ All new tables include:
 
 ### Example 1: Internal Exchange (Finance Page)
 
-```typescript
+\`\`\`typescript
 import { internalExchangePost } from '@/app/actions/exchange'
 
 // User swaps 1000 RUB to USD in finance page
@@ -397,11 +397,11 @@ const result = await internalExchangePost({
 })
 
 // result.exchangeLogId can be used to link to deal records
-```
+\`\`\`
 
 ### Example 2: Client Exchange with Reservation
 
-```typescript
+\`\`\`typescript
 import { createExchangeDeal, setExchangeStatus } from '@/app/actions/exchange'
 
 // 1. Create deal
@@ -443,11 +443,11 @@ await applySettlement(dealId, outLegId, payoutTxId)
 
 // 8. Move to completed (reservation marked as consumed)
 await setExchangeStatus(dealId, 'completed')
-```
+\`\`\`
 
 ### Example 3: Check Available Balance
 
-```typescript
+\`\`\`typescript
 import { createServerClient } from '@/lib/supabase/server'
 
 const supabase = await createServerClient()
@@ -469,7 +469,7 @@ const { data: cashbox } = await supabase
 
 console.log(`Total: ${cashbox.balance} USD`)
 console.log(`Reserved: ${cashbox.balance - availableBalance} USD`)
-```
+\`\`\`
 
 ---
 

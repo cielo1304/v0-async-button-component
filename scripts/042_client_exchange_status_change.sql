@@ -29,20 +29,15 @@ DECLARE
   v_total_settled NUMERIC;
 BEGIN
   -- ═══════════════════════════════════════════
-  -- 1. Auth check: verify user belongs to company
+  -- 1. Auth check: verify user is authenticated
   -- ═══════════════════════════════════════════
   
-  SELECT company_id INTO v_company_id
-  FROM team_members
-  WHERE user_id = auth.uid()
-  LIMIT 1;
-  
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'User not found in any company';
+  IF auth.uid() IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
   END IF;
   
   -- ═══════════════════════════════════════════
-  -- 2. Fetch deal and verify company membership
+  -- 2. Fetch deal first to get company_id
   -- ═══════════════════════════════════════════
   
   SELECT * INTO v_deal
@@ -54,12 +49,22 @@ BEGIN
     RAISE EXCEPTION 'Exchange deal not found: %', p_deal_id;
   END IF;
   
-  IF v_deal.company_id != v_company_id THEN
-    RAISE EXCEPTION 'Deal does not belong to user company';
+  -- ═══════════════════════════════════════════
+  -- 3. Verify user belongs to deal's company
+  -- ═══════════════════════════════════════════
+  
+  IF NOT EXISTS (
+    SELECT 1 FROM team_members
+    WHERE user_id = auth.uid()
+    AND company_id = v_deal.company_id
+  ) THEN
+    RAISE EXCEPTION 'User does not belong to deal company';
   END IF;
   
+  v_company_id := v_deal.company_id;
+  
   -- ═══════════════════════════════════════════
-  -- 3. Fetch status definition and extract flags
+  -- 4. Fetch status definition and extract flags
   -- ═══════════════════════════════════════════
   
   SELECT * INTO v_status
@@ -156,7 +161,8 @@ BEGIN
         auth.uid(),
         'Reservation for exchange deal ' || p_deal_id::TEXT
       )
-      ON CONFLICT ON CONSTRAINT idx_cashbox_reservations_unique_ref
+      ON CONFLICT (ref_type, ref_id, cashbox_id, asset_code, side, status) 
+      WHERE status = 'active'
       DO UPDATE SET
         amount = EXCLUDED.amount,
         updated_at = NOW();
