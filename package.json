@@ -6,6 +6,8 @@
     "build": "next build",
     "dev": "next dev",
     "lint": "eslint .",
+    "route-audit": "npx ts-node scripts/route-audit.ts",
+    "route-check": "npx ts-node scripts/route-audit.ts && git diff --exit-code ROUTES.md || (echo 'ROUTES.md is out of date! Run: npm run route-audit' && exit 1)",
     "start": "next start"
   },
   "dependencies": {
