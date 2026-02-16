@@ -411,6 +411,10 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
   try {
     // STEP 9: Get categories from DB
     const categories = await getExchangeCategories()
+
+    // Get auth user for created_by (actorEmployeeId may not be auth.users id)
+    const { data: { user } } = await supabase.auth.getUser()
+    const authUserId = user?.id ?? null
     
     // 1. Get operation with details
     const { data: operation, error: fetchErr } = await supabase
@@ -428,6 +432,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
     if (isPending) {
       // ═══════════════════════════════════════════
       // Pending cancellation: Release reservations + compensate ledger
+      // NO cashbox movements - pending never touched cashboxes
       // ═══════════════════════════════════════════
       
       // 2a. Release cashbox reservations
@@ -442,7 +447,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
         .eq('status', 'active')
 
       if (reserveError) {
-        console.error('[v0] Failed to release reservations:', reserveError)
+        console.error('[client-exchange] Failed to release reservations:', reserveError)
       }
 
       // 2b. Compensate counterparty_ledger to zero out debt
@@ -454,17 +459,18 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
           .eq('ref_type', 'client_exchange')
           .eq('ref_id', operationId)
 
-        // Create compensating entries
+        // Create compensating entries with company_id from original entry
         if (ledgerEntries && ledgerEntries.length > 0) {
           for (const entry of ledgerEntries) {
             await supabase.from('counterparty_ledger').insert({
+              company_id: entry.company_id, // MUST carry company_id from original entry
               counterparty_id: entry.counterparty_id,
               asset_code: entry.asset_code,
               delta: -entry.delta, // Opposite sign to cancel out
               ref_type: 'client_exchange_cancel',
               ref_id: operationId,
-              created_by: actorEmployeeId,
-              notes: `Cancel pending exchange ${operation.operation_number}: compensate ${entry.delta}`,
+              created_by: authUserId, // Use auth user, not actorEmployeeId
+              notes: `Cancel pending exchange ${operation.operation_number}: compensate ${entry.delta} (actor: ${actorEmployeeId})`,
             })
           }
         }

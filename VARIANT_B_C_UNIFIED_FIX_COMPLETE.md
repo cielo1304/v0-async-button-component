@@ -24,7 +24,7 @@
 - Добавлен `public.` schema prefix для точности
 - Удален некорректный COMMENT без explicit signature
 
-```sql
+\`\`\`sql
 DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
   UUID,    -- p_car_id
   UUID,    -- p_deal_id
@@ -37,7 +37,7 @@ DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
   NUMERIC, -- p_owner_share
   UUID     -- p_actor_employee_id
 );
-```
+\`\`\`
 
 #### 2. Fixed Migration 028
 **File**: `/scripts/028_harden_auto_record_expense_v2_signature.sql`
@@ -46,7 +46,7 @@ DROP FUNCTION IF EXISTS public.auto_record_expense_v2(
 - COMMENT с explicit 11-parameter signature
 - Добавлена проверка количества функций через `pg_proc` + `pg_namespace`
 
-```sql
+\`\`\`sql
 -- Drop 10-param
 DROP FUNCTION IF EXISTS public.auto_record_expense_v2(UUID, UUID, UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT, NUMERIC, UUID);
 
@@ -65,7 +65,7 @@ BEGIN
   ELSE RAISE NOTICE 'SUCCESS: exactly 1 signature';
   END IF;
 END $$;
-```
+\`\`\`
 
 #### 3. Removed Duplicate Migration
 - Deleted `/scripts/028_harden_auto_record_expense_v2_drop_and_comment.sql` (was duplicate)
@@ -91,7 +91,7 @@ END $$;
 
 Функция `cashboxExchange` теперь использует secure RPC `internal_exchange_post`:
 
-```typescript
+\`\`\`typescript
 export async function cashboxExchange(input: CashboxExchangeInput) {
   // 1. Get company_id from cashbox (strict - not "first company")
   const { data: fromCashbox } = await supabase
@@ -128,7 +128,7 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
     actorEmployeeId: input.createdBy,
   })
 }
-```
+\`\`\`
 
 **Security Improvements**:
 - ✅ Company_id строго из cashbox (не "первая компания")
@@ -142,7 +142,7 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
 **File**: `/app/actions/client-exchange.ts`
 
 ##### 1. Company_id Resolution (Fix #4.2 C4)
-```typescript
+\`\`\`typescript
 // 0.7 Get company_id from first cashbox (strict)
 const firstCashboxId = input.clientGives[0]?.cashboxId || input.clientReceives[0]?.cashboxId
 const { data: cashboxData } = await supabase
@@ -152,10 +152,10 @@ const { data: cashboxData } = await supabase
   .single()
 
 const companyId = cashboxData.company_id
-```
+\`\`\`
 
 ##### 2. Correct Ledger Signs (STANDARD)
-```typescript
+\`\`\`typescript
 // clientGives: client owes us => NEGATIVE delta (standard: minus = client owes us)
 if (contactId) {
   await supabase.from('counterparty_ledger').insert({
@@ -181,10 +181,10 @@ if (contactId) {
     notes: `Pending exchange: we owe ${amount} ${line.currency}`,
   })
 }
-```
+\`\`\`
 
 ##### 3. Cashbox Reservations with company_id
-```typescript
+\`\`\`typescript
 // Create cashbox reservation with company_id (NOT NULL requirement)
 await supabase.from('cashbox_reservations').insert({
   company_id: companyId,  // Fix #4.2 C4
@@ -198,19 +198,19 @@ await supabase.from('cashbox_reservations').insert({
   created_by: input.actorEmployeeId,
   notes: `...`,
 })
-```
+\`\`\`
 
 ##### 4. Advanced UI Toggle (not breaking existing UI)
 **File**: `/app/exchange/page.tsx`
 
 Added state variables:
-```typescript
+\`\`\`typescript
 const [exchangeMode, setExchangeMode] = useState<'instant' | 'pending'>('instant')
 const [pendingStatus, setPendingStatus] = useState<string>('waiting_client')
-```
+\`\`\`
 
 Added UI section (between Follow-up and Submit):
-```tsx
+\`\`\`tsx
 <div className="space-y-2">
   <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
     <Settings className="h-3.5 w-3.5" />
@@ -245,13 +245,13 @@ Added UI section (between Follow-up and Submit):
     </p>
   )}
 </div>
-```
+\`\`\`
 
 Pass to submitExchange:
-```typescript
+\`\`\`typescript
 mode: exchangeMode,
 pendingStatus: exchangeMode === 'pending' ? pendingStatus : undefined,
-```
+\`\`\`
 
 ### C. Cancel Exchange Logic
 
@@ -260,7 +260,7 @@ pendingStatus: exchangeMode === 'pending' ? pendingStatus : undefined,
 
 Function `cancelExchange` теперь различает pending и completed:
 
-```typescript
+\`\`\`typescript
 export async function cancelExchange(operationId: string, actorEmployeeId: string, reason?: string) {
   const { data: operation } = await supabase
     .from('client_exchange_operations')
@@ -289,16 +289,18 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
         .eq('ref_type', 'client_exchange')
         .eq('ref_id', operationId)
       
-      // Create compensating entries with opposite delta
+      // Create compensating entries with company_id from original + auth user as created_by
+      const { data: { user } } = await supabase.auth.getUser()
       for (const entry of ledgerEntries) {
         await supabase.from('counterparty_ledger').insert({
+          company_id: entry.company_id,  // MUST carry company_id
           counterparty_id: entry.counterparty_id,
           asset_code: entry.asset_code,
           delta: -entry.delta,  // Opposite sign to cancel out
           ref_type: 'client_exchange_cancel',
           ref_id: operationId,
-          created_by: actorEmployeeId,
-          notes: `Cancel pending exchange: compensate ${entry.delta}`,
+          created_by: user?.id ?? null,  // auth user, NOT actorEmployeeId
+          notes: `Cancel pending exchange: compensate ${entry.delta} (actor: ${actorEmployeeId})`,
         })
       }
     }
@@ -324,19 +326,34 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
     .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancelled_by: actorEmployeeId, cancelled_reason: reason || null })
     .eq('id', operationId)
 }
-```
+\`\`\`
 
 **Key Logic**:
-- ✅ Pending: НЕ двигает деньги, release reservations, компенсирует ledger
-- ✅ Completed: Реверс кассы как раньше
-- ✅ Audit log записывается с флагом `isPending`
+- Pending: НE двигает деньги, release reservations, компенсирует ledger
+- Compensating ledger entries carry `company_id` from original entry
+- `created_by` uses `auth.getUser()` (not actorEmployeeId which may not be auth.users)
+- Completed: Реверс кассы как раньше
+- Audit log записывается с флагом `isPending`
 
-### D. Ghost Routes Fix
+### D. Over-Reserve Protection (Dopil)
+
+**File**: `/scripts/044_cashbox_reservation_overreserve_guard.sql`
+
+BEFORE INSERT OR UPDATE trigger on `cashbox_reservations` that:
+1. Only fires for `side='out'` AND `status='active'` reservations
+2. Locks the cashbox row with `FOR UPDATE` to prevent race conditions
+3. Validates `company_id` matches `cashboxes.company_id`
+4. Calculates `available = balance - existing_active_out_reservations`
+5. Raises EXCEPTION if `available < NEW.amount`
+
+This protects both pending client-exchange and exchange_set_status reserves from over-reserving.
+
+### E. Ghost Routes Fix
 
 #### Created File
 **File**: `/app/exchange-deals/[...path]/page.tsx`
 
-```typescript
+\`\`\`typescript
 import { redirect } from 'next/navigation'
 
 // Catch-all route for /exchange-deals/*
@@ -346,7 +363,7 @@ import { redirect } from 'next/navigation'
 export default function ExchangeDealsNotFound() {
   redirect('/exchange')
 }
-```
+\`\`\`
 
 **Result**: ANY path `/exchange-deals/*` now redirects to `/exchange` instead of 404.
 
@@ -364,16 +381,17 @@ export default function ExchangeDealsNotFound() {
 
 #### Variant C:
 1. `/app/actions/cashbox.ts` - `cashboxExchange` uses `internal_exchange_post`
-2. `/app/actions/client-exchange.ts` - Pending mode fix, cancelExchange logic, company_id resolution
+2. `/app/actions/client-exchange.ts` - Pending mode fix, cancelExchange logic (company_id + auth user), company_id resolution
 3. `/app/exchange/page.tsx` - Advanced UI toggle (instant/pending)
 4. `/app/exchange-deals/[...path]/page.tsx` - Catch-all redirect
+5. `/scripts/044_cashbox_reservation_overreserve_guard.sql` - Over-reserve protection trigger
 
 ---
 
 ## How to Verify
 
 ### Variant B Verification:
-```sql
+\`\`\`sql
 -- In Supabase SQL Editor
 SELECT COUNT(*) as function_count, proname 
 FROM pg_proc p
@@ -382,7 +400,7 @@ WHERE p.proname = 'auto_record_expense_v2' AND n.nspname = 'public'
 GROUP BY proname;
 
 -- Expected: function_count = 1
-```
+\`\`\`
 
 ### Variant C Verification:
 
@@ -429,8 +447,9 @@ GROUP BY proname;
 ### Variant C ✅
 - [x] `/finance` uses `internal_exchange_post` RPC with company_id, request_id, audit log
 - [x] Pending mode: company_id from cashbox (strict), correct ledger signs, reservations with company_id
-- [x] Cancel pending: releases reservations, compensates ledger, doesn't move cash
+- [x] Cancel pending: releases reservations, compensates ledger (with company_id + auth user), doesn't move cash
 - [x] Cancel instant: reverses cashbox movements (existing logic)
+- [x] Over-reserve guard trigger: prevents out-reservations exceeding available balance, validates company_id match
 - [x] `/exchange-deals/*` redirects to `/exchange` (no 404)
 - [x] UI не сломан (Advanced toggle добавлен, но не обязателен)
 
