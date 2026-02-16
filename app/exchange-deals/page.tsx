@@ -104,9 +104,11 @@ export default async function ExchangeDealsPage() {
                   Клиентский обмен
                 </Button>
               </Link>
-              <Button size="sm" disabled>
-                + Новая сделка
-              </Button>
+              <Link href="/exchange-deals/new">
+                <Button size="sm">
+                  + Новая сделка
+                </Button>
+              </Link>
             </div>
           </div>
         </div>

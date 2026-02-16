@@ -444,3 +444,110 @@ export async function getExchangeLegsByDeal(dealId: string) {
     return { success: false, error: err.message || 'Unknown error', legs: [] }
   }
 }
+
+// ─── Get Exchange Deal by ID ───
+
+export async function getExchangeDealById(dealId: string) {
+  const supabase = await createServerClient()
+  
+  try {
+    const { data: deal, error: dealError } = await supabase
+      .from('exchange_deals')
+      .select('*')
+      .eq('id', dealId)
+      .single()
+
+    if (dealError) {
+      console.error('[v0] Error fetching exchange deal:', dealError)
+      return { success: false, error: dealError.message, deal: null, legs: [] }
+    }
+
+    const { data: legs, error: legsError } = await supabase
+      .from('exchange_legs')
+      .select('*')
+      .eq('deal_id', dealId)
+      .order('created_at', { ascending: true })
+
+    if (legsError) {
+      console.error('[v0] Error fetching exchange legs:', legsError)
+      return { success: false, error: legsError.message, deal, legs: [] }
+    }
+
+    return { success: true, deal, legs: legs || [] }
+  } catch (err: any) {
+    console.error('[v0] Exception in getExchangeDealById:', err)
+    return { success: false, error: err.message || 'Unknown error', deal: null, legs: [] }
+  }
+}
+
+// ─── Create Exchange Deal ───
+
+export type CreateExchangeDealInput = {
+  dealDate: string
+  status: 'draft' | 'completed' | 'cancelled'
+  comment?: string
+  legs: Array<{
+    direction: 'out' | 'in'
+    assetKind: 'fiat' | 'crypto' | 'gold' | 'other'
+    assetCode: string
+    amount: number
+    cashboxId?: string | null
+    rate?: number | null
+    fee?: number | null
+  }>
+}
+
+export async function createExchangeDeal(input: CreateExchangeDealInput) {
+  const supabase = await createServerClient()
+  
+  try {
+    // Get current user and company_id
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'Пользователь не авторизован', dealId: null }
+    }
+
+    // Get company_id from team_members
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!teamMember) {
+      return { success: false, error: 'Пользователь не привязан к компании', dealId: null }
+    }
+
+    // Transform legs to JSONB format for RPC
+    const legsJsonb = input.legs.map(leg => ({
+      direction: leg.direction,
+      asset_kind: leg.assetKind,
+      asset_code: leg.assetCode,
+      amount: leg.amount,
+      cashbox_id: leg.cashboxId || null,
+      rate: leg.rate || null,
+      fee: leg.fee || null
+    }))
+
+    // Call RPC function
+    const { data: dealId, error } = await supabase.rpc('exchange_deal_create', {
+      p_company_id: teamMember.company_id,
+      p_created_by: user.id,
+      p_deal_date: input.dealDate,
+      p_status: input.status,
+      p_comment: input.comment || null,
+      p_legs: legsJsonb as any
+    })
+
+    if (error) {
+      console.error('[v0] Error creating exchange deal:', error)
+      return { success: false, error: error.message, dealId: null }
+    }
+
+    revalidatePath('/exchange-deals')
+    return { success: true, dealId, error: null }
+  } catch (err: any) {
+    console.error('[v0] Exception in createExchangeDeal:', err)
+    return { success: false, error: err.message || 'Unknown error', dealId: null }
+  }
+}
