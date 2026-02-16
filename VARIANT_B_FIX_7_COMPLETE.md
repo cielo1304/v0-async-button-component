@@ -42,23 +42,26 @@ DROP FUNCTION IF EXISTS auto_record_expense_v2(
 ✅ **Frontend code** (`recordAutoExpenseV2` in `app/actions/auto.ts`) works without `expenseDate` parameter  
 ✅ **No ambiguous function** error from Supabase RPC
 
-## Function Signature After Fix
+## Function Signature After Fix (CORRECTED in migrations 027/028)
 
-\`\`\`typescript
-auto_record_expense_v2(
-  p_car_id: UUID,
-  p_deal_id: UUID = NULL,
-  p_cashbox_id: UUID = NULL,
-  p_amount: NUMERIC,
-  p_currency: TEXT,
-  p_type: TEXT,
-  p_description: TEXT = NULL,
-  p_paid_by: TEXT = 'COMPANY',
-  p_owner_share: NUMERIC = 0,
-  p_actor_employee_id: UUID = NULL,
-  p_expense_date: DATE = NULL  // ← Defaults to CURRENT_DATE inside function
+\`\`\`sql
+-- CORRECT parameter order from PR #26:
+public.auto_record_expense_v2(
+  p_car_id UUID,
+  p_deal_id UUID = NULL,
+  p_cashbox_id UUID = NULL,
+  p_amount NUMERIC,
+  p_currency TEXT,
+  p_type TEXT,
+  p_description TEXT = NULL,
+  p_paid_by TEXT = 'COMPANY',
+  p_owner_share NUMERIC = 0,
+  p_actor_employee_id UUID = NULL,
+  p_expense_date DATE = NULL  -- ← 11th parameter, defaults to CURRENT_DATE inside function
 )
 \`\`\`
+
+**Note**: Migrations 027 and 028 were updated to use the CORRECT parameter order. The 10-parameter DROP and 11-parameter COMMENT now match this exact signature.
 
 ## Testing
 1. Call `recordAutoExpenseV2` without `expenseDate` → Should use `CURRENT_DATE`
