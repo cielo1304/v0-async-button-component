@@ -33,21 +33,32 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Truck, Bell } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Bell, MoreHorizontal } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
+import { ClientExchangeOperation, ClientExchangeDetail, Cashbox } from '@/lib/types/database'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
 import { OperationExtras } from '@/components/exchange/operation-extras'
 import { canViewByVisibility } from '@/lib/access'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  cancelExchange,
+  setClientExchangeStatus,
+  settleClientExchangeIn,
+  settleClientExchangeOut,
+} from '@/app/actions/client-exchange'
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
+  waiting_client: { label: 'Ожидание клиента', color: 'bg-amber-500/20 text-amber-400' },
+  waiting_payout: { label: 'Ожидание выплаты', color: 'bg-blue-500/20 text-blue-400' },
   completed: { label: 'Выполнен', color: 'bg-emerald-500/20 text-emerald-400' },
   cancelled: { label: 'Отменен', color: 'bg-red-500/20 text-red-400' },
+  failed: { label: 'Не удалось', color: 'bg-red-500/20 text-red-400' },
 }
 
 interface ExchangeHistoryListProps {
@@ -60,6 +71,16 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOperation, setSelectedOperation] = useState<ClientExchangeOperation | null>(null)
   const [selectedDetails, setSelectedDetails] = useState<ClientExchangeDetail[]>([])
+  
+  // Settle dialog state
+  const [settleMode, setSettleMode] = useState<'in' | 'out' | null>(null)
+  const [settleCashboxId, setSettleCashboxId] = useState('')
+  const [settleAmount, setSettleAmount] = useState('')
+  const [settleCurrency, setSettleCurrency] = useState('')
+  const [settleComment, setSettleComment] = useState('')
+  const [isSettling, setIsSettling] = useState(false)
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [actorEmployeeId, setActorEmployeeId] = useState('')
   
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
@@ -124,6 +145,21 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
   }, [customDateRange])
   
+  // Load cashboxes and employees for settle dialogs (runs once)
+  useEffect(() => {
+    async function loadSettleData() {
+      const [cbRes, empRes] = await Promise.all([
+        supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
+        supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
+      ])
+      if (cbRes.data) setCashboxes(cbRes.data)
+      if (empRes.data && empRes.data.length > 0) {
+        setActorEmployeeId(prev => prev || empRes.data[0].id)
+      }
+    }
+    loadSettleData()
+  }, [supabase])
+
   const loadOperations = useCallback(async () => {
     setIsLoading(true)
     try {
@@ -192,30 +228,83 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
   }
   
-  // Отмена операции (только pending)
+  // Cancel with proper server action (handles ledger + reservations)
   const cancelOperation = async (operation: ClientExchangeOperation) => {
-    if (operation.status !== 'pending') {
-      toast.error('Можно отменить только ожидающие операции')
+    const isPending = operation.status.startsWith('waiting_') || operation.status === 'pending'
+    if (!isPending && operation.status !== 'completed') {
+      toast.error('Нельзя отменить эту операцию')
       return
     }
+    if (!confirm('Отменить эту операцию? Резервы будут освобождены, обязательства компенсированы.')) return
     
-    if (!confirm('Отменить эту операцию?')) return
-    
-    try {
-      const { error } = await supabase
-        .from('client_exchange_operations')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancelled_reason: 'Отменено оператором'
-        })
-        .eq('id', operation.id)
-      
-      if (error) throw error
-      toast.success('Операция отменена')
+    const result = await cancelExchange(operation.id, actorEmployeeId, 'Отменено оператором')
+    if (result.success) {
+      toast.success(`Операция ${result.operationNumber} отменена`)
       loadOperations()
-    } catch {
-      toast.error('Ошибка отмены')
+    } else {
+      toast.error(result.error || 'Ошибка отмены')
+    }
+  }
+
+  // Change status via server action
+  const changeStatus = async (operation: ClientExchangeOperation, newStatus: string) => {
+    const result = await setClientExchangeStatus(operation.id, newStatus, actorEmployeeId)
+    if (result.success) {
+      toast.success(`Статус изменен на ${STATUS_LABELS[newStatus]?.label || newStatus}`)
+      loadOperations()
+      // Refresh details if this is the selected operation
+      if (selectedOperation?.id === operation.id) {
+        loadDetails({ ...operation, status: newStatus } as ClientExchangeOperation)
+      }
+    } else {
+      toast.error(result.error || 'Ошибка смены статуса')
+    }
+  }
+
+  // Settle action
+  const handleSettle = async () => {
+    if (!settleMode || !selectedOperation || !settleCashboxId || !settleAmount || !settleCurrency) {
+      toast.error('Заполните все поля')
+      return
+    }
+    setIsSettling(true)
+    try {
+      const amount = parseFloat(settleAmount)
+      if (!amount || amount <= 0) {
+        toast.error('Некорректная сумма')
+        return
+      }
+      const fn = settleMode === 'in' ? settleClientExchangeIn : settleClientExchangeOut
+      const result = await fn(
+        selectedOperation.id,
+        settleCashboxId,
+        amount,
+        settleCurrency,
+        actorEmployeeId,
+        settleComment || undefined,
+      )
+      if (result.success) {
+        toast.success(`Settle ${settleMode.toUpperCase()} выполнен: ${result.operationNumber}`)
+        setSettleMode(null)
+        setSettleAmount('')
+        setSettleComment('')
+        loadOperations()
+        loadDetails(selectedOperation)
+      } else {
+        toast.error(result.error || 'Ошибка settle')
+      }
+    } finally {
+      setIsSettling(false)
+    }
+  }
+
+  // Open settle dialog with pre-filled data from details
+  const openSettle = (direction: 'in' | 'out', detail?: ClientExchangeDetail) => {
+    setSettleMode(direction)
+    if (detail) {
+      setSettleCurrency(detail.currency)
+      setSettleAmount(String(detail.amount))
+      setSettleCashboxId(detail.cashbox_id || '')
     }
   }
   
@@ -223,11 +312,6 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   const giveDetails = selectedDetails.filter(d => d.direction === 'give')
   const receiveDetails = selectedDetails.filter(d => d.direction === 'receive')
   
-  // Форматирование сводки операции (для таблицы)
-  const formatOperationSummary = (op: ClientExchangeOperation) => {
-    // Пока без деталей - показываем эквивалент в USD
-    return `${op.total_client_gives_usd.toFixed(0)} USD`
-  }
   
   return (
     <Card className="bg-card border-border">
@@ -250,12 +334,13 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
             </div>
             
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Ожидает</SelectItem>
+                <SelectItem value="waiting_client">Ожидание клиента</SelectItem>
+                <SelectItem value="waiting_payout">Ожидание выплаты</SelectItem>
                 <SelectItem value="completed">Выполнен</SelectItem>
                 <SelectItem value="cancelled">Отменен</SelectItem>
               </SelectContent>
@@ -410,19 +495,31 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="flex gap-1 justify-end">
-                    {op.status === 'pending' && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          cancelOperation(op)
-                        }}
-                        className="text-red-400 hover:text-red-300"
-                      >
-                        <XCircle className="h-4 w-4" />
-                      </Button>
+                  <div className="flex gap-1 justify-end" onClick={(e) => e.stopPropagation()}>
+                    {(op.status === 'pending' || op.status.startsWith('waiting_')) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => changeStatus(op, 'waiting_client')}>
+                            Ожидание клиента
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => changeStatus(op, 'waiting_payout')}>
+                            Ожидание выплаты
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem 
+                            onClick={() => cancelOperation(op)}
+                            className="text-red-400 focus:text-red-300"
+                          >
+                            <XCircle className="h-4 w-4 mr-2" />
+                            Отменить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
                   </div>
                 </TableCell>
@@ -592,20 +689,128 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
                   onUpdate={() => loadOperations()}
                 />
 
-                {/* Кнопка отмены для pending */}
-                {selectedOperation.status === 'pending' && (
-                  <div className="pt-3 border-t border-border flex justify-end">
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => {
-                        cancelOperation(selectedOperation)
-                        setSelectedOperation(null)
-                      }}
-                    >
-                      <XCircle className="h-4 w-4 mr-2" />
-                      Отменить операцию
-                    </Button>
+                {/* Action buttons for pending/waiting operations */}
+                {(selectedOperation.status === 'pending' || selectedOperation.status.startsWith('waiting_')) && (
+                  <div className="pt-3 border-t border-border space-y-3">
+                    {/* Settle section */}
+                    {!settleMode ? (
+                      <div className="flex flex-wrap gap-2">
+                        {giveDetails.map(d => (
+                          <Button
+                            key={`settle-in-${d.id}`}
+                            variant="outline"
+                            size="sm"
+                            className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
+                            onClick={() => openSettle('in', d)}
+                          >
+                            <ArrowDown className="h-3.5 w-3.5 mr-1.5" />
+                            Приход {d.currency}
+                          </Button>
+                        ))}
+                        {receiveDetails.map(d => (
+                          <Button
+                            key={`settle-out-${d.id}`}
+                            variant="outline"
+                            size="sm"
+                            className="border-red-500/30 text-red-400 hover:bg-red-500/10"
+                            onClick={() => openSettle('out', d)}
+                          >
+                            <ArrowUp className="h-3.5 w-3.5 mr-1.5" />
+                            Выдача {d.currency}
+                          </Button>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Settle form inline */
+                      <div className="space-y-3 p-3 rounded-lg border border-border bg-muted/30">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm font-medium">
+                            {settleMode === 'in' ? 'Провести приход' : 'Провести выдачу'} ({settleCurrency})
+                          </span>
+                          <Button variant="ghost" size="sm" onClick={() => setSettleMode(null)}>
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Касса</Label>
+                            <Select value={settleCashboxId} onValueChange={setSettleCashboxId}>
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Выберите кассу" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {cashboxes
+                                  .filter(cb => cb.currency === settleCurrency)
+                                  .map(cb => (
+                                    <SelectItem key={cb.id} value={cb.id}>
+                                      {cb.name} ({Number(cb.balance).toLocaleString('ru-RU')})
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Сумма</Label>
+                            <Input
+                              type="number"
+                              value={settleAmount}
+                              onChange={e => setSettleAmount(e.target.value)}
+                              className="h-8 text-xs"
+                              placeholder="0.00"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Комментарий</Label>
+                          <Textarea
+                            value={settleComment}
+                            onChange={e => setSettleComment(e.target.value)}
+                            className="min-h-[40px] text-xs resize-none"
+                            placeholder="Необязательно"
+                          />
+                        </div>
+                        <Button
+                          size="sm"
+                          className={settleMode === 'in'
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white w-full'
+                            : 'bg-red-600 hover:bg-red-700 text-white w-full'
+                          }
+                          disabled={isSettling || !settleCashboxId || !settleAmount}
+                          onClick={handleSettle}
+                        >
+                          {isSettling ? 'Проводим...' : settleMode === 'in' ? 'Подтвердить приход' : 'Подтвердить выдачу'}
+                        </Button>
+                      </div>
+                    )}
+
+                    {/* Status change + Cancel row */}
+                    <div className="flex items-center justify-between gap-2">
+                      <Select
+                        value={selectedOperation.status}
+                        onValueChange={(v) => changeStatus(selectedOperation, v)}
+                      >
+                        <SelectTrigger className="h-8 w-[180px] text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="pending">Ожидает</SelectItem>
+                          <SelectItem value="waiting_client">Ожидание клиента</SelectItem>
+                          <SelectItem value="waiting_payout">Ожидание выплаты</SelectItem>
+                          <SelectItem value="completed">Завершить</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => {
+                          cancelOperation(selectedOperation)
+                          setSelectedOperation(null)
+                        }}
+                      >
+                        <XCircle className="h-4 w-4 mr-1.5" />
+                        Отменить
+                      </Button>
+                    </div>
                   </div>
                 )}
                 
