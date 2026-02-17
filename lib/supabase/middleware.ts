@@ -30,9 +30,16 @@ export async function updateSession(request: NextRequest) {
   )
 
   // Refresh session - important for token rotation
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Wrap in try-catch so preview / offline environments don't break
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    // Supabase unreachable – let the request through;
+    // server actions have their own auth guards.
+    return supabaseResponse
+  }
 
   const { pathname } = request.nextUrl
 
