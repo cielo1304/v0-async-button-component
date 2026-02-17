@@ -220,7 +220,7 @@ export default function AssetDetailPage() {
         asset_id: id,
         from_location_id: lastMove?.to_location_id || null,
         to_location_id: moveForm.to_location_id,
-        moved_by_employee_id: moveForm.moved_by_employee_id || null,
+        moved_by_employee_id: godmodeActorId || moveForm.moved_by_employee_id || null,
         note: moveForm.note || null,
       })
       toast.success('Перемещение записано')
@@ -239,6 +239,35 @@ export default function AssetDetailPage() {
       setIsEditStatusOpen(false)
       loadData()
     } catch { toast.error('Ошибка обновления статуса') } finally { setIsSubmitting(false) }
+  }
+
+  const handleSale = async () => {
+    if (!saleForm.sale_amount || !saleForm.base_amount) {
+      toast.error('Заполните сумму продажи')
+      return
+    }
+    setIsSubmitting(true)
+    try {
+      const result = await recordAssetSale({
+        asset_id: id,
+        sale_amount: Number(saleForm.sale_amount),
+        sale_currency: saleForm.sale_currency,
+        base_amount: Number(saleForm.base_amount),
+        base_currency: saleForm.base_currency,
+        fx_rate: saleForm.fx_rate ? Number(saleForm.fx_rate) : null,
+        cashbox_id: saleForm.cashbox_id || null,
+        created_by_employee_id: godmodeActorId || null,
+        note: saleForm.note || null,
+      })
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка записи продажи')
+        return
+      }
+      toast.success('Продажа записана')
+      setIsSaleOpen(false)
+      setSaleForm({ sale_amount: '', sale_currency: 'RUB', base_amount: '', base_currency: 'USD', fx_rate: '', cashbox_id: '', note: '' })
+      loadData()
+    } catch { toast.error('Ошибка записи продажи') } finally { setIsSubmitting(false) }
   }
 
   if (isLoading) {
@@ -301,6 +330,12 @@ export default function AssetDetailPage() {
                 }}
                 onSave={() => toast.success('Видимость сохранена')}
               />
+              {asset.status !== 'sold' && asset.status !== 'written_off' && (
+                <Button variant="default" size="sm" onClick={() => setIsSaleOpen(true)}>
+                  <DollarSign className="h-3 w-3 mr-1" />
+                  Продажа
+                </Button>
+              )}
               <Button variant="outline" size="sm" onClick={() => { setNewStatus(asset.status); setIsEditStatusOpen(true) }}>
                 <Pencil className="h-3 w-3 mr-1" />
                 Статус
@@ -708,6 +743,7 @@ export default function AssetDetailPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Оценить актив</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Сумма оценки</Label>
@@ -776,6 +812,7 @@ export default function AssetDetailPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Переместить актив</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="space-y-2">
               <Label>Куда</Label>
               <Select value={moveForm.to_location_id} onValueChange={(v) => setMoveForm({ ...moveForm, to_location_id: v })}>
@@ -826,6 +863,78 @@ export default function AssetDetailPage() {
             <Button onClick={handleStatusChange} disabled={isSubmitting}>
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
               Применить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sale Dialog */}
+      <Dialog open={isSaleOpen} onOpenChange={setIsSaleOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Записать продажу</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <GodModeActorSelector onChange={setGodmodeActorId} />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Сумма продажи</Label>
+                <Input type="number" value={saleForm.sale_amount} onChange={(e) => setSaleForm({ ...saleForm, sale_amount: e.target.value })} placeholder="1000000" />
+              </div>
+              <div className="space-y-2">
+                <Label>Валюта</Label>
+                <Select value={saleForm.sale_currency} onValueChange={(v) => setSaleForm({ ...saleForm, sale_currency: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="RUB">RUB</SelectItem>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                    <SelectItem value="USDT">USDT</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Base сумма</Label>
+                <Input type="number" value={saleForm.base_amount} onChange={(e) => setSaleForm({ ...saleForm, base_amount: e.target.value })} placeholder="10000" />
+              </div>
+              <div className="space-y-2">
+                <Label>Base валюта</Label>
+                <Select value={saleForm.base_currency} onValueChange={(v) => setSaleForm({ ...saleForm, base_currency: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="USD">USD</SelectItem>
+                    <SelectItem value="RUB">RUB</SelectItem>
+                    <SelectItem value="EUR">EUR</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Курс (fx rate)</Label>
+              <Input type="number" value={saleForm.fx_rate} onChange={(e) => setSaleForm({ ...saleForm, fx_rate: e.target.value })} placeholder="95.5" />
+            </div>
+            <div className="space-y-2">
+              <Label>Касса (опционально, для приходной операции)</Label>
+              <Select value={saleForm.cashbox_id || '__none__'} onValueChange={(v) => setSaleForm({ ...saleForm, cashbox_id: v === '__none__' ? '' : v })}>
+                <SelectTrigger><SelectValue placeholder="Без кассы" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Без кассы</SelectItem>
+                  {cashboxes.map((cb) => (
+                    <SelectItem key={cb.id} value={cb.id}>{cb.name} ({cb.currency}, {Number(cb.balance).toLocaleString()})</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Комментарий</Label>
+              <Input value={saleForm.note} onChange={(e) => setSaleForm({ ...saleForm, note: e.target.value })} placeholder="Продажа клиенту..." />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsSaleOpen(false)}>Отмена</Button>
+            <Button onClick={handleSale} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <DollarSign className="h-4 w-4 mr-1" />}
+              Записать продажу
             </Button>
           </DialogFooter>
         </DialogContent>
