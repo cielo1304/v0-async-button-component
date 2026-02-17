@@ -425,13 +425,16 @@ export async function recordAssetSale(formData: {
 
     // 3. If cashbox specified, record income via cashbox_operation
     if (formData.cashbox_id) {
+      if (!formData.created_by_employee_id) {
+        return { success: false, error: 'Actor/employee required for cashbox operation' }
+      }
       const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
         p_cashbox_id: formData.cashbox_id,
         p_amount: formData.sale_amount,
         p_category: 'ASSET_SALE',
         p_description: formData.note || `Asset sale: ${asset.title} - ${formData.sale_amount} ${formData.sale_currency}`,
         p_reference_id: saleEvent.id,
-        p_created_by: formData.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
+        p_created_by: formData.created_by_employee_id,
       })
 
       if (rpcErr) throw rpcErr
