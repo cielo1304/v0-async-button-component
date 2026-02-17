@@ -89,6 +89,12 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
   try {
     // STEP 9: Get categories from DB
     const categories = await getExchangeCategories()
+
+    // Get auth user for created_by on ledger/reservation rows
+    // actorEmployeeId is the business-level actor (may differ from auth.users.id)
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const authUserId = authUser?.id ?? null
+
     // -1. Validate beneficiary rule: if >1 client-side participant => beneficiary required
     const clientParticipants = (input.participants || []).filter(p =>
       p.role === 'client' || p.role === 'beneficiary' || p.role === 'representative'
@@ -230,8 +236,8 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
             delta: -amount, // - client owes us (they gave us money, now owe us exchange completion)
             ref_type: 'client_exchange',
             ref_id: operation.id,
-            created_by: input.actorEmployeeId,
-            notes: `Pending exchange ${operation.operation_number}: client owes ${amount} ${line.currency}`,
+            created_by: authUserId, // auth user, not actorEmployeeId
+            notes: `Pending exchange ${operation.operation_number}: client owes ${amount} ${line.currency} (actor: ${input.actorEmployeeId})`,
           })
         }
         
@@ -245,7 +251,7 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
           ref_type: 'client_exchange',
           ref_id: operation.id,
           status: 'active',
-          created_by: input.actorEmployeeId,
+          created_by: authUserId, // auth user, not actorEmployeeId
           notes: `Pending exchange ${operation.operation_number}: awaiting ${amount} ${line.currency}`,
         })
       } else {
@@ -290,8 +296,8 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
             delta: amount, // + we owe client (we must give them money)
             ref_type: 'client_exchange',
             ref_id: operation.id,
-            created_by: input.actorEmployeeId,
-            notes: `Pending exchange ${operation.operation_number}: we owe ${amount} ${line.currency}`,
+            created_by: authUserId, // auth user, not actorEmployeeId
+            notes: `Pending exchange ${operation.operation_number}: we owe ${amount} ${line.currency} (actor: ${input.actorEmployeeId})`,
           })
         }
         
@@ -305,7 +311,7 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
           ref_type: 'client_exchange',
           ref_id: operation.id,
           status: 'active',
-          created_by: input.actorEmployeeId,
+          created_by: authUserId, // auth user, not actorEmployeeId
           notes: `Pending exchange ${operation.operation_number}: reserved ${amount} ${line.currency}`,
         })
       } else {

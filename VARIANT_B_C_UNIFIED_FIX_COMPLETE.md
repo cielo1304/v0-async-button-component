@@ -165,7 +165,8 @@ if (contactId) {
     delta: -amount,  // - client owes us
     ref_type: 'client_exchange',
     ref_id: operation.id,
-    notes: `Pending exchange: client owes ${amount} ${line.currency}`,
+    created_by: authUserId,  // auth user, NOT actorEmployeeId
+    notes: `Pending exchange: client owes ${amount} ${line.currency} (actor: ${input.actorEmployeeId})`,
   })
 }
 
@@ -178,13 +179,18 @@ if (contactId) {
     delta: amount,  // + we owe client
     ref_type: 'client_exchange',
     ref_id: operation.id,
-    notes: `Pending exchange: we owe ${amount} ${line.currency}`,
+    created_by: authUserId,  // auth user, NOT actorEmployeeId
+    notes: `Pending exchange: we owe ${amount} ${line.currency} (actor: ${input.actorEmployeeId})`,
   })
 }
 \`\`\`
 
-##### 3. Cashbox Reservations with company_id
+##### 3. Cashbox Reservations with company_id + auth user
 \`\`\`typescript
+// Get auth user once at start of submitExchange
+const { data: { user: authUser } } = await supabase.auth.getUser()
+const authUserId = authUser?.id ?? null
+
 // Create cashbox reservation with company_id (NOT NULL requirement)
 await supabase.from('cashbox_reservations').insert({
   company_id: companyId,  // Fix #4.2 C4
@@ -195,8 +201,8 @@ await supabase.from('cashbox_reservations').insert({
   ref_type: 'client_exchange',
   ref_id: operation.id,
   status: 'active',
-  created_by: input.actorEmployeeId,
-  notes: `...`,
+  created_by: authUserId,  // auth user, NOT actorEmployeeId
+  notes: `... (actor: ${input.actorEmployeeId})`,
 })
 \`\`\`
 
@@ -446,7 +452,7 @@ GROUP BY proname;
 
 ### Variant C ✅
 - [x] `/finance` uses `internal_exchange_post` RPC with company_id, request_id, audit log
-- [x] Pending mode: company_id from cashbox (strict), correct ledger signs, reservations with company_id
+- [x] Pending mode: company_id from cashbox (strict), correct ledger signs, reservations with company_id, created_by = auth user (not actorEmployeeId)
 - [x] Cancel pending: releases reservations, compensates ledger (with company_id + auth user), doesn't move cash
 - [x] Cancel instant: reverses cashbox movements (existing logic)
 - [x] Over-reserve guard trigger: prevents out-reservations exceeding available balance, validates company_id match
