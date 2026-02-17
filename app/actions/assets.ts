@@ -370,3 +370,98 @@ export async function addAssetMove(formData: {
 
   return data
 }
+
+export async function getCashboxesList() {
+  const supabase = await createServerClient()
+  const { data, error } = await supabase
+    .from('cashboxes')
+    .select('id, name, currency, balance')
+    .order('sort_order', { ascending: true })
+  if (error) throw new Error(error.message)
+  return data || []
+}
+
+export async function recordAssetSale(formData: {
+  asset_id: string
+  sale_amount: number
+  sale_currency: string
+  base_amount: number
+  base_currency: string
+  fx_rate?: number | null
+  cashbox_id?: string | null
+  created_by_employee_id?: string | null
+  note?: string | null
+}): Promise<{ success: boolean; error?: string }> {
+  const supabase = await createServerClient()
+
+  try {
+    // 1. Verify asset exists and is not already sold
+    const { data: asset, error: assetErr } = await supabase
+      .from('assets')
+      .select('id, title, status')
+      .eq('id', formData.asset_id)
+      .single()
+
+    if (assetErr || !asset) return { success: false, error: 'Asset not found' }
+    if (asset.status === 'sold') return { success: false, error: 'Asset is already sold' }
+    if (asset.status === 'written_off') return { success: false, error: 'Asset is written off' }
+
+    // 2. Insert sale event
+    const { data: saleEvent, error: saleErr } = await supabase
+      .from('asset_sale_events')
+      .insert({
+        asset_id: formData.asset_id,
+        sale_amount: formData.sale_amount,
+        sale_currency: formData.sale_currency,
+        base_amount: formData.base_amount,
+        base_currency: formData.base_currency,
+        fx_rate: formData.fx_rate ?? null,
+        created_by_employee_id: formData.created_by_employee_id ?? null,
+      })
+      .select()
+      .single()
+
+    if (saleErr) throw saleErr
+
+    // 3. If cashbox specified, record income via cashbox_operation
+    if (formData.cashbox_id) {
+      const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
+        p_cashbox_id: formData.cashbox_id,
+        p_amount: formData.sale_amount,
+        p_category: 'ASSET_SALE',
+        p_description: formData.note || `Asset sale: ${asset.title} - ${formData.sale_amount} ${formData.sale_currency}`,
+        p_reference_id: saleEvent.id,
+        p_created_by: formData.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
+      })
+
+      if (rpcErr) throw rpcErr
+    }
+
+    // 4. Update asset status to 'sold'
+    const { error: updateErr } = await supabase
+      .from('assets')
+      .update({ status: 'sold' })
+      .eq('id', formData.asset_id)
+
+    if (updateErr) throw updateErr
+
+    // 5. Audit log
+    await writeAuditLog(supabase, {
+      actorEmployeeId: formData.created_by_employee_id,
+      action: 'sale',
+      module: 'assets',
+      entityTable: 'asset_sale_events',
+      entityId: saleEvent.id,
+      after: {
+        ...saleEvent,
+        cashbox_id: formData.cashbox_id,
+        note: formData.note,
+      },
+    })
+
+    return { success: true }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown error recording asset sale'
+    return { success: false, error: message }
+  }
+}

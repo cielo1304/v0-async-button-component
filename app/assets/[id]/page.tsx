@@ -61,10 +61,13 @@ import {
   getAssetTimeline,
   getAssetLocations,
   getEmployeesList,
+  getCashboxesList,
   updateAsset,
   addAssetValuation,
   addAssetMove,
+  recordAssetSale,
 } from '@/app/actions/assets'
+import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
   auto: 'Авто', equipment: 'Оборудование', moto: 'Мото',
@@ -97,6 +100,7 @@ export default function AssetDetailPage() {
   const [timeline, setTimeline] = useState<Awaited<ReturnType<typeof getAssetTimeline>>>([])
   const [locations, setLocations] = useState<Awaited<ReturnType<typeof getAssetLocations>>>([])
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
+  const [cashboxes, setCashboxes] = useState<Awaited<ReturnType<typeof getCashboxesList>>>([])
   const [isLoading, setIsLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
 
@@ -104,6 +108,7 @@ export default function AssetDetailPage() {
   const [isValuationOpen, setIsValuationOpen] = useState(false)
   const [isMoveOpen, setIsMoveOpen] = useState(false)
   const [isEditStatusOpen, setIsEditStatusOpen] = useState(false)
+  const [isSaleOpen, setIsSaleOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   // Valuation form
@@ -124,13 +129,27 @@ export default function AssetDetailPage() {
     note: '',
   })
 
+  // Sale form
+  const [saleForm, setSaleForm] = useState({
+    sale_amount: '',
+    sale_currency: 'RUB',
+    base_amount: '',
+    base_currency: 'USD',
+    fx_rate: '',
+    cashbox_id: '',
+    note: '',
+  })
+
+  // God-mode actor (shared across dialogs)
+  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
+
   // Edit status form
   const [newStatus, setNewStatus] = useState('')
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [assetData, vals, mvs, coll, collChain, sales, tl, locs, emps] = await Promise.all([
+      const [assetData, vals, mvs, coll, collChain, sales, tl, locs, emps, cbs] = await Promise.all([
         getAssetById(id),
         getAssetValuations(id),
         getAssetMoves(id),
@@ -140,6 +159,7 @@ export default function AssetDetailPage() {
         getAssetTimeline(id),
         getAssetLocations(),
         getEmployeesList(),
+        getCashboxesList(),
       ])
       setAsset(assetData)
       setValuations(vals)
@@ -150,6 +170,7 @@ export default function AssetDetailPage() {
       setTimeline(tl)
       setLocations(locs)
       setEmployees(emps)
+      setCashboxes(cbs)
     } catch (error) {
       console.error('Error loading asset:', error)
       toast.error('Ошибка загрузки')
@@ -178,7 +199,7 @@ export default function AssetDetailPage() {
         base_currency: valForm.base_currency,
         fx_rate: valForm.fx_rate ? Number(valForm.fx_rate) : null,
         source_note: valForm.source_note || null,
-        created_by_employee_id: valForm.created_by_employee_id || null,
+        created_by_employee_id: godmodeActorId || valForm.created_by_employee_id || null,
       })
       toast.success('Оценка добавлена')
       setIsValuationOpen(false)
