@@ -68,6 +68,7 @@ import {
   recordAssetSale,
 } from '@/app/actions/assets'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import type { AssetStatus } from '@/lib/types/database'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
   auto: 'Авто', equipment: 'Оборудование', moto: 'Мото',
@@ -234,7 +235,10 @@ export default function AssetDetailPage() {
     if (!newStatus) return
     setIsSubmitting(true)
     try {
-      await updateAsset(id, { status: newStatus as 'in_stock' })
+      await updateAsset(id, { 
+        status: newStatus as AssetStatus,
+        actor_employee_id: godmodeActorId || null,
+      })
       toast.success('Статус обновлён')
       setIsEditStatusOpen(false)
       loadData()

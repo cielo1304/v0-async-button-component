@@ -148,8 +148,9 @@ export default function AssetsPage() {
         title: form.title,
         status: form.status as 'in_stock',
         owner_contact_id: form.owner_contact_id || null,
-        responsible_employee_id: godmodeActorId || form.responsible_employee_id || null,
+        responsible_employee_id: form.responsible_employee_id || null,
         notes: form.notes || null,
+        actor_employee_id: godmodeActorId || null,
       })
       toast.success('Имущество создано')
       setIsCreateOpen(false)
