@@ -73,5 +73,44 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Onboarding gate: if user has no membership and is not platform admin, redirect to /onboarding
+  const onboardingAllowlist = [
+    '/onboarding',
+    '/platform',
+    '/login',
+    '/auth',
+    '/_next',
+    '/api',
+  ]
+  const needsOnboardingCheck = user && !onboardingAllowlist.some(path => pathname.startsWith(path))
+
+  if (needsOnboardingCheck) {
+    try {
+      // Check if platform admin
+      const { data: isAdmin } = await supabase.rpc('is_platform_admin')
+      
+      if (!isAdmin) {
+        // Check if user has team membership
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (!membership) {
+          // No membership found -> redirect to onboarding
+          const url = request.nextUrl.clone()
+          url.pathname = '/onboarding'
+          url.searchParams.set('next', pathname)
+          return NextResponse.redirect(url)
+        }
+      }
+    } catch (err) {
+      console.error('[v0] Onboarding gate error:', err)
+      // On error, let request through to avoid blocking legitimate users
+    }
+  }
+
   return supabaseResponse
 }
