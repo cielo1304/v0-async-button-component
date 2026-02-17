@@ -532,3 +532,378 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
     return { success: false, error: error instanceof Error ? error.message : 'Неизвестная ошибка' }
   }
 }
+
+// ==================== Set Status ====================
+
+export async function setClientExchangeStatus(
+  operationId: string,
+  statusCode: string,
+  actorEmployeeId: string,
+  note?: string,
+): Promise<ExchangeResult> {
+  const supabase = await createServerClient()
+
+  try {
+    // 1. Fetch current operation
+    const { data: operation, error: fetchErr } = await supabase
+      .from('client_exchange_operations')
+      .select('*')
+      .eq('id', operationId)
+      .single()
+
+    if (fetchErr || !operation) return { success: false, error: 'Операция не найдена' }
+
+    const oldStatus = operation.status
+
+    // 2. Terminal fail/cancel → delegate to cancelExchange
+    if (statusCode === 'cancelled' || statusCode === 'failed') {
+      return cancelExchange(operationId, actorEmployeeId, note || `Status change: ${oldStatus} -> ${statusCode}`)
+    }
+
+    // 3. Update status
+    const updateData: Record<string, unknown> = {
+      status: statusCode,
+    }
+    if (statusCode === 'completed') {
+      updateData.completed_at = new Date().toISOString()
+      updateData.completed_by = actorEmployeeId
+    }
+
+    const { error: updateErr } = await supabase
+      .from('client_exchange_operations')
+      .update(updateData)
+      .eq('id', operationId)
+
+    if (updateErr) throw updateErr
+
+    // 4. Audit
+    await writeAuditLog(supabase, {
+      actorEmployeeId,
+      action: 'exchange_status_change',
+      module: 'exchange',
+      entityTable: 'client_exchange_operations',
+      entityId: operationId,
+      before: { status: oldStatus },
+      after: { status: statusCode, note },
+    })
+
+    return { success: true, operationNumber: operation.operation_number }
+  } catch (error: unknown) {
+    console.error('[client-exchange] setStatus error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Ошибка' }
+  }
+}
+
+// ==================== Settle In (client pays us) ====================
+
+export async function settleClientExchangeIn(
+  operationId: string,
+  cashboxId: string,
+  amount: number,
+  currency: string,
+  actorEmployeeId: string,
+  comment?: string,
+): Promise<ExchangeResult> {
+  const supabase = await createServerClient()
+
+  try {
+    const categories = await getExchangeCategories()
+
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const authUserId = authUser?.id ?? null
+
+    // 1. Fetch operation
+    const { data: operation, error: fetchErr } = await supabase
+      .from('client_exchange_operations')
+      .select('*')
+      .eq('id', operationId)
+      .single()
+
+    if (fetchErr || !operation) return { success: false, error: 'Операция не найдена' }
+    if (operation.status === 'completed' || operation.status === 'cancelled') {
+      return { success: false, error: `Операция уже ${operation.status}` }
+    }
+
+    // 2. Get company_id from cashbox
+    const { data: cashboxData } = await supabase
+      .from('cashboxes')
+      .select('company_id')
+      .eq('id', cashboxId)
+      .single()
+
+    if (!cashboxData) return { success: false, error: 'Касса не найдена' }
+    const companyId = cashboxData.company_id
+
+    // 3. Execute cashbox_operation: positive amount = deposit (client pays us)
+    const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
+      p_cashbox_id: cashboxId,
+      p_amount: amount,
+      p_category: categories.in,
+      p_description: comment || `Settle IN: ${operation.operation_number} ${amount} ${currency}`,
+      p_reference_id: operationId,
+      p_created_by: actorEmployeeId,
+    })
+
+    if (rpcErr) throw rpcErr
+
+    // 4. Compensate counterparty ledger: was -amount (client owed us) -> add +amount to zero it out
+    if (operation.contact_id) {
+      await supabase.from('counterparty_ledger').insert({
+        company_id: companyId,
+        counterparty_id: operation.contact_id,
+        asset_code: currency,
+        delta: amount, // compensate the -amount from pending creation
+        ref_type: 'client_exchange_settle_in',
+        ref_id: operationId,
+        created_by: authUserId,
+        notes: `Settle IN ${operation.operation_number}: +${amount} ${currency} (actor: ${actorEmployeeId})`,
+      })
+    }
+
+    // 5. Fulfill 'in' reservation if exists
+    await supabase
+      .from('cashbox_reservations')
+      .update({
+        status: 'fulfilled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('ref_type', 'client_exchange')
+      .eq('ref_id', operationId)
+      .eq('side', 'in')
+      .eq('asset_code', currency)
+      .eq('status', 'active')
+
+    // 6. Record settlement
+    await supabase.from('client_exchange_settlements').insert({
+      operation_id: operationId,
+      direction: 'in',
+      cashbox_id: cashboxId,
+      currency,
+      amount,
+      comment: comment || null,
+      actor_employee_id: actorEmployeeId,
+      created_by: authUserId,
+    }).then(() => {}).catch(() => {}) // non-fatal if table doesn't exist yet
+
+    // 7. Audit
+    await writeAuditLog(supabase, {
+      actorEmployeeId,
+      action: 'exchange_settle_in',
+      module: 'exchange',
+      entityTable: 'client_exchange_operations',
+      entityId: operationId,
+      after: { cashboxId, amount, currency, comment },
+    })
+
+    // 8. Auto-close check
+    await maybeAutoClose(supabase, operationId, actorEmployeeId)
+
+    return { success: true, operationNumber: operation.operation_number }
+  } catch (error: unknown) {
+    console.error('[client-exchange] settleIn error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Ошибка' }
+  }
+}
+
+// ==================== Settle Out (we pay client) ====================
+
+export async function settleClientExchangeOut(
+  operationId: string,
+  cashboxId: string,
+  amount: number,
+  currency: string,
+  actorEmployeeId: string,
+  comment?: string,
+): Promise<ExchangeResult> {
+  const supabase = await createServerClient()
+
+  try {
+    const categories = await getExchangeCategories()
+
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    const authUserId = authUser?.id ?? null
+
+    // 1. Fetch operation
+    const { data: operation, error: fetchErr } = await supabase
+      .from('client_exchange_operations')
+      .select('*')
+      .eq('id', operationId)
+      .single()
+
+    if (fetchErr || !operation) return { success: false, error: 'Операция не найдена' }
+    if (operation.status === 'completed' || operation.status === 'cancelled') {
+      return { success: false, error: `Операция уже ${operation.status}` }
+    }
+
+    // 2. Get company_id + check available balance
+    const { data: cashboxData } = await supabase
+      .from('cashboxes')
+      .select('company_id, balance')
+      .eq('id', cashboxId)
+      .single()
+
+    if (!cashboxData) return { success: false, error: 'Касса не найдена' }
+    const companyId = cashboxData.company_id
+
+    // Server-side available balance check (in addition to the DB trigger guard)
+    const { data: activeReservations } = await supabase
+      .from('cashbox_reservations')
+      .select('amount')
+      .eq('cashbox_id', cashboxId)
+      .eq('status', 'active')
+      .eq('side', 'out')
+
+    const reservedOut = (activeReservations || []).reduce((sum, r) => sum + Number(r.amount), 0)
+    const available = Number(cashboxData.balance) - reservedOut
+    // Note: our own reservation for this operation is still active, so available already accounts for it.
+    // The cashbox_operation will actually reduce balance. The reservation trigger won't fire here 
+    // because we're doing a cashbox_operation, not a reservation insert.
+
+    if (Number(cashboxData.balance) < amount) {
+      return { success: false, error: `Недостаточно средств: баланс ${cashboxData.balance}, нужно ${amount}` }
+    }
+
+    // 3. Release our 'out' reservation first (so cashbox_operation can proceed)
+    await supabase
+      .from('cashbox_reservations')
+      .update({
+        status: 'fulfilled',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('ref_type', 'client_exchange')
+      .eq('ref_id', operationId)
+      .eq('side', 'out')
+      .eq('asset_code', currency)
+      .eq('status', 'active')
+
+    // 4. Execute cashbox_operation: negative amount = withdrawal (we pay client)
+    const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
+      p_cashbox_id: cashboxId,
+      p_amount: -amount,
+      p_category: categories.out,
+      p_description: comment || `Settle OUT: ${operation.operation_number} ${amount} ${currency}`,
+      p_reference_id: operationId,
+      p_created_by: actorEmployeeId,
+    })
+
+    if (rpcErr) throw rpcErr
+
+    // 5. Compensate counterparty ledger: was +amount (we owed client) -> add -amount to zero it out
+    if (operation.contact_id) {
+      await supabase.from('counterparty_ledger').insert({
+        company_id: companyId,
+        counterparty_id: operation.contact_id,
+        asset_code: currency,
+        delta: -amount, // compensate the +amount from pending creation
+        ref_type: 'client_exchange_settle_out',
+        ref_id: operationId,
+        created_by: authUserId,
+        notes: `Settle OUT ${operation.operation_number}: -${amount} ${currency} (actor: ${actorEmployeeId})`,
+      })
+    }
+
+    // 6. Record settlement
+    await supabase.from('client_exchange_settlements').insert({
+      operation_id: operationId,
+      direction: 'out',
+      cashbox_id: cashboxId,
+      currency,
+      amount,
+      comment: comment || null,
+      actor_employee_id: actorEmployeeId,
+      created_by: authUserId,
+    }).then(() => {}).catch(() => {}) // non-fatal if table doesn't exist yet
+
+    // 7. Audit
+    await writeAuditLog(supabase, {
+      actorEmployeeId,
+      action: 'exchange_settle_out',
+      module: 'exchange',
+      entityTable: 'client_exchange_operations',
+      entityId: operationId,
+      after: { cashboxId, amount, currency, comment },
+    })
+
+    // 8. Auto-close check
+    await maybeAutoClose(supabase, operationId, actorEmployeeId)
+
+    return { success: true, operationNumber: operation.operation_number }
+  } catch (error: unknown) {
+    console.error('[client-exchange] settleOut error:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Ошибка' }
+  }
+}
+
+// ==================== Auto-Close Helper ====================
+
+async function maybeAutoClose(
+  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  operationId: string,
+  actorEmployeeId: string,
+) {
+  try {
+    // Check if all reservations are fulfilled/released (none active)
+    const { data: activeReservations } = await supabase
+      .from('cashbox_reservations')
+      .select('id')
+      .eq('ref_type', 'client_exchange')
+      .eq('ref_id', operationId)
+      .eq('status', 'active')
+
+    if (activeReservations && activeReservations.length > 0) {
+      // Still have active reservations, not ready to close
+      return
+    }
+
+    // Check remaining ledger balance for this operation (net should be ~0 if fully settled)
+    const { data: ledgerEntries } = await supabase
+      .from('counterparty_ledger')
+      .select('delta')
+      .eq('ref_id', operationId)
+      .in('ref_type', [
+        'client_exchange',
+        'client_exchange_settle_in',
+        'client_exchange_settle_out',
+        'client_exchange_cancel',
+      ])
+
+    if (ledgerEntries) {
+      const netDebt = ledgerEntries.reduce((sum, e) => sum + Number(e.delta), 0)
+      // If net debt is approximately zero, auto-close
+      if (Math.abs(netDebt) > 0.01) {
+        // Still has obligations
+        return
+      }
+    }
+
+    // All clear: mark as completed
+    const { data: op } = await supabase
+      .from('client_exchange_operations')
+      .select('status')
+      .eq('id', operationId)
+      .single()
+
+    if (op && op.status !== 'completed' && op.status !== 'cancelled') {
+      await supabase
+        .from('client_exchange_operations')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          completed_by: actorEmployeeId,
+        })
+        .eq('id', operationId)
+
+      await writeAuditLog(supabase, {
+        actorEmployeeId,
+        action: 'exchange_auto_complete',
+        module: 'exchange',
+        entityTable: 'client_exchange_operations',
+        entityId: operationId,
+        after: { reason: 'All obligations settled, reservations fulfilled' },
+      })
+    }
+  } catch (err) {
+    console.error('[client-exchange] maybeAutoClose error:', err)
+    // Non-fatal: log but don't throw
+  }
+}

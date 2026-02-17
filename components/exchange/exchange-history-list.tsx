@@ -33,21 +33,32 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Truck, Bell } from 'lucide-react'
+import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Truck, Bell, PlayCircle, CheckCircle2, MoreHorizontal } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { ClientExchangeOperation, ClientExchangeDetail } from '@/lib/types/database'
+import { ClientExchangeOperation, ClientExchangeDetail, Cashbox } from '@/lib/types/database'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { CustomCalendar, type DateRange } from '@/components/ui/custom-calendar'
 import { CURRENCY_SYMBOLS, type DatePeriod } from '@/lib/constants/currencies'
 import { OperationExtras } from '@/components/exchange/operation-extras'
 import { canViewByVisibility } from '@/lib/access'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  cancelExchange,
+  setClientExchangeStatus,
+  settleClientExchangeIn,
+  settleClientExchangeOut,
+} from '@/app/actions/client-exchange'
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
   pending: { label: 'Ожидает', color: 'bg-amber-500/20 text-amber-400' },
+  waiting_client: { label: 'Ожидание клиента', color: 'bg-amber-500/20 text-amber-400' },
+  waiting_payout: { label: 'Ожидание выплаты', color: 'bg-blue-500/20 text-blue-400' },
   completed: { label: 'Выполнен', color: 'bg-emerald-500/20 text-emerald-400' },
   cancelled: { label: 'Отменен', color: 'bg-red-500/20 text-red-400' },
+  failed: { label: 'Не удалось', color: 'bg-red-500/20 text-red-400' },
 }
 
 interface ExchangeHistoryListProps {
@@ -60,6 +71,17 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   const [isLoading, setIsLoading] = useState(true)
   const [selectedOperation, setSelectedOperation] = useState<ClientExchangeOperation | null>(null)
   const [selectedDetails, setSelectedDetails] = useState<ClientExchangeDetail[]>([])
+  
+  // Settle dialog state
+  const [settleMode, setSettleMode] = useState<'in' | 'out' | null>(null)
+  const [settleCashboxId, setSettleCashboxId] = useState('')
+  const [settleAmount, setSettleAmount] = useState('')
+  const [settleCurrency, setSettleCurrency] = useState('')
+  const [settleComment, setSettleComment] = useState('')
+  const [isSettling, setIsSettling] = useState(false)
+  const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
+  const [actorEmployeeId, setActorEmployeeId] = useState('')
+  const [employees, setEmployees] = useState<Array<{ id: string; full_name: string }>>([])
   
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
@@ -124,6 +146,21 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
   }, [customDateRange])
   
+  // Load cashboxes and employees for settle dialogs
+  const loadSettleData = useCallback(async () => {
+    const [cbRes, empRes] = await Promise.all([
+      supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
+      supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
+    ])
+    if (cbRes.data) setCashboxes(cbRes.data)
+    if (empRes.data) {
+      setEmployees(empRes.data)
+      if (!actorEmployeeId && empRes.data.length > 0) setActorEmployeeId(empRes.data[0].id)
+    }
+  }, [supabase, actorEmployeeId])
+
+  useEffect(() => { loadSettleData() }, [loadSettleData])
+
   const loadOperations = useCallback(async () => {
     setIsLoading(true)
     try {
@@ -192,30 +229,83 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
   }
   
-  // Отмена операции (только pending)
+  // Cancel with proper server action (handles ledger + reservations)
   const cancelOperation = async (operation: ClientExchangeOperation) => {
-    if (operation.status !== 'pending') {
-      toast.error('Можно отменить только ожидающие операции')
+    const isPending = operation.status.startsWith('waiting_') || operation.status === 'pending'
+    if (!isPending && operation.status !== 'completed') {
+      toast.error('Нельзя отменить эту операцию')
       return
     }
+    if (!confirm('Отменить эту операцию? Резервы будут освобождены, обязательства компенсированы.')) return
     
-    if (!confirm('Отменить эту операцию?')) return
-    
-    try {
-      const { error } = await supabase
-        .from('client_exchange_operations')
-        .update({
-          status: 'cancelled',
-          cancelled_at: new Date().toISOString(),
-          cancelled_reason: 'Отменено оператором'
-        })
-        .eq('id', operation.id)
-      
-      if (error) throw error
-      toast.success('Операция отменена')
+    const result = await cancelExchange(operation.id, actorEmployeeId, 'Отменено оператором')
+    if (result.success) {
+      toast.success(`Операция ${result.operationNumber} отменена`)
       loadOperations()
-    } catch {
-      toast.error('Ошибка отмены')
+    } else {
+      toast.error(result.error || 'Ошибка отмены')
+    }
+  }
+
+  // Change status via server action
+  const changeStatus = async (operation: ClientExchangeOperation, newStatus: string) => {
+    const result = await setClientExchangeStatus(operation.id, newStatus, actorEmployeeId)
+    if (result.success) {
+      toast.success(`Статус изменен на ${STATUS_LABELS[newStatus]?.label || newStatus}`)
+      loadOperations()
+      // Refresh details if this is the selected operation
+      if (selectedOperation?.id === operation.id) {
+        loadDetails({ ...operation, status: newStatus } as ClientExchangeOperation)
+      }
+    } else {
+      toast.error(result.error || 'Ошибка смены статуса')
+    }
+  }
+
+  // Settle action
+  const handleSettle = async () => {
+    if (!settleMode || !selectedOperation || !settleCashboxId || !settleAmount || !settleCurrency) {
+      toast.error('Заполните все поля')
+      return
+    }
+    setIsSettling(true)
+    try {
+      const amount = parseFloat(settleAmount)
+      if (!amount || amount <= 0) {
+        toast.error('Некорректная сумма')
+        return
+      }
+      const fn = settleMode === 'in' ? settleClientExchangeIn : settleClientExchangeOut
+      const result = await fn(
+        selectedOperation.id,
+        settleCashboxId,
+        amount,
+        settleCurrency,
+        actorEmployeeId,
+        settleComment || undefined,
+      )
+      if (result.success) {
+        toast.success(`Settle ${settleMode.toUpperCase()} выполнен: ${result.operationNumber}`)
+        setSettleMode(null)
+        setSettleAmount('')
+        setSettleComment('')
+        loadOperations()
+        loadDetails(selectedOperation)
+      } else {
+        toast.error(result.error || 'Ошибка settle')
+      }
+    } finally {
+      setIsSettling(false)
+    }
+  }
+
+  // Open settle dialog with pre-filled data from details
+  const openSettle = (direction: 'in' | 'out', detail?: ClientExchangeDetail) => {
+    setSettleMode(direction)
+    if (detail) {
+      setSettleCurrency(detail.currency)
+      setSettleAmount(String(detail.amount))
+      setSettleCashboxId(detail.cashbox_id || '')
     }
   }
   
@@ -250,12 +340,13 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
             </div>
             
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[140px]">
+              <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Статус" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Ожидает</SelectItem>
+                <SelectItem value="waiting_client">Ожидание клиента</SelectItem>
+                <SelectItem value="waiting_payout">Ожидание выплаты</SelectItem>
                 <SelectItem value="completed">Выполнен</SelectItem>
                 <SelectItem value="cancelled">Отменен</SelectItem>
               </SelectContent>
