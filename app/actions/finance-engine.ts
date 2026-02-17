@@ -15,6 +15,7 @@ import { revalidatePath } from 'next/cache'
  * This ensures every deal has a schedule from day one (Variant A requirement).
  */
 export async function generateInitialSchedule(financeDealId: string, coreDealId: string) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -81,6 +82,7 @@ export async function generateInitialSchedule(financeDealId: string, coreDealId:
 // ────────────────────────────────────────────────
 
 export async function regenerateSchedule(financeDealId: string) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -163,6 +165,7 @@ export async function pauseDeal(params: {
   reason?: string
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -225,6 +228,7 @@ export async function resumeDeal(params: {
   pauseId: string
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -273,6 +277,7 @@ export async function deletePause(params: {
   financeDealId: string
   pauseId: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -322,6 +327,7 @@ export async function deletePause(params: {
 // ────────────────────────────────────────────────
 
 export async function getDealSummary(financeDealId: string) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {

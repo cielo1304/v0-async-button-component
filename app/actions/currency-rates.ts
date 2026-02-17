@@ -105,6 +105,7 @@ async function fetchExternalRates(): Promise<RateResult> {
 
 // Сохранение курсов в БД
 async function saveRatesToDb(rates: Record<string, Record<string, number>>, source: string) {
+  await requireUser()
   const supabase = await createServerClient()
   
   const ratesToInsert = []
@@ -167,6 +168,7 @@ export async function getExchangeRate(from: string, to: string): Promise<{ rate:
     return { rate: 1, source: 'system' }
   }
 
+  await requireUser()
   const supabase = await createServerClient()
 
   // Сначала пробуем из БД
@@ -205,6 +207,7 @@ export async function getExchangeRate(from: string, to: string): Promise<{ rate:
 
 // Получение всех текущих курсов
 export async function getAllRates(): Promise<Record<string, Record<string, number>>> {
+  await requireUser()
   const supabase = await createServerClient()
   
   const { data } = await supabase
@@ -238,6 +241,7 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
 // ========== SYSTEM_CURRENCY_RATES (новая таблица) ==========
 
 export async function getSystemCurrencyRates() {
+  await requireUser()
   const supabase = await createServerClient()
   const { data } = await supabase
     .from('system_currency_rates')
@@ -247,6 +251,7 @@ export async function getSystemCurrencyRates() {
 }
 
 export async function updateSystemRate(code: string, rate_to_rub: number, rate_to_usd: number) {
+  await requireUser()
   const supabase = await createServerClient()
   
   // Сохраняем предыдущий курс
@@ -294,6 +299,7 @@ export async function refreshSystemRates() {
     return { success: false, error: apiResult.error }
   }
 
+  await requireUser()
   const supabase = await createServerClient()
   
   // Обновляем курсы для USD, EUR, USDT (RUB = base)
@@ -338,6 +344,7 @@ export async function getRateAtDate(
   currencyCode: string,
   targetDate: string | Date
 ): Promise<{ rate_to_rub: number; rate_to_usd: number; recorded_at: string } | null> {
+  await requireUser()
   const supabase = await createServerClient()
   
   const dateStr = typeof targetDate === 'string' ? targetDate : targetDate.toISOString()

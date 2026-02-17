@@ -1,8 +1,10 @@
 import { put } from '@vercel/blob'
 import { type NextRequest, NextResponse } from 'next/server'
+import { requireUser } from '@/lib/supabase/require-user'
 
 export async function POST(request: NextRequest) {
   try {
+    await requireUser()
     const formData = await request.formData()
     const file = formData.get('file') as File
     const carId = formData.get('carId') as string

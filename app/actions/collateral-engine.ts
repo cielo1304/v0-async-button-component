@@ -13,6 +13,7 @@ export async function evaluateCollateral(params: {
   principalOutstanding: number
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -74,6 +75,7 @@ export async function replaceCollateral(params: {
   pledgedUnits?: number
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -162,6 +164,7 @@ export async function defaultWithSideEffects(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -247,6 +250,7 @@ export async function releaseCollateral(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {

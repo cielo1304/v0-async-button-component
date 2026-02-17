@@ -10,6 +10,7 @@ export async function getAssets(filters?: {
   assetType?: string
   search?: string
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   let query = supabase
@@ -94,6 +95,7 @@ export async function getAssets(filters?: {
 }
 
 export async function getAssetById(id: string) {
+  await requireUser()
   const supabase = await createServerClient()
 
   const { data, error } = await supabase
@@ -111,6 +113,7 @@ export async function getAssetById(id: string) {
 }
 
 export async function getAssetValuations(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('asset_valuations')
@@ -123,6 +126,7 @@ export async function getAssetValuations(assetId: string) {
 }
 
 export async function getAssetMoves(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('asset_location_moves')
@@ -140,6 +144,7 @@ export async function getAssetMoves(assetId: string) {
 }
 
 export async function getAssetCollateralLinks(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('finance_collateral_links')
@@ -152,6 +157,7 @@ export async function getAssetCollateralLinks(assetId: string) {
 }
 
 export async function getAssetCollateralChain(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   // Get chain entries where this asset was either old or new
   const { data, error } = await supabase
@@ -165,6 +171,7 @@ export async function getAssetCollateralChain(assetId: string) {
 }
 
 export async function getAssetSaleEvents(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('asset_sale_events')
@@ -177,6 +184,7 @@ export async function getAssetSaleEvents(assetId: string) {
 }
 
 export async function getAssetTimeline(assetId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('v_timeline_asset_events')
@@ -189,6 +197,7 @@ export async function getAssetTimeline(assetId: string) {
 }
 
 export async function getAssetLocations() {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('asset_locations')
@@ -200,6 +209,7 @@ export async function getAssetLocations() {
 }
 
 export async function getEmployeesList() {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('employees')
@@ -211,6 +221,7 @@ export async function getEmployeesList() {
 }
 
 export async function getContactsList(search?: string) {
+  await requireUser()
   const supabase = await createServerClient()
   let query = supabase.from('contacts').select('id, display_name').order('display_name').limit(50)
   if (search) {
@@ -231,6 +242,7 @@ export async function createAsset(formData: {
   metadata?: Record<string, unknown>
   actor_employee_id?: string | null
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   const { data, error } = await supabase
@@ -277,6 +289,7 @@ export async function updateAsset(
     actor_employee_id?: string | null
   }
 ) {
+  await requireUser()
   const supabase = await createServerClient()
 
   // Get before state
@@ -321,6 +334,7 @@ export async function addAssetValuation(formData: {
   source_note?: string | null
   created_by_employee_id?: string | null
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   const { data, error } = await supabase
@@ -350,6 +364,7 @@ export async function addAssetMove(formData: {
   moved_by_employee_id?: string | null
   note?: string | null
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   const { data, error } = await supabase
@@ -373,6 +388,7 @@ export async function addAssetMove(formData: {
 }
 
 export async function getCashboxesList() {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('cashboxes')
@@ -393,6 +409,7 @@ export async function recordAssetSale(formData: {
   created_by_employee_id?: string | null
   note?: string | null
 }): Promise<{ success: boolean; error?: string }> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {

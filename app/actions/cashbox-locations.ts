@@ -8,6 +8,7 @@ import type { CashboxLocation } from '@/lib/types/database'
 // ─── Fetch all cashbox locations ───
 
 export async function getCashboxLocations() {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -31,6 +32,7 @@ export async function createCashboxLocation(input: {
   description?: string
   sort_order?: number
 }) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -65,6 +67,7 @@ export async function updateCashboxLocation(
     is_active?: boolean
   }
 ) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -92,6 +95,7 @@ export async function updateCashboxLocation(
 // ─── Delete cashbox location ───
 
 export async function deleteCashboxLocation(locationId: string) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {

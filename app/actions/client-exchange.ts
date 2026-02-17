@@ -11,6 +11,7 @@ let _cachedCategories: { in: string; out: string } | null = null
 async function getExchangeCategories(): Promise<{ in: string; out: string }> {
   if (_cachedCategories) return _cachedCategories
 
+  await requireUser()
   const supabase = await createServerClient()
   
   const { data: categories } = await supabase
@@ -85,6 +86,7 @@ export interface ExchangeResult {
 // ==================== Submit Exchange ====================
 
 export async function submitExchange(input: SubmitExchangeInput): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -383,6 +385,7 @@ export async function setFollowup(
   followupNote: string,
   actorEmployeeId: string,
 ): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
   try {
     const { error } = await supabase
@@ -413,6 +416,7 @@ export async function setFollowup(
 // ==================== Cancel Exchange ====================
 
 export async function cancelExchange(operationId: string, actorEmployeeId: string, reason?: string): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -542,6 +546,7 @@ export async function setClientExchangeStatus(
   actorEmployeeId: string,
   note?: string,
 ): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -605,6 +610,7 @@ export async function settleClientExchangeIn(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -716,6 +722,7 @@ export async function settleClientExchangeOut(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
