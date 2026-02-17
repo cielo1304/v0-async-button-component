@@ -60,3 +60,32 @@ Operators can now:
 ## New ref_types in counterparty_ledger
 - `client_exchange_settle_in` -- compensating entry when client pays us
 - `client_exchange_settle_out` -- compensating entry when we pay client
+
+---
+
+## DOPIL Fixes (post-review)
+
+### Fix 1: settleOut available funds with other reservations
+- Previously: only checked raw `balance < amount`, ignoring other operations' OUT reservations.
+- Now: computes `reservedOutOther` (sum of all active OUT reservations EXCEPT our own), then `availableForThis = balance - reservedOutOther`. Returns detailed error with breakdown.
+
+### Fix 2: pending detection in cancelExchange
+- Previously: `isPending` only matched `status.startsWith('waiting_')`.
+- Now: `isPending = status === 'pending' || status.startsWith('waiting_')`.
+- Ensures operations created with status `'pending'` are cancelled via the pending path (no cashbox movements).
+
+### Fix 3: safer reservation fulfillment ordering in settleOut
+- Previously: reservation was marked `fulfilled` BEFORE `cashbox_operation` RPC. If RPC failed, reservation was lost.
+- Now: `cashbox_operation` executes first. Only after success is the reservation marked `fulfilled`. On RPC failure, reservation remains `active`.
+
+### Fix 4: RLS hardening for settlements (migration 046)
+- `scripts/046_harden_client_exchange_settlements_rls.sql`
+- Recreates insert policy with `WITH CHECK` requiring `operation_id IN (SELECT id FROM client_exchange_operations)`.
+- Prevents inserting settlements for non-existent operations via UUID guessing.
+
+## Acceptance Checklist (manual)
+
+- [ ] Try settleOut when another operation has active OUT reservations on the same cashbox -> should block if balance minus those reservations < amount, with detailed error.
+- [ ] Cancel an operation with status `'pending'` (not `'waiting_*'`) -> should NOT perform cashbox movements, only release reservations + compensate ledger.
+- [ ] settleOut where cashbox_operation fails (e.g. insufficient funds at DB level) -> reservation should remain `active`, not `fulfilled`.
+- [ ] Run `046_harden_client_exchange_settlements_rls.sql` in Supabase SQL editor -> verify insert fails for random UUID operation_id.

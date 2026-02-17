@@ -432,7 +432,7 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
     if (fetchErr || !operation) return { success: false, error: 'Операция не найдена' }
     if (operation.status === 'cancelled') return { success: false, error: 'Операция уже отменена' }
 
-    const isPending = operation.status.startsWith('waiting_')
+    const isPending = operation.status === 'pending' || operation.status.startsWith('waiting_')
 
     // Fix #4.2 C3: Different cancel logic for pending vs completed
     if (isPending) {
@@ -745,25 +745,43 @@ export async function settleClientExchangeOut(
     if (!cashboxData) return { success: false, error: 'Касса не найдена' }
     const companyId = cashboxData.company_id
 
-    // Server-side available balance check (in addition to the DB trigger guard)
+    // Server-side available balance check accounting for OTHER operations' reservations
     const { data: activeReservations } = await supabase
       .from('cashbox_reservations')
-      .select('amount')
+      .select('amount, ref_type, ref_id')
       .eq('cashbox_id', cashboxId)
       .eq('status', 'active')
       .eq('side', 'out')
 
-    const reservedOut = (activeReservations || []).reduce((sum, r) => sum + Number(r.amount), 0)
-    const available = Number(cashboxData.balance) - reservedOut
-    // Note: our own reservation for this operation is still active, so available already accounts for it.
-    // The cashbox_operation will actually reduce balance. The reservation trigger won't fire here 
-    // because we're doing a cashbox_operation, not a reservation insert.
+    // Sum reservations of OTHER operations (exclude our own reservation for this operationId)
+    const reservedOutOther = (activeReservations || [])
+      .filter(r => !(r.ref_type === 'client_exchange' && r.ref_id === operationId))
+      .reduce((sum, r) => sum + Number(r.amount), 0)
 
-    if (Number(cashboxData.balance) < amount) {
-      return { success: false, error: `Недостаточно средств: баланс ${cashboxData.balance}, нужно ${amount}` }
+    const balance = Number(cashboxData.balance)
+    const availableForThis = balance - reservedOutOther
+
+    if (availableForThis < amount) {
+      return {
+        success: false,
+        error: `Недостаточно средств с учётом резервов: баланс ${balance}, резервы других операций ${reservedOutOther}, доступно ${availableForThis}, нужно ${amount}`,
+      }
     }
 
-    // 3. Release our 'out' reservation first (so cashbox_operation can proceed)
+    // 3. Execute cashbox_operation FIRST (before fulfilling reservation)
+    // Negative amount = withdrawal (we pay client)
+    const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
+      p_cashbox_id: cashboxId,
+      p_amount: -amount,
+      p_category: categories.out,
+      p_description: comment || `Settle OUT: ${operation.operation_number} ${amount} ${currency}`,
+      p_reference_id: operationId,
+      p_created_by: actorEmployeeId,
+    })
+
+    if (rpcErr) throw rpcErr
+
+    // 4. Only AFTER successful cashbox_operation -> fulfill our reservation
     await supabase
       .from('cashbox_reservations')
       .update({
@@ -775,18 +793,6 @@ export async function settleClientExchangeOut(
       .eq('side', 'out')
       .eq('asset_code', currency)
       .eq('status', 'active')
-
-    // 4. Execute cashbox_operation: negative amount = withdrawal (we pay client)
-    const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
-      p_cashbox_id: cashboxId,
-      p_amount: -amount,
-      p_category: categories.out,
-      p_description: comment || `Settle OUT: ${operation.operation_number} ${amount} ${currency}`,
-      p_reference_id: operationId,
-      p_created_by: actorEmployeeId,
-    })
-
-    if (rpcErr) throw rpcErr
 
     // 5. Compensate counterparty ledger: was +amount (we owed client) -> add -amount to zero it out
     if (operation.contact_id) {
