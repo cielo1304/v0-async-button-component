@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { z } from 'zod'
 
 const ExchangeSchema = z.object({

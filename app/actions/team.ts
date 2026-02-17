@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'

@@ -1,6 +1,7 @@
 'use server'
 
 import { createServerClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 
 // Базовые валюты системы

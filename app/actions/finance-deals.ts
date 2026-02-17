@@ -1,6 +1,7 @@
 'use server'
 
 import { createServerClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import type {
   CoreDeal, CoreDealStatus, FinanceDeal, FinanceScheduleType,
   FinanceLedgerEntry, FinanceLedgerEntryType, FinancePaymentScheduleItem,

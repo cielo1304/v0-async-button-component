@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
 

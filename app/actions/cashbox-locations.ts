@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import type { CashboxLocation } from '@/lib/types/database'
 
 // ─── Fetch all cashbox locations ───
