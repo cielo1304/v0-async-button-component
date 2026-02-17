@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServerClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 
 export type DepositWithdrawInput = {
@@ -13,6 +14,7 @@ export type DepositWithdrawInput = {
 }
 
 export async function depositWithdraw(input: DepositWithdrawInput) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -79,6 +81,7 @@ export type CashboxOperationV2Input = {
 }
 
 export async function cashboxOperationV2(input: CashboxOperationV2Input) {
+  await requireUser()
   const supabase = await createServerClient()
   try {
     const { data, error } = await supabase.rpc('cashbox_operation_v2', {
@@ -117,6 +120,7 @@ export async function cashboxOperationV2(input: CashboxOperationV2Input) {
 // ─── P&L from VIEW ───
 
 export async function getFinanceDealPnl(financeDealId: string) {
+  await requireUser()
   const supabase = await createServerClient()
   const { data, error } = await supabase
     .from('v_finance_deal_pnl')
@@ -131,6 +135,7 @@ export async function getFinanceDealPnl(financeDealId: string) {
 // ─── Verified cashbox balances ───
 
 export async function getVerifiedBalances() {
+  await requireUser()
   const supabase = await createServerClient()
   const { data } = await supabase.from('v_cashbox_verified_balance').select('*')
   return data || []
@@ -147,6 +152,7 @@ export type CashboxTransferInput = {
 }
 
 export async function cashboxTransfer(input: CashboxTransferInput) {
+  await requireUser()
   const supabase = await createServerClient()
   try {
     const { data, error } = await supabase.rpc('cashbox_transfer', {
@@ -212,6 +218,7 @@ export type CashboxExchangeInput = {
 }
 
 export async function cashboxExchange(input: CashboxExchangeInput) {
+  await requireUser()
   const supabase = await createServerClient()
   try {
     // Fix #4.2 C1: Use secure internal_exchange_post RPC instead of old cashbox_exchange
@@ -288,6 +295,7 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
 // ─── Update cashbox sort order ───
 
 export async function updateCashboxSortOrder(cashboxId: string, sortOrder: number) {
+  await requireUser()
   const supabase = await createServerClient()
   
   try {
@@ -321,6 +329,7 @@ export async function updateCashboxSortOrder(cashboxId: string, sortOrder: numbe
 // ─── Toggle exchange enabled flag ───
 
 export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean) {
+  await requireUser()
   const supabase = await createServerClient()
   
   try {
@@ -386,6 +395,7 @@ export type CreateCashboxInput = {
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -451,6 +461,7 @@ export type UpdateCashboxInput = {
 }
 
 export async function updateCashbox(input: UpdateCashboxInput) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -504,6 +515,7 @@ export type DeleteCashboxInput = {
 }
 
 export async function deleteCashbox(input: DeleteCashboxInput) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {
@@ -559,6 +571,7 @@ export type UpdateCashboxSortOrdersInput = {
 }
 
 export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInput) {
+  await requireUser()
   const supabase = await createServerClient()
 
   try {

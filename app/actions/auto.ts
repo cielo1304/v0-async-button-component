@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
 
@@ -29,7 +30,8 @@ export async function recordAutoExpenseV2(params: {
   expenseDate?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     // Build RPC args - only include p_expense_date if provided
     const rpcArgs: any = {
@@ -90,7 +92,8 @@ export async function createAutoPurchase(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     const { data, error } = await supabase.rpc('auto_record_purchase_v1', {
       p_car_id: params.carId,
@@ -133,7 +136,8 @@ export async function recordAutoExpense(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     const { data, error } = await supabase.rpc('auto_record_expense_v1', {
       p_car_id: params.carId,
@@ -177,7 +181,8 @@ export async function createAutoDeal(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     const { data, error } = await supabase.rpc('auto_create_deal_v1', {
       p_car_id: params.carId,
@@ -227,7 +232,8 @@ export async function recordAutoPayment(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     const { data, error } = await supabase.rpc('auto_record_payment_v1', {
       p_deal_id: params.dealId,
@@ -281,7 +287,8 @@ export async function recordAutoPaymentV2(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     const { data: paymentId, error } = await supabase.rpc('auto_record_payment_v2', {
       p_deal_id: params.dealId,
@@ -339,7 +346,8 @@ export async function createAutoDealV2(params: {
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
   try {
-    const supabase = await createClient()
+    await requireUser()
+  const supabase = await createClient()
 
     // Generate deal number
     const dealNumber = `DEAL-${Date.now()}`

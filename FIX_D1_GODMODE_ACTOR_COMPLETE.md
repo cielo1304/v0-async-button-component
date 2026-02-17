@@ -10,16 +10,16 @@
 
 ### 1. app/assets/page.tsx (Create Asset Dialog)
 **Было:**
-```typescript
+\`\`\`typescript
 responsible_employee_id: godmodeActorId || form.responsible_employee_id || null,
-```
+\`\`\`
 
 **Стало:**
-```typescript
+\`\`\`typescript
 responsible_employee_id: form.responsible_employee_id || null,
 notes: form.notes || null,
 actor_employee_id: godmodeActorId || null,
-```
+\`\`\`
 
 **Семантика:**
 - `responsible_employee_id` - БИЗНЕС-роль: кто ответственный за актив
@@ -30,22 +30,22 @@ actor_employee_id: godmodeActorId || null,
 
 ### 2. app/assets/[id]/page.tsx (Detail Page)
 **Было:**
-```typescript
+\`\`\`typescript
 await updateAsset(id, { status: newStatus as 'in_stock' })
-```
+\`\`\`
 
 **Стало:**
-```typescript
+\`\`\`typescript
 await updateAsset(id, { 
   status: newStatus as AssetStatus,
   actor_employee_id: godmodeActorId || null,
 })
-```
+\`\`\`
 
 **Добавлен импорт:**
-```typescript
+\`\`\`typescript
 import type { AssetStatus } from '@/lib/types/database'
-```
+\`\`\`
 
 **Семантика:**
 - Убран хардкод каста к `'in_stock'`, используется корректный union тип `AssetStatus`
@@ -61,35 +61,35 @@ import type { AssetStatus } from '@/lib/types/database'
 
 #### createAsset
 ✅ Уже правильно:
-```typescript
+\`\`\`typescript
 actor_employee_id?: string | null
-```
+\`\`\`
 - Передаётся в `writeAuditLog(supabase, { actorEmployeeId: formData.actor_employee_id, ... })`
 
 #### addAssetValuation
 ✅ Правильно использует fallback:
-```typescript
+\`\`\`typescript
 created_by_employee_id: godmodeActorId || valForm.created_by_employee_id || null
-```
+\`\`\`
 - Если God Mode выбран - используется актор
 - Если нет - используется выбранный в форме сотрудник
 - Передаётся в аудит: `actorEmployeeId: formData.created_by_employee_id`
 
 #### addAssetMove
 ✅ Правильно использует fallback:
-```typescript
+\`\`\`typescript
 moved_by_employee_id: godmodeActorId || moveForm.moved_by_employee_id || null
-```
+\`\`\`
 - Аудит: `actorEmployeeId: formData.moved_by_employee_id`
 
 #### recordAssetSale
 **Было:**
-```typescript
+\`\`\`typescript
 p_created_by: formData.created_by_employee_id || '00000000-0000-0000-0000-000000000000',
-```
+\`\`\`
 
 **Стало:**
-```typescript
+\`\`\`typescript
 if (formData.cashbox_id) {
   if (!formData.created_by_employee_id) {
     return { success: false, error: 'Actor/employee required for cashbox operation' }
@@ -99,7 +99,7 @@ if (formData.cashbox_id) {
     p_created_by: formData.created_by_employee_id,
   })
 }
-```
+\`\`\`
 
 **Семантика:**
 - Убран хардкод `00000000-0000-0000-0000-000000000000`
@@ -190,7 +190,7 @@ if (formData.cashbox_id) {
 ---
 
 ## Команда для PR (ручной шаг):
-```bash
+\`\`\`bash
 git checkout -b fix/assets-godmode-actor-semantics
 git add app/assets/page.tsx app/assets/[id]/page.tsx app/actions/assets.ts
 git commit -m "fix(assets): correct God Mode actor semantics
@@ -201,7 +201,7 @@ git commit -m "fix(assets): correct God Mode actor semantics
 - GodModeActorSelector now correctly influences audit logs only
 "
 git push origin fix/assets-godmode-actor-semantics
-```
+\`\`\`
 
 Затем создать PR на GitHub с этим чеклистом в описании.
 
