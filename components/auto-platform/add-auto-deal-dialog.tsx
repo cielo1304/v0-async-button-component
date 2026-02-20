@@ -171,7 +171,7 @@ export function AddAutoDealDialog() {
       toast.error('Выберите автомобиль')
       return
     }
-    if (!buyerId && dealType !== 'COMMISSION_SALE') {
+    if (!buyerContactId && dealType !== 'COMMISSION_SALE') {
       toast.error('Выберите покупателя/арендатора')
       return
     }
@@ -181,8 +181,8 @@ export function AddAutoDealDialog() {
     try {
       const result = await createAutoDealV2({
         carId,
-        buyerId: buyerId || undefined,
-        sellerId: sellerId || undefined,
+        buyerContactId: buyerContactId || undefined,
+        sellerContactId: sellerContactId || undefined,
         dealType,
         salePrice: salePrice || undefined,
         currency,
@@ -289,43 +289,35 @@ export function AddAutoDealDialog() {
 
           {/* Покупатель/Арендатор */}
           <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              {dealType === 'RENT' ? 'Арендатор' : 'Покупатель'} *
-            </Label>
-            <Select value={buyerId} onValueChange={setBuyerId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите клиента" />
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map((client) => (
-                  <SelectItem key={client.id} value={client.id}>
-                    {client.full_name} {client.phone ? `(${client.phone})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ContactPicker
+              label={dealType === 'RENT' ? 'Арендатор *' : 'Покупатель *'}
+              value={buyerContactId}
+              onChange={(id, contact) => {
+                setBuyerContactId(id)
+                setBuyerContact(contact)
+              }}
+              placeholder="Выберите клиента..."
+            />
+            {buyerContact && buyerContact.phones.length > 0 && (
+              <p className="text-xs text-muted-foreground px-1">{buyerContact.phones[0]}</p>
+            )}
           </div>
 
           {/* Комитент для комиссионной продажи */}
           {dealType === 'COMMISSION_SALE' && (
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Комитент (владелец авто)
-              </Label>
-              <Select value={sellerId} onValueChange={setSellerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите комитента" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.filter(c => c.client_type === 'CONSIGNOR' || c.client_type === 'SELLER').map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.full_name} {client.phone ? `(${client.phone})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ContactPicker
+                label="Комитент (владелец авто)"
+                value={sellerContactId}
+                onChange={(id, contact) => {
+                  setSellerContactId(id)
+                  setSellerContact(contact)
+                }}
+                placeholder="Выберите комитента..."
+              />
+              {sellerContact && sellerContact.phones.length > 0 && (
+                <p className="text-xs text-muted-foreground px-1">{sellerContact.phones[0]}</p>
+              )}
             </div>
           )}
 

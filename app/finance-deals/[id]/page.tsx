@@ -33,6 +33,7 @@ import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
 import { RecordPaymentDialog } from '@/components/finance-deals/record-payment-dialog'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { ContactPicker } from '@/components/contacts/contact-picker'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -84,7 +85,6 @@ export default function FinanceDealDetailPage() {
   const [loading, setLoading] = useState(true)
 
   // Справочники
-  const [contacts, setContacts] = useState<Contact[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [assets, setAssets] = useState<Asset[]>([])
 
@@ -170,12 +170,10 @@ export default function FinanceDealDetailPage() {
   }, [supabase, dealId])
 
   const loadRefs = useCallback(async () => {
-    const [c, e, a] = await Promise.all([
-      supabase.from('contacts').select('id, full_name').order('full_name'),
+    const [e, a] = await Promise.all([
       supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
       supabase.from('assets').select('id, title, asset_type, status').order('created_at', { ascending: false }),
     ])
-    setContacts((c.data || []) as Contact[])
     setEmployees((e.data || []) as Employee[])
     setAssets((a.data || []) as Asset[])
   }, [supabase])
@@ -889,13 +887,12 @@ export default function FinanceDealDetailPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Контакт</Label>
-              <Select value={participantForm.contact_id} onValueChange={v => setParticipantForm(f => ({ ...f, contact_id: v, employee_id: '' }))}>
-                <SelectTrigger><SelectValue placeholder="Выберите контакт" /></SelectTrigger>
-                <SelectContent>
-                  {contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <ContactPicker
+                label="Контакт"
+                value={participantForm.contact_id || null}
+                onChange={(id) => setParticipantForm(f => ({ ...f, contact_id: id || '', employee_id: '' }))}
+                placeholder="Выберите контакт..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Или сотрудник</Label>

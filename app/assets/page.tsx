@@ -41,13 +41,14 @@ import {
   Landmark,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { getAssets, createAsset, getEmployeesList, getContactsList } from '@/app/actions/assets'
+import { getAssets, createAsset, getEmployeesList } from '@/app/actions/assets'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { Textarea } from '@/components/ui/textarea'
 import { canViewByVisibility } from '@/lib/access'
 import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { ContactPicker } from '@/components/contacts/contact-picker'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
   auto: 'Авто',
@@ -106,7 +107,6 @@ export default function AssetsPage() {
     notes: '',
   })
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
-  const [contacts, setContacts] = useState<{ id: string; display_name: string }[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
@@ -129,9 +129,8 @@ export default function AssetsPage() {
 
   const openCreate = async () => {
     try {
-      const [emps, conts] = await Promise.all([getEmployeesList(), getContactsList()])
+      const emps = await getEmployeesList()
       setEmployees(emps)
-      setContacts(conts)
     } catch { /* ignore */ }
     setIsCreateOpen(true)
   }
@@ -364,18 +363,12 @@ export default function AssetsPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Владелец (контакт)</Label>
-              <Select value={form.owner_contact_id || 'none'} onValueChange={(v) => setForm({ ...form, owner_contact_id: v === 'none' ? '' : v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите контакт" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Не указан</SelectItem>
-                  {contacts.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.display_name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ContactPicker
+                label="Владелец (контакт)"
+                value={form.owner_contact_id || null}
+                onChange={(id) => setForm({ ...form, owner_contact_id: id || '' })}
+                placeholder="Выберите владельца..."
+              />
             </div>
             <div className="space-y-2">
               <Label>Ответственный</Label>
