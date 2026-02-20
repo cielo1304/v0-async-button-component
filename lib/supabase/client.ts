@@ -37,7 +37,25 @@ export function createClient() {
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
   }
   
-  browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey)
+  browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      flowType: 'pkce',
+    },
+    global: {
+      fetch: (url, options = {}) => {
+        console.log('[v0] Supabase fetch:', url)
+        return fetch(url, {
+          ...options,
+          // Add credentials and mode to help with CORS in preview environment
+          credentials: 'omit',
+          mode: 'cors',
+        })
+      },
+    },
+  })
   return browserClient
 }
 
