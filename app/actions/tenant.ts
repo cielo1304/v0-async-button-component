@@ -66,3 +66,29 @@ export async function acceptCompanyInvite(
     return { error: 'Failed to accept invite' }
   }
 }
+
+/**
+ * Accept an employee invite and link to existing employee record
+ */
+export async function acceptEmployeeInvite(
+  token: string
+): Promise<{ employeeId?: string; error?: string }> {
+  try {
+    const { user } = await requireUser()
+    const supabase = await createClient()
+
+    const { data, error } = await supabase.rpc('accept_employee_invite', {
+      p_token: token,
+    })
+
+    if (error) {
+      console.error('[v0] accept_employee_invite RPC error:', error)
+      return { error: error.message }
+    }
+
+    return { employeeId: data as string }
+  } catch (err) {
+    console.error('[v0] acceptEmployeeInvite error:', err)
+    return { error: 'Failed to accept employee invite' }
+  }
+}

@@ -377,11 +377,26 @@ export function TeamManager() {
     
     setIsSendingInvite(true)
     try {
-      await createEmployeeInvite(editingEmployee.id, editingEmployee.email)
-      toast.success('Приглашение отправлено')
+      const invite = await createEmployeeInvite(editingEmployee.id, editingEmployee.email)
+      
+      if (invite && invite.token) {
+        const inviteLink = `${window.location.origin}/onboarding?token=${invite.token}&type=employee`
+        
+        // Copy to clipboard
+        await navigator.clipboard.writeText(inviteLink)
+        
+        toast.success('Приглашение создано! Ссылка скопирована в буфер обмена', {
+          description: inviteLink,
+          duration: 10000,
+        })
+      } else {
+        toast.success('Приглашение отправлено')
+      }
+      
       loadData()
     } catch (err) {
       toast.error('Ошибка отправки приглашения')
+      console.error('[v0] Send invite error:', err)
     } finally {
       setIsSendingInvite(false)
     }
