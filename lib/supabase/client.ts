@@ -2,18 +2,38 @@ import { createBrowserClient } from '@supabase/ssr'
 
 let browserClient: ReturnType<typeof createBrowserClient> | null = null
 
+// Get environment variables - these are embedded at build time in Next.js
+const getEnvVar = (key: string): string | undefined => {
+  if (typeof window !== 'undefined') {
+    // In browser, check window object first (for v0 runtime)
+    const windowEnv = (window as any).__ENV__
+    if (windowEnv && windowEnv[key]) {
+      return windowEnv[key]
+    }
+  }
+  
+  // Fallback to process.env (standard Next.js)
+  if (typeof process !== 'undefined' && process.env) {
+    return process.env[key]
+  }
+  
+  return undefined
+}
+
 export function createClient() {
   if (browserClient) return browserClient
   
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  const supabaseUrl = getEnvVar('NEXT_PUBLIC_SUPABASE_URL')
+  const supabaseAnonKey = getEnvVar('NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  
+  console.log('[v0] Supabase client init', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseAnonKey,
+    url: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'missing'
+  })
   
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[v0] Missing Supabase environment variables', {
-      hasUrl: !!supabaseUrl,
-      hasKey: !!supabaseAnonKey,
-      env: typeof process !== 'undefined' ? Object.keys(process.env).filter(k => k.includes('SUPABASE')) : []
-    })
+    console.error('[v0] Missing Supabase environment variables')
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
   }
   
