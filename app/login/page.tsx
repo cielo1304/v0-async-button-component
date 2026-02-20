@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
 import { Loader2, LogIn, UserPlus } from 'lucide-react'
 
@@ -27,6 +28,7 @@ function LoginForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const next = searchParams.get('next') || '/'
+  const inviteToken = searchParams.get('invite') || searchParams.get('token')
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -94,10 +96,18 @@ function LoginForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {!inviteToken && (
+            <Alert className="mb-4">
+              <AlertDescription className="text-sm">
+                Регистрация только по приглашению. Если у вас есть токен приглашения, перейдите на страницу активации.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <Tabs defaultValue="signin" className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className={inviteToken ? 'grid w-full grid-cols-2' : 'grid w-full grid-cols-1'}>
               <TabsTrigger value="signin">Вход</TabsTrigger>
-              <TabsTrigger value="signup">Регистрация</TabsTrigger>
+              {inviteToken && <TabsTrigger value="signup">Регистрация</TabsTrigger>}
             </TabsList>
 
             <TabsContent value="signin">

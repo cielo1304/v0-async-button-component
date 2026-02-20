@@ -30,9 +30,16 @@ export async function updateSession(request: NextRequest) {
   )
 
   // Refresh session - important for token rotation
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Wrap in try-catch so preview / offline environments don't break
+  let user = null
+  try {
+    const { data } = await supabase.auth.getUser()
+    user = data.user
+  } catch {
+    // Supabase unreachable – let the request through;
+    // server actions have their own auth guards.
+    return supabaseResponse
+  }
 
   const { pathname } = request.nextUrl
 
@@ -64,6 +71,45 @@ export async function updateSession(request: NextRequest) {
     url.pathname = next
     url.searchParams.delete('next')
     return NextResponse.redirect(url)
+  }
+
+  // Onboarding gate: if user has no membership and is not platform admin, redirect to /onboarding
+  const onboardingAllowlist = [
+    '/onboarding',
+    '/platform',
+    '/login',
+    '/auth',
+    '/_next',
+    '/api',
+  ]
+  const needsOnboardingCheck = user && !onboardingAllowlist.some(path => pathname.startsWith(path))
+
+  if (needsOnboardingCheck) {
+    try {
+      // Check if platform admin
+      const { data: isAdmin } = await supabase.rpc('is_platform_admin')
+      
+      if (!isAdmin) {
+        // Check if user has team membership
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .maybeSingle()
+
+        if (!membership) {
+          // No membership found -> redirect to onboarding
+          const url = request.nextUrl.clone()
+          url.pathname = '/onboarding'
+          url.searchParams.set('next', pathname)
+          return NextResponse.redirect(url)
+        }
+      }
+    } catch (err) {
+      console.error('[v0] Onboarding gate error:', err)
+      // On error, let request through to avoid blocking legitimate users
+    }
   }
 
   return supabaseResponse
