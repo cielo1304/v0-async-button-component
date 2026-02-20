@@ -20,7 +20,7 @@ import {
 import type {
   CoreDeal, CoreDealStatus, FinanceDeal, FinanceLedgerEntry,
   FinanceLedgerEntryType, FinancePaymentScheduleItem, FinanceParticipant,
-  FinanceCollateralLink, FinancePausePeriod, Contact, Employee, Asset
+  FinanceCollateralLink, FinancePausePeriod, Employee, Asset
 } from '@/lib/types/database'
 import { toast } from 'sonner'
 import Link from 'next/link'
