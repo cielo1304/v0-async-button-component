@@ -116,7 +116,7 @@ Implemented invite-only multi-tenant onboarding system with platform admin contr
 ## Database Schema (Pre-Existing, Used by Implementation)
 
 ### `company_invites` Table
-```sql
+\`\`\`sql
 - id: uuid (PK)
 - email: text
 - company_name: text
@@ -124,16 +124,16 @@ Implemented invite-only multi-tenant onboarding system with platform admin contr
 - expires_at: timestamptz
 - used_at: timestamptz (nullable, set when activated)
 - created_at: timestamptz
-```
+\`\`\`
 
 ### `team_members` Table
-```sql
+\`\`\`sql
 - id: uuid (PK)
 - user_id: uuid (FK to auth.users)
 - company_id: uuid (FK to companies)
 - role: text
 - created_at: timestamptz
-```
+\`\`\`
 
 ### RPC Functions (Pre-Existing)
 - `create_company_invite(p_email text, p_company_name text) RETURNS uuid`
@@ -261,19 +261,19 @@ Implemented invite-only multi-tenant onboarding system with platform admin contr
 ## Verification Commands
 
 ### Check if platform admin works:
-```sql
+\`\`\`sql
 SELECT is_platform_admin(); -- as cielo1304@gmail.com, should return true
-```
+\`\`\`
 
 ### Check invite creation:
-```sql
+\`\`\`sql
 SELECT * FROM company_invites ORDER BY created_at DESC LIMIT 5;
-```
+\`\`\`
 
 ### Check team membership:
-```sql
+\`\`\`sql
 SELECT * FROM team_members WHERE user_id = auth.uid();
-```
+\`\`\`
 
 ---
 

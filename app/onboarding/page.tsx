@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { acceptCompanyInvite } from '@/app/actions/tenant'
+import { acceptCompanyInvite, acceptEmployeeInvite } from '@/app/actions/tenant'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -27,8 +27,10 @@ function OnboardingForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const next = searchParams.get('next') || '/'
+  const urlToken = searchParams.get('token') || ''
+  const inviteType = searchParams.get('type') || 'company' // 'company' or 'employee'
 
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState(urlToken)
   const [fullName, setFullName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -37,9 +39,18 @@ function OnboardingForm() {
     e.preventDefault()
     setError('')
 
-    if (!token || !fullName) {
-      setError('Пожалуйста, заполните все поля')
-      return
+    // For employee invites, only token is required
+    if (inviteType === 'employee') {
+      if (!token) {
+        setError('Пожалуйста, введите токен приглашения')
+        return
+      }
+    } else {
+      // For company invites, both token and fullName are required
+      if (!token || !fullName) {
+        setError('Пожалуйста, заполните все поля')
+        return
+      }
     }
 
     // Validate UUID format
@@ -51,14 +62,26 @@ function OnboardingForm() {
 
     setLoading(true)
     try {
-      const result = await acceptCompanyInvite(token, fullName)
-      
-      if (result.error) {
-        setError(result.error)
-        return
-      }
+      if (inviteType === 'employee') {
+        const result = await acceptEmployeeInvite(token)
+        
+        if (result.error) {
+          setError(result.error)
+          return
+        }
 
-      toast.success('Приглашение активировано! Добро пожаловать.')
+        toast.success('Приглашение принято! Вы добавлены в команду.')
+      } else {
+        const result = await acceptCompanyInvite(token, fullName)
+        
+        if (result.error) {
+          setError(result.error)
+          return
+        }
+
+        toast.success('Приглашение активировано! Добро пожаловать.')
+      }
+      
       router.push(next)
       router.refresh()
     } catch (err) {
@@ -77,10 +100,13 @@ function OnboardingForm() {
             <CheckCircle2 className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Активация аккаунта
+            {inviteType === 'employee' ? 'Присоединиться к команде' : 'Активация аккаунта'}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
-            Введите токен приглашения и ваше имя для завершения регистрации
+            {inviteType === 'employee' 
+              ? 'Введите токен приглашения для присоединения к компании'
+              : 'Введите токен приглашения и ваше имя для завершения регистрации'
+            }
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -108,17 +134,19 @@ function OnboardingForm() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="fullName">Ваше полное имя</Label>
-              <Input
-                id="fullName"
-                type="text"
-                placeholder="Иван Иванов"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                disabled={loading}
-              />
-            </div>
+            {inviteType === 'company' && (
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="fullName">Ваше полное имя</Label>
+                <Input
+                  id="fullName"
+                  type="text"
+                  placeholder="Иван Иванов"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  disabled={loading}
+                />
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? (

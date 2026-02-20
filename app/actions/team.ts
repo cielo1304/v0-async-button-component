@@ -18,12 +18,24 @@ export async function createEmployee(data: {
   hired_at?: string
   notes?: string
 }) {
-  await requireUser()
+  const { user } = await requireUser()
   const supabase = await createClient()
+  
+  // Get current user's company_id from team_members
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+  
+  if (!membership) {
+    throw new Error('You must be a member of a company to create employees')
+  }
   
   const { data: employee, error } = await supabase
     .from('employees')
     .insert({
+      company_id: membership.company_id,
       full_name: data.full_name,
       position: data.position || null,
       phone: data.phone || null,
@@ -77,9 +89,57 @@ export async function updateEmployee(
   return employee
 }
 
-export async function deactivateEmployee(employeeId: string) {
-  await requireUser()
+export async function listEmployees() {
+  const { user } = await requireUser()
   const supabase = await createClient()
+  
+  // Get current user's company_id
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+  
+  if (!membership) {
+    throw new Error('You must be a member of a company')
+  }
+  
+  // List employees for this company only
+  const { data: employees, error } = await supabase
+    .from('employees')
+    .select('*')
+    .eq('company_id', membership.company_id)
+    .order('created_at', { ascending: false })
+  
+  if (error) throw new Error(error.message)
+  
+  return employees || []
+}
+
+export async function deactivateEmployee(employeeId: string) {
+  const { user } = await requireUser()
+  const supabase = await createClient()
+  
+  // Verify employee belongs to user's company
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+  
+  if (!membership) {
+    throw new Error('You must be a member of a company')
+  }
+  
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('company_id')
+    .eq('id', employeeId)
+    .single()
+  
+  if (!employee || employee.company_id !== membership.company_id) {
+    throw new Error('Employee not found or access denied')
+  }
   
   const { error } = await supabase
     .from('employees')
@@ -325,11 +385,41 @@ export async function applyPositionDefaultRoles(employeeId: string) {
 // ================================================
 
 export async function createEmployeeInvite(employeeId: string, email: string) {
-  await requireUser()
+  const { user } = await requireUser()
   const supabase = await createClient()
   
   if (!email) {
     throw new Error('Email не указан')
+  }
+  
+  // Get current user's company_id
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+  
+  if (!membership) {
+    throw new Error('You must be a member of a company')
+  }
+  
+  // Verify employee belongs to same company
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('company_id, email')
+    .eq('id', employeeId)
+    .single()
+  
+  if (!employee || employee.company_id !== membership.company_id) {
+    throw new Error('Employee not found or access denied')
+  }
+  
+  // Update employee email if provided
+  if (email !== employee.email) {
+    await supabase
+      .from('employees')
+      .update({ email })
+      .eq('id', employeeId)
   }
   
   // Отменяем предыдущие активные инвайты
