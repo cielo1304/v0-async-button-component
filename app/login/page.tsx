@@ -45,7 +45,6 @@ function LoginForm() {
       const supabase = createClient()
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
-        console.error('[v0] Sign in error:', error)
         toast.error(error.message)
         return
       }
@@ -53,7 +52,6 @@ function LoginForm() {
       router.push(next)
       router.refresh()
     } catch (err) {
-      console.error('[v0] Sign in exception:', err)
       toast.error(err instanceof Error ? err.message : 'Ошибка входа')
     } finally {
       setLoading(false)
@@ -75,13 +73,11 @@ function LoginForm() {
       const supabase = createClient()
       const { error } = await supabase.auth.signUp({ email, password })
       if (error) {
-        console.error('[v0] Sign up error:', error)
         toast.error(error.message)
         return
       }
       toast.success('Регистрация успешна. Проверьте email для подтверждения.')
     } catch (err) {
-      console.error('[v0] Sign up exception:', err)
       toast.error(err instanceof Error ? err.message : 'Ошибка регистрации')
     } finally {
       setLoading(false)

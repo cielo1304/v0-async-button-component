@@ -41,6 +41,7 @@ import { toast } from 'sonner'
 import { ExchangeRate, CurrencyRateSource } from '@/lib/types/database'
 import { EditRateDialog } from './edit-rate-dialog'
 import { fetchExternalRate } from '@/app/actions/exchange'
+import { DEFAULT_EXCHANGE_RATE_TEMPLATES } from '@/lib/constants/exchange-rates'
 
 interface Props {
   onUpdate?: () => void
@@ -48,6 +49,7 @@ interface Props {
 
 interface ExtendedExchangeRate extends ExchangeRate {
   is_auto_rate?: boolean
+  isTemplate?: boolean // Marks UI-only template entries (not in DB)
 }
 
 const CURRENCY_FLAGS: Record<string, string> = {
@@ -156,7 +158,45 @@ export function ExchangeRatesManager({ onUpdate }: Props) {
       ])
       
       if (ratesResult.error) throw ratesResult.error
-      setRates(ratesResult.data || [])
+      
+      const dbRates = ratesResult.data || []
+      
+      // Merge with templates: add template entries for pairs not in DB
+      const mergedRates: ExtendedExchangeRate[] = [...dbRates]
+      
+      for (const template of DEFAULT_EXCHANGE_RATE_TEMPLATES) {
+        const existsInDb = dbRates.some(
+          r => r.from_currency === template.from_currency && r.to_currency === template.to_currency
+        )
+        
+        if (!existsInDb) {
+          // Create a template entry (UI-only, not in DB)
+          mergedRates.push({
+            id: `template-${template.from_currency}-${template.to_currency}`,
+            from_currency: template.from_currency,
+            to_currency: template.to_currency,
+            buy_rate: 0,
+            sell_rate: 0,
+            market_rate: null,
+            is_active: false, // Templates are disabled by default
+            is_popular: template.is_popular || false,
+            sort_order: template.sort_order || 999,
+            profit_calculation_method: 'auto',
+            fixed_base_source: 'api',
+            margin_percent: 2.0,
+            api_rate: null,
+            api_rate_updated_at: null,
+            last_updated: new Date().toISOString(),
+            created_at: new Date().toISOString(),
+            isTemplate: true, // Mark as template
+          } as ExtendedExchangeRate)
+        }
+      }
+      
+      // Sort by sort_order
+      mergedRates.sort((a, b) => (a.sort_order || 999) - (b.sort_order || 999))
+      
+      setRates(mergedRates)
       setRateSources(sourcesResult.data || [])
       setAllSources(allSourcesResult.data || [])
       if (settingsResult.data) {
@@ -319,13 +359,18 @@ const resetForm = () => {
   }
   
 const openEditDialog = async (rate: ExtendedExchangeRate) => {
+    // If it's a template, treat it as a new rate (no id)
+    if (rate.isTemplate) {
+      setEditingRate(null) // Treat as new
+    } else {
+      setEditingRate(rate)
+    }
     
-    setEditingRate(rate)
     setFromCurrency(rate.from_currency)
     setToCurrency(rate.to_currency)
     setMarketRate(rate.market_rate?.toString() || '')
     setIsPopular(rate.is_popular)
-    setIsActive(rate.is_active)
+    setIsActive(rate.isTemplate ? true : rate.is_active) // Templates default to active when editing
     setProfitMethod(rate.profit_calculation_method || 'auto')
     setFixedBaseSource(rate.fixed_base_source || 'api')
     setMarginPercent(rate.margin_percent?.toString() || '2.0')
@@ -343,14 +388,13 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
       setSellRate(rate.sell_rate.toString())
     }
     
-    // Подгружаем актуальный курс API (не перезаписываем ручные значения!)
+    // Подгружаем актуальный курс API
     const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
     if (currentApiRate) {
       setApiRate(currentApiRate)
       
-      
-      // Для режима fixed_percent: обновляем базовый курс и пересчитываем
-      if (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api') {
+      // Для template или fixed_percent: обновляем базовый курс и пересчитываем
+      if (rate.isTemplate || (rate.profit_calculation_method === 'fixed_percent' && rate.fixed_base_source === 'api')) {
         setBuyRate(currentApiRate.toFixed(4))
         const margin = rate.margin_percent || 2.0
         setSellRate((currentApiRate * (1 + margin / 100)).toFixed(4))
@@ -488,12 +532,47 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
   
   const toggleActive = async (rate: ExtendedExchangeRate) => {
     try {
-      const { error } = await supabase
-        .from('exchange_rates')
-        .update({ is_active: !rate.is_active })
-        .eq('id', rate.id)
+      // If it's a template being activated, create it in the DB first
+      if (rate.isTemplate && !rate.is_active) {
+        // Fetch API rate for the pair
+        const { rate: currentApiRate } = await fetchRateFromAPI(rate.from_currency, rate.to_currency)
+        
+        const margin = exchangeSettings?.default_margin_percent || 2.0
+        const buyRate = currentApiRate || 0
+        const sellRate = currentApiRate ? currentApiRate * (1 + margin / 100) : 0
+        
+        const { error: insertError } = await supabase
+          .from('exchange_rates')
+          .insert({
+            from_currency: rate.from_currency,
+            to_currency: rate.to_currency,
+            buy_rate: buyRate,
+            sell_rate: sellRate,
+            market_rate: currentApiRate,
+            is_active: true, // Activate it
+            is_popular: rate.is_popular,
+            sort_order: rate.sort_order,
+            profit_calculation_method: 'auto',
+            fixed_base_source: 'api',
+            margin_percent: margin,
+            api_rate: currentApiRate,
+            api_rate_updated_at: currentApiRate ? new Date().toISOString() : null,
+            last_updated: new Date().toISOString()
+          })
+        
+        if (insertError) throw insertError
+        toast.success(`Курс ${rate.from_currency}/${rate.to_currency} добавлен и активирован`)
+      } else {
+        // Regular toggle for existing DB entries
+        const { error } = await supabase
+          .from('exchange_rates')
+          .update({ is_active: !rate.is_active })
+          .eq('id', rate.id)
+        
+        if (error) throw error
+        toast.success(rate.is_active ? 'Курс деактивирован' : 'Курс активирован')
+      }
       
-      if (error) throw error
       loadRates()
       onUpdate?.()
     } catch {
@@ -1037,6 +1116,11 @@ const openEditDialog = async (rate: ExtendedExchangeRate) => {
                     <ArrowRight className="h-3 w-3 text-muted-foreground" />
                     <span>{CURRENCY_FLAGS[rate.to_currency] || ''}</span>
                     <span className="font-medium text-foreground">{rate.to_currency}</span>
+                    {rate.isTemplate && (
+                      <Badge variant="outline" className="ml-2 text-xs border-cyan-500/50 text-cyan-400">
+                        Шаблон
+                      </Badge>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell className="text-center">

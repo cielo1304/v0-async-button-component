@@ -26,14 +26,7 @@ export function createClient() {
   const supabaseUrl = getEnvVar('NEXT_PUBLIC_SUPABASE_URL')
   const supabaseAnonKey = getEnvVar('NEXT_PUBLIC_SUPABASE_ANON_KEY')
   
-  console.log('[v0] Supabase client init', {
-    hasUrl: !!supabaseUrl,
-    hasKey: !!supabaseAnonKey,
-    url: supabaseUrl ? `${supabaseUrl.substring(0, 30)}...` : 'missing'
-  })
-  
   if (!supabaseUrl || !supabaseAnonKey) {
-    console.error('[v0] Missing Supabase environment variables')
     throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
   }
   
@@ -46,7 +39,6 @@ export function createClient() {
     },
     global: {
       fetch: (url, options = {}) => {
-        console.log('[v0] Supabase fetch:', url)
         return fetch(url, {
           ...options,
           // Add credentials and mode to help with CORS in preview environment

@@ -1,5 +1,9 @@
 # Application Routes
 
+## Documentation
+
+- **[EXCHANGE_RATES_TEMPLATE.md](./EXCHANGE_RATES_TEMPLATE.md)** - Exchange Rates Template System: default currency pairs that appear when DB is empty
+
 ## Status Legend
 - ✅ **Used** - Active route in production
 - 👻 **Ghost** - Deprecated route (redirects or 404)
