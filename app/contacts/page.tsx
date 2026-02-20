@@ -23,8 +23,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { 
   Users, Search, Home, Phone, Mail, Filter, 
-  ArrowLeftRight, FileText, Car, Loader2, ChevronRight 
+  ArrowLeftRight, FileText, Car, Loader2, ChevronRight, Plus, Building2 
 } from 'lucide-react'
+import { CreateContactDialog } from '@/components/contacts/create-contact-dialog'
 import { createClient } from '@/lib/supabase/client'
 import { Contact, ContactSegment, ContactChannel, ContactModule } from '@/lib/types/database'
 import { MODULE_LABELS, MODULE_COLORS } from '@/lib/constants/contacts'
@@ -50,6 +51,7 @@ export default function ContactsPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [moduleFilter, setModuleFilter] = useState<ContactModule | 'all'>('all')
+  const [isCreateOpen, setIsCreateOpen] = useState(false)
 
   useEffect(() => {
     loadContacts()
@@ -81,11 +83,16 @@ export default function ContactsPage() {
     return contacts.filter(contact => {
       // Фильтр по поиску
       const searchLower = searchQuery.toLowerCase()
+      const digitsOnly = searchQuery.replace(/\D/g, '')
       const matchesSearch = !searchQuery || 
         contact.display_name.toLowerCase().includes(searchLower) ||
+        (contact.organization && contact.organization.toLowerCase().includes(searchLower)) ||
+        (contact.mobile_phone && contact.mobile_phone.includes(searchQuery)) ||
+        (digitsOnly.length >= 3 && contact.mobile_phone && contact.mobile_phone.replace(/\D/g, '').includes(digitsOnly)) ||
+        (digitsOnly.length >= 3 && contact.extra_phones?.some(p => p.replace(/\D/g, '').includes(digitsOnly))) ||
         contact.contact_channels.some(ch => 
           ch.value.toLowerCase().includes(searchLower) ||
-          ch.normalized.includes(searchQuery.replace(/\D/g, ''))
+          ch.normalized.includes(digitsOnly)
         )
 
       // Фильтр по модулю
@@ -144,6 +151,10 @@ export default function ContactsPage() {
                 </p>
               </div>
             </div>
+            <Button onClick={() => setIsCreateOpen(true)} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Создать контакт
+            </Button>
           </div>
         </div>
       </header>
@@ -194,7 +205,7 @@ export default function ContactsPage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Поиск по имени или телефону..."
+                  placeholder="Поиск по имени, телефону или организации..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-9"
@@ -274,14 +285,22 @@ export default function ContactsPage() {
                         className="cursor-pointer hover:bg-accent/50"
                         onClick={() => router.push(`/contacts/${contact.id}`)}
                       >
-                        <TableCell className="font-medium">
-                          {contact.display_name}
+                        <TableCell>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{contact.display_name}</span>
+                            {contact.organization && (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Building2 className="h-3 w-3" />
+                                {contact.organization}
+                              </span>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
-                          {phone && (
+                          {(contact.mobile_phone || phone) && (
                             <div className="flex items-center gap-1 text-muted-foreground">
                               <Phone className="h-3 w-3" />
-                              {phone}
+                              {contact.mobile_phone || phone}
                             </div>
                           )}
                         </TableCell>
@@ -325,6 +344,12 @@ export default function ContactsPage() {
           </CardContent>
         </Card>
       </main>
+
+      <CreateContactDialog
+        open={isCreateOpen}
+        onOpenChange={setIsCreateOpen}
+        onCreated={loadContacts}
+      />
     </div>
   )
 }
