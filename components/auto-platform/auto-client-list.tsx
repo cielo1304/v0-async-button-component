@@ -6,9 +6,18 @@ import { DataTable } from '@/components/ui/data-table'
 import { Badge } from '@/components/ui/badge'
 import { AutoClient } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2, Star, Ban, Phone, Mail } from 'lucide-react'
+import { Loader2, Star, Ban, Phone, Mail, Building2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+
+interface AutoClientWithContact extends AutoClient {
+  contact?: {
+    display_name: string
+    nickname: string | null
+    mobile_phone: string | null
+    organization: string | null
+  } | null
+}
 
 const CLIENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   BUYER: { label: 'Покупатель', color: 'bg-emerald-500/20 text-emerald-400' },
@@ -18,7 +27,7 @@ const CLIENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
 }
 
 export function AutoClientList() {
-  const [clients, setClients] = useState<AutoClient[]>([])
+  const [clients, setClients] = useState<AutoClientWithContact[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
   const supabase = createClient()
@@ -28,11 +37,11 @@ export function AutoClientList() {
       try {
         const { data, error } = await supabase
           .from('auto_clients')
-          .select('*')
+          .select('*, contact:contacts(display_name, nickname, mobile_phone, organization)')
           .order('created_at', { ascending: false })
 
         if (error) throw error
-        setClients(data || [])
+        setClients((data || []) as AutoClientWithContact[])
       } catch (error) {
         console.error('[v0] Error loading auto clients:', error)
       } finally {
@@ -48,19 +57,31 @@ export function AutoClientList() {
       key: 'full_name',
       header: 'ФИО',
       className: 'font-medium',
-      cell: (row: AutoClient) => (
-        <div className="flex items-center gap-2">
-          {row.is_blacklisted && <Ban className="h-4 w-4 text-red-400" />}
-          <span className={row.is_blacklisted ? 'text-red-400 line-through' : ''}>
-            {row.full_name}
-          </span>
-        </div>
-      ),
+      cell: (row: AutoClientWithContact) => {
+        const displayName = row.contact?.display_name || row.full_name
+        const org = row.contact?.organization
+        return (
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2">
+              {row.is_blacklisted && <Ban className="h-4 w-4 text-red-400" />}
+              <span className={row.is_blacklisted ? 'text-red-400 line-through' : ''}>
+                {displayName}
+              </span>
+            </div>
+            {org && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                <Building2 className="h-3 w-3" />
+                {org}
+              </span>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'client_type',
       header: 'Тип',
-      cell: (row: AutoClient) => {
+      cell: (row: AutoClientWithContact) => {
         const type = CLIENT_TYPE_LABELS[row.client_type] || { label: row.client_type, color: 'bg-secondary' }
         return <Badge className={type.color}>{type.label}</Badge>
       },
@@ -68,27 +89,30 @@ export function AutoClientList() {
     {
       key: 'phone',
       header: 'Контакты',
-      cell: (row: AutoClient) => (
-        <div className="space-y-1">
-          {row.phone && (
-            <div className="flex items-center gap-1 text-sm">
-              <Phone className="h-3 w-3 text-muted-foreground" />
-              <a href={`tel:${row.phone}`} className="hover:text-primary">{row.phone}</a>
-            </div>
-          )}
-          {row.email && (
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <Mail className="h-3 w-3" />
-              <a href={`mailto:${row.email}`} className="hover:text-primary">{row.email}</a>
-            </div>
-          )}
-        </div>
-      ),
+      cell: (row: AutoClientWithContact) => {
+        const phone = row.contact?.mobile_phone || row.phone
+        return (
+          <div className="space-y-1">
+            {phone && (
+              <div className="flex items-center gap-1 text-sm">
+                <Phone className="h-3 w-3 text-muted-foreground" />
+                <a href={`tel:${phone}`} className="hover:text-primary">{phone}</a>
+              </div>
+            )}
+            {row.email && (
+              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <Mail className="h-3 w-3" />
+                <a href={`mailto:${row.email}`} className="hover:text-primary">{row.email}</a>
+              </div>
+            )}
+          </div>
+        )
+      },
     },
     {
       key: 'passport',
       header: 'Паспорт',
-      cell: (row: AutoClient) => {
+      cell: (row: AutoClientWithContact) => {
         if (!row.passport_series && !row.passport_number) return <span className="text-muted-foreground">-</span>
         return (
           <span className="font-mono text-sm">
@@ -101,7 +125,7 @@ export function AutoClientList() {
       key: 'rating',
       header: 'Рейтинг',
       className: 'text-center',
-      cell: (row: AutoClient) => (
+      cell: (row: AutoClientWithContact) => (
         <div className="flex items-center justify-center gap-1">
           {Array.from({ length: 5 }).map((_, i) => (
             <Star
@@ -115,7 +139,7 @@ export function AutoClientList() {
     {
       key: 'created_at',
       header: 'Добавлен',
-      cell: (row: AutoClient) => (
+      cell: (row: AutoClientWithContact) => (
         <span className="text-muted-foreground text-sm">
           {format(new Date(row.created_at), 'd MMM yyyy', { locale: ru })}
         </span>
