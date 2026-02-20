@@ -757,6 +757,7 @@ export interface Contact {
   display_name: string
   first_name: string | null
   last_name: string | null
+  nickname: string | null
   mobile_phone: string | null
   extra_phones: string[]
   organization: string | null

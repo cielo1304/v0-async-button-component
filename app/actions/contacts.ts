@@ -16,7 +16,7 @@ export async function searchContacts(query: string, limit = 20) {
   if (!q) {
     const { data, error } = await supabase
       .from('contacts')
-      .select('id, display_name, mobile_phone, extra_phones, organization')
+      .select('id, display_name, nickname, mobile_phone, extra_phones, organization')
       .order('display_name')
       .limit(limit)
 
@@ -24,6 +24,7 @@ export async function searchContacts(query: string, limit = 20) {
     return (data || []).map(c => ({
       id: c.id,
       display_name: c.display_name,
+      nickname: c.nickname,
       phones: [c.mobile_phone, ...(c.extra_phones || [])].filter(Boolean) as string[],
       organization: c.organization,
     }))
@@ -37,16 +38,16 @@ export async function searchContacts(query: string, limit = 20) {
   // Build filter: display_name ILIKE OR organization ILIKE OR mobile_phone contains digits
   let queryBuilder = supabase
     .from('contacts')
-    .select('id, display_name, mobile_phone, extra_phones, organization')
+    .select('id, display_name, nickname, mobile_phone, extra_phones, organization')
 
   if (digitsOnly.length >= 3) {
     // If query looks like a phone number, search phone fields too
     queryBuilder = queryBuilder.or(
-      `display_name.ilike.${likePattern},organization.ilike.${likePattern},mobile_phone.ilike.%${digitsOnly}%`
+      `display_name.ilike.${likePattern},nickname.ilike.${likePattern},organization.ilike.${likePattern},mobile_phone.ilike.%${digitsOnly}%`
     )
   } else {
     queryBuilder = queryBuilder.or(
-      `display_name.ilike.${likePattern},organization.ilike.${likePattern}`
+      `display_name.ilike.${likePattern},nickname.ilike.${likePattern},organization.ilike.${likePattern}`
     )
   }
 
@@ -81,6 +82,7 @@ export async function searchContacts(query: string, limit = 20) {
   return results.slice(0, limit).map(c => ({
     id: c.id,
     display_name: c.display_name,
+    nickname: c.nickname,
     phones: [c.mobile_phone, ...(c.extra_phones || [])].filter(Boolean) as string[],
     organization: c.organization,
   }))
@@ -93,6 +95,7 @@ export async function searchContacts(query: string, limit = 20) {
 export interface CreateContactPayload {
   first_name: string
   last_name?: string
+  nickname?: string
   mobile_phone?: string
   extra_phones?: string[]
   organization?: string
@@ -108,10 +111,13 @@ export async function createContact(payload: CreateContactPayload) {
     throw new Error('Имя обязательно для заполнения')
   }
 
-  // Build display_name
-  const displayName = [firstName, payload.last_name?.trim()]
+  // Build display_name: "Имя Фамилия (Псевдоним)"
+  let displayName = [firstName, payload.last_name?.trim()]
     .filter(Boolean)
     .join(' ') || 'Без имени'
+  if (payload.nickname?.trim()) {
+    displayName += ` (${payload.nickname.trim()})`
+  }
 
   // Clean extra_phones: remove empty strings
   const extraPhones = (payload.extra_phones || [])
@@ -124,6 +130,7 @@ export async function createContact(payload: CreateContactPayload) {
       display_name: displayName,
       first_name: firstName,
       last_name: payload.last_name?.trim() || null,
+      nickname: payload.nickname?.trim() || null,
       mobile_phone: payload.mobile_phone?.trim() || null,
       extra_phones: extraPhones,
       organization: payload.organization?.trim() || null,
@@ -163,6 +170,7 @@ export interface UpdateContactPayload {
   id: string
   first_name?: string
   last_name?: string
+  nickname?: string
   mobile_phone?: string
   extra_phones?: string[]
   organization?: string
@@ -182,6 +190,7 @@ export async function updateContact(payload: UpdateContactPayload) {
 
   if (fields.first_name !== undefined) updateData.first_name = fields.first_name.trim() || null
   if (fields.last_name !== undefined) updateData.last_name = fields.last_name.trim() || null
+  if (fields.nickname !== undefined) updateData.nickname = fields.nickname.trim() || null
   if (fields.mobile_phone !== undefined) updateData.mobile_phone = fields.mobile_phone.trim() || null
   if (fields.organization !== undefined) updateData.organization = fields.organization.trim() || null
   if (fields.comment !== undefined) updateData.comment = fields.comment.trim() || null
@@ -190,18 +199,20 @@ export async function updateContact(payload: UpdateContactPayload) {
     updateData.extra_phones = fields.extra_phones.map(p => p.trim()).filter(Boolean)
   }
 
-  // Recompute display_name if name fields changed
-  if (fields.first_name !== undefined || fields.last_name !== undefined) {
+  // Recompute display_name if name/nickname fields changed
+  if (fields.first_name !== undefined || fields.last_name !== undefined || fields.nickname !== undefined) {
     // Fetch existing to merge
     const { data: existing } = await supabase
       .from('contacts')
-      .select('first_name, last_name')
+      .select('first_name, last_name, nickname')
       .eq('id', id)
       .single()
 
     const fn = fields.first_name !== undefined ? fields.first_name.trim() : (existing?.first_name || '')
     const ln = fields.last_name !== undefined ? fields.last_name.trim() : (existing?.last_name || '')
-    const displayName = [fn, ln].filter(Boolean).join(' ') || 'Без имени'
+    const nick = fields.nickname !== undefined ? fields.nickname.trim() : (existing?.nickname || '')
+    let displayName = [fn, ln].filter(Boolean).join(' ') || 'Без имени'
+    if (nick) displayName += ` (${nick})`
     updateData.display_name = fields.display_name || displayName
   } else if (fields.display_name !== undefined) {
     updateData.display_name = fields.display_name.trim()

@@ -25,6 +25,7 @@ interface CreateContactDialogProps {
 export function CreateContactDialog({ open, onOpenChange, onCreated }: CreateContactDialogProps) {
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
+  const [nickname, setNickname] = useState('')
   const [mobilePhone, setMobilePhone] = useState('')
   const [extraPhones, setExtraPhones] = useState<string[]>([])
   const [organization, setOrganization] = useState('')
@@ -34,6 +35,7 @@ export function CreateContactDialog({ open, onOpenChange, onCreated }: CreateCon
   const resetForm = () => {
     setFirstName('')
     setLastName('')
+    setNickname('')
     setMobilePhone('')
     setExtraPhones([])
     setOrganization('')
@@ -66,6 +68,7 @@ export function CreateContactDialog({ open, onOpenChange, onCreated }: CreateCon
       const payload: CreateContactPayload = {
         first_name: firstName.trim(),
         last_name: lastName.trim() || undefined,
+        nickname: nickname.trim() || undefined,
         mobile_phone: mobilePhone.trim() || undefined,
         extra_phones: extraPhones.filter(p => p.trim()),
         organization: organization.trim() || undefined,
@@ -122,6 +125,17 @@ export function CreateContactDialog({ open, onOpenChange, onCreated }: CreateCon
                 onChange={(e) => setLastName(e.target.value)}
               />
             </div>
+          </div>
+
+          {/* Nickname */}
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="nickname">Псевдоним</Label>
+            <Input
+              id="nickname"
+              placeholder="Как обычно представляется"
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+            />
           </div>
 
           {/* Primary phone */}

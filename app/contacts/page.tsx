@@ -86,6 +86,7 @@ export default function ContactsPage() {
       const digitsOnly = searchQuery.replace(/\D/g, '')
       const matchesSearch = !searchQuery || 
         contact.display_name.toLowerCase().includes(searchLower) ||
+        (contact.nickname && contact.nickname.toLowerCase().includes(searchLower)) ||
         (contact.organization && contact.organization.toLowerCase().includes(searchLower)) ||
         (contact.mobile_phone && contact.mobile_phone.includes(searchQuery)) ||
         (digitsOnly.length >= 3 && contact.mobile_phone && contact.mobile_phone.replace(/\D/g, '').includes(digitsOnly)) ||
