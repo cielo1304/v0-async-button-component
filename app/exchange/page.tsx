@@ -40,6 +40,7 @@ import { CURRENCY_SYMBOLS, CURRENCY_FLAGS, type DatePeriod } from '@/lib/constan
 import { nanoid } from 'nanoid'
 import { submitExchange, setFollowup } from '@/app/actions/client-exchange'
 import type { ExchangeParticipant } from '@/app/actions/client-exchange'
+import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -61,8 +62,8 @@ export default function ExchangePage() {
   ])
   
   // Данные клиента
-  const [clientName, setClientName] = useState('')
-  const [clientPhone, setClientPhone] = useState('')
+  const [clientContactId, setClientContactId] = useState<string | null>(null)
+  const [clientContact, setClientContact] = useState<ContactPickerValue | null>(null)
   
   // Участники клиента
   const [participants, setParticipants] = useState<Array<{
@@ -628,8 +629,9 @@ export default function ExchangePage() {
       const result = await submitExchange({
         clientGives: clientGives.map(g => ({ currency: g.currency, amount: g.amount, cashboxId: g.cashboxId })),
         clientReceives: clientReceives.map(r => ({ currency: r.currency, amount: r.amount, cashboxId: r.cashboxId })),
-        clientName: clientName || undefined,
-        clientPhone: clientPhone || undefined,
+        clientContactId: clientContactId || undefined,
+        clientName: clientContact?.display_name || undefined,
+        clientPhone: clientContact?.phones?.[0] || undefined,
         baseCurrency,
         totalGivesBase: givesInBase,
         totalReceivesBase: receivesInBase,
@@ -660,8 +662,8 @@ export default function ExchangePage() {
       // Reset form
       setClientGives([{ id: nanoid(), currency: 'USD', amount: '', cashboxId: '' }])
       setClientReceives([{ id: nanoid(), currency: 'RUB', amount: '', cashboxId: '' }])
-      setClientName('')
-      setClientPhone('')
+      setClientContactId(null)
+      setClientContact(null)
       setParticipants([])
       setBeneficiaryContactId('')
       setFollowupAt('')
@@ -1176,25 +1178,22 @@ export default function ExchangePage() {
             <Card className="bg-card border-border">
               <CardContent className="p-4 space-y-4">
                 {/* Основные данные клиента */}
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Имя клиента</Label>
-                    <Input
-                      placeholder="Необязательно"
-                      value={clientName}
-                      onChange={(e) => setClientName(e.target.value)}
-                      className="h-9"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Телефон</Label>
-                    <Input
-                      placeholder="Необязательно"
-                      value={clientPhone}
-                      onChange={(e) => setClientPhone(e.target.value)}
-                      className="h-9"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <ContactPicker
+                    label="Клиент"
+                    value={clientContactId}
+                    onChange={(id, contact) => {
+                      setClientContactId(id)
+                      setClientContact(contact)
+                    }}
+                    placeholder="Выберите клиента (необязательно)..."
+                  />
+                  {clientContact && (clientContact.phones.length > 0 || clientContact.organization) && (
+                    <div className="flex gap-3 text-xs text-muted-foreground px-1">
+                      {clientContact.phones[0] && <span>{clientContact.phones[0]}</span>}
+                      {clientContact.organization && <span>{clientContact.organization}</span>}
+                    </div>
+                  )}
                 </div>
 
                 {/* Участники клиента */}

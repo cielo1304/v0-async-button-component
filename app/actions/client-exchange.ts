@@ -51,6 +51,7 @@ export interface SubmitExchangeInput {
   clientReceives: ExchangeLine[]
   clientName?: string
   clientPhone?: string
+  clientContactId?: string  // Direct contact_id from ContactPicker
   baseCurrency: string
   totalGivesBase: number
   totalReceivesBase: number
@@ -113,9 +114,9 @@ export async function submitExchange(input: SubmitExchangeInput): Promise<Exchan
       }
     }
 
-    // 0.5 Create/find contact if client data provided
-    let contactId: string | null = null
-    if (input.clientName || input.clientPhone) {
+    // 0.5 Use direct contact_id from ContactPicker, or fallback to get_or_create_contact
+    let contactId: string | null = input.clientContactId || null
+    if (!contactId && (input.clientName || input.clientPhone)) {
       const { data: contactData } = await supabase.rpc('get_or_create_contact', {
         p_display_name: input.clientName || 'Клиент обмена',
         p_phone: input.clientPhone || null,

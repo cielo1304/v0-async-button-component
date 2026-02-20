@@ -12,12 +12,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search, ArrowLeft, Landmark, Users, Calendar, TrendingUp, Pause, AlertTriangle } from 'lucide-react'
-import type { CoreDeal, CoreDealStatus, FinanceScheduleType, Contact, Employee } from '@/lib/types/database'
+import type { CoreDeal, CoreDealStatus, FinanceScheduleType, Employee } from '@/lib/types/database'
 import { toast } from 'sonner'
 import Link from 'next/link'
 import { canViewByVisibility } from '@/lib/access'
 import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 import { createFinanceDeal } from '@/app/actions/finance-deals'
+import { ContactPicker } from '@/components/contacts/contact-picker'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -54,7 +55,6 @@ export default function FinanceDealsPage() {
   const [isCreateOpen, setIsCreateOpen] = useState(false)
 
   // Данные для создания
-  const [contacts, setContacts] = useState<Contact[]>([])
   const [employees, setEmployees] = useState<Employee[]>([])
   const [form, setForm] = useState({
     title: '',
@@ -93,12 +93,8 @@ export default function FinanceDealsPage() {
   }, [supabase])
 
   const loadRefs = useCallback(async () => {
-    const [c, e] = await Promise.all([
-      supabase.from('contacts').select('id, full_name').order('full_name'),
-      supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
-    ])
-    setContacts((c.data || []) as Contact[])
-    setEmployees((e.data || []) as Employee[])
+    const { data } = await supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name')
+    setEmployees((data || []) as Employee[])
   }, [supabase])
 
   useEffect(() => { loadDeals(); loadRefs() }, [loadDeals, loadRefs])
@@ -329,13 +325,12 @@ export default function FinanceDealsPage() {
               <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Займ Иванову на авто" />
             </div>
             <div className="space-y-2">
-              <Label>Контакт</Label>
-              <Select value={form.contact_id} onValueChange={v => setForm(f => ({ ...f, contact_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Выберите" /></SelectTrigger>
-                <SelectContent>
-                  {contacts.map(c => <SelectItem key={c.id} value={c.id}>{c.full_name}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <ContactPicker
+                label="Контакт"
+                value={form.contact_id || null}
+                onChange={(id) => setForm(f => ({ ...f, contact_id: id || '' }))}
+                placeholder="Выберите контакт..."
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">

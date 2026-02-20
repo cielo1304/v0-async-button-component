@@ -13,10 +13,11 @@ import { Card, CardContent } from '@/components/ui/card'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import { FilePlus, Car, User, Calculator, Calendar, Percent } from 'lucide-react'
-import { AutoClient, Car as CarType, Cashbox } from '@/lib/types/database'
+import { FilePlus, Car, Calculator, Calendar, Percent } from 'lucide-react'
+import { Car as CarType, Cashbox } from '@/lib/types/database'
 import { createAutoDealV2 } from '@/app/actions/auto'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
 
 const DEAL_TYPES = [
   { value: 'CASH_SALE', label: 'Наличная продажа', description: 'Продажа авто с полной оплатой' },
@@ -40,14 +41,15 @@ export function AddAutoDealDialog() {
 
   // Справочники
   const [cars, setCars] = useState<CarType[]>([])
-  const [clients, setClients] = useState<AutoClient[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
 
   // Основные данные сделки
   const [dealType, setDealType] = useState('CASH_SALE')
   const [carId, setCarId] = useState('')
-  const [buyerId, setBuyerId] = useState('')
-  const [sellerId, setSellerId] = useState('') // Для комиссии - комитент
+  const [buyerContactId, setBuyerContactId] = useState<string | null>(null)
+  const [buyerContact, setBuyerContact] = useState<ContactPickerValue | null>(null)
+  const [sellerContactId, setSellerContactId] = useState<string | null>(null)
+  const [sellerContact, setSellerContact] = useState<ContactPickerValue | null>(null)
   const [currency, setCurrency] = useState('RUB')
 
   // Наличная продажа / Комиссия
@@ -77,14 +79,12 @@ export function AddAutoDealDialog() {
   // Загрузка справочников
   useEffect(() => {
     async function loadData() {
-      const [carsRes, clientsRes, cashboxesRes] = await Promise.all([
+      const [carsRes, cashboxesRes] = await Promise.all([
         supabase.from('cars').select('*').in('status', ['IN_STOCK', 'AVAILABLE']).order('brand'),
-        supabase.from('auto_clients').select('*').eq('is_blacklisted', false).order('full_name'),
         supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
       ])
 
       if (carsRes.data) setCars(carsRes.data)
-      if (clientsRes.data) setClients(clientsRes.data)
       if (cashboxesRes.data) setCashboxes(cashboxesRes.data)
     }
 
@@ -145,8 +145,10 @@ export function AddAutoDealDialog() {
   const resetForm = () => {
     setDealType('CASH_SALE')
     setCarId('')
-    setBuyerId('')
-    setSellerId('')
+    setBuyerContactId(null)
+    setBuyerContact(null)
+    setSellerContactId(null)
+    setSellerContact(null)
     setCurrency('RUB')
     setSalePrice(null)
     setCommissionPercent(10)
@@ -169,7 +171,7 @@ export function AddAutoDealDialog() {
       toast.error('Выберите автомобиль')
       return
     }
-    if (!buyerId && dealType !== 'COMMISSION_SALE') {
+    if (!buyerContactId && dealType !== 'COMMISSION_SALE') {
       toast.error('Выберите покупателя/арендатора')
       return
     }
@@ -179,8 +181,8 @@ export function AddAutoDealDialog() {
     try {
       const result = await createAutoDealV2({
         carId,
-        buyerId: buyerId || undefined,
-        sellerId: sellerId || undefined,
+        buyerContactId: buyerContactId || undefined,
+        sellerContactId: sellerContactId || undefined,
         dealType,
         salePrice: salePrice || undefined,
         currency,
@@ -287,43 +289,35 @@ export function AddAutoDealDialog() {
 
           {/* Покупатель/Арендатор */}
           <div className="space-y-2">
-            <Label className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              {dealType === 'RENT' ? 'Арендатор' : 'Покупатель'} *
-            </Label>
-            <Select value={buyerId} onValueChange={setBuyerId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Выберите клиента" />
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map((client) => (
-                  <SelectItem key={client.id} value={client.id}>
-                    {client.full_name} {client.phone ? `(${client.phone})` : ''}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <ContactPicker
+              label={dealType === 'RENT' ? 'Арендатор *' : 'Покупатель *'}
+              value={buyerContactId}
+              onChange={(id, contact) => {
+                setBuyerContactId(id)
+                setBuyerContact(contact)
+              }}
+              placeholder="Выберите клиента..."
+            />
+            {buyerContact && buyerContact.phones.length > 0 && (
+              <p className="text-xs text-muted-foreground px-1">{buyerContact.phones[0]}</p>
+            )}
           </div>
 
           {/* Комитент для комиссионной продажи */}
           {dealType === 'COMMISSION_SALE' && (
             <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <User className="h-4 w-4" />
-                Комитент (владелец авто)
-              </Label>
-              <Select value={sellerId} onValueChange={setSellerId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Выберите комитента" />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.filter(c => c.client_type === 'CONSIGNOR' || c.client_type === 'SELLER').map((client) => (
-                    <SelectItem key={client.id} value={client.id}>
-                      {client.full_name} {client.phone ? `(${client.phone})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ContactPicker
+                label="Комитент (владелец авто)"
+                value={sellerContactId}
+                onChange={(id, contact) => {
+                  setSellerContactId(id)
+                  setSellerContact(contact)
+                }}
+                placeholder="Выберите комитента..."
+              />
+              {sellerContact && sellerContact.phones.length > 0 && (
+                <p className="text-xs text-muted-foreground px-1">{sellerContact.phones[0]}</p>
+              )}
             </div>
           )}
 

@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
+import { updateContact } from '@/app/actions/contacts'
 
 export interface AutoActionResult {
   success: boolean
@@ -325,7 +326,9 @@ export async function recordAutoPaymentV2(params: {
 export async function createAutoDealV2(params: {
   carId: string
   buyerId?: string
+  buyerContactId?: string  // Direct contact_id from ContactPicker
   sellerId?: string
+  sellerContactId?: string // Direct contact_id from ContactPicker
   dealType: string
   salePrice?: number
   currency: string
@@ -352,11 +355,11 @@ export async function createAutoDealV2(params: {
     // Generate deal number
     const dealNumber = `DEAL-${Date.now()}`
 
-    // Get contact IDs from auto_clients if available
-    let buyerContactId: string | null = null
-    let sellerContactId: string | null = null
+    // Get contact IDs: prefer direct contactId from ContactPicker, fallback to auto_clients lookup
+    let buyerContactId: string | null = params.buyerContactId || null
+    let sellerContactId: string | null = params.sellerContactId || null
 
-    if (params.buyerId) {
+    if (!buyerContactId && params.buyerId) {
       const { data: buyerClient } = await supabase
         .from('auto_clients')
         .select('contact_id')
@@ -365,7 +368,7 @@ export async function createAutoDealV2(params: {
       buyerContactId = buyerClient?.contact_id || null
     }
 
-    if (params.sellerId) {
+    if (!sellerContactId && params.sellerId) {
       const { data: sellerClient } = await supabase
         .from('auto_clients')
         .select('contact_id')
@@ -522,6 +525,105 @@ export async function createAutoDealV2(params: {
     }
   } catch (err) {
     console.error('[v0] createAutoDealV2 exception:', err)
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+/**
+ * Update auto client's personal data through the linked contact.
+ * Writes name/phone/nickname changes to contacts table,
+ * and syncs full_name/phone back to auto_clients for backward compat.
+ */
+export async function updateAutoClientContact(params: {
+  autoClientId: string
+  first_name?: string
+  last_name?: string
+  nickname?: string
+  mobile_phone?: string
+  organization?: string
+  email?: string
+}): Promise<AutoActionResult> {
+  try {
+    await requireUser()
+    const supabase = await createClient()
+
+    // Get auto_client with contact_id
+    const { data: ac, error: acErr } = await supabase
+      .from('auto_clients')
+      .select('id, contact_id, full_name, phone')
+      .eq('id', params.autoClientId)
+      .single()
+
+    if (acErr || !ac) return { success: false, error: 'Автоклиент не найден' }
+
+    let contactId = ac.contact_id
+
+    // If no contact linked, create one
+    if (!contactId) {
+      const { data: newContact, error: cErr } = await supabase
+        .from('contacts')
+        .insert({
+          first_name: params.first_name || ac.full_name,
+          last_name: params.last_name || null,
+          nickname: params.nickname || null,
+          mobile_phone: params.mobile_phone || ac.phone || null,
+          organization: params.organization || null,
+        })
+        .select('id')
+        .single()
+
+      if (cErr || !newContact) return { success: false, error: 'Не удалось создать контакт' }
+      contactId = newContact.id
+
+      await supabase
+        .from('auto_clients')
+        .update({ contact_id: contactId })
+        .eq('id', ac.id)
+    } else {
+      // Update existing contact
+      const updatePayload: Record<string, any> = {}
+      if (params.first_name !== undefined) updatePayload.first_name = params.first_name
+      if (params.last_name !== undefined) updatePayload.last_name = params.last_name
+      if (params.nickname !== undefined) updatePayload.nickname = params.nickname
+      if (params.mobile_phone !== undefined) updatePayload.mobile_phone = params.mobile_phone
+      if (params.organization !== undefined) updatePayload.organization = params.organization
+
+      // Recompute display_name
+      const fn = (params.first_name ?? '').trim()
+      const ln = (params.last_name ?? '').trim()
+      const nick = (params.nickname ?? '').trim()
+      let displayName = [fn, ln].filter(Boolean).join(' ') || 'Без имени'
+      if (nick) displayName += ` (${nick})`
+      updatePayload.display_name = displayName
+
+      const { error: updateErr } = await supabase
+        .from('contacts')
+        .update(updatePayload)
+        .eq('id', contactId)
+
+      if (updateErr) return { success: false, error: updateErr.message }
+    }
+
+    // Sync back to auto_clients for backward compat
+    const syncData: Record<string, any> = {}
+    const fn = (params.first_name ?? '').trim()
+    const ln = (params.last_name ?? '').trim()
+    if (fn || ln) syncData.full_name = [fn, ln].filter(Boolean).join(' ')
+    if (params.mobile_phone !== undefined) syncData.phone = params.mobile_phone
+    if (params.email !== undefined) syncData.email = params.email
+
+    if (Object.keys(syncData).length > 0) {
+      await supabase.from('auto_clients').update(syncData).eq('id', ac.id)
+    }
+
+    revalidatePath('/cars')
+    revalidatePath(`/cars/clients/${ac.id}`)
+
+    return { success: true }
+  } catch (err) {
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Unknown error',

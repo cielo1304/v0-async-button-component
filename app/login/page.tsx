@@ -51,8 +51,8 @@ function LoginForm() {
       toast.success('Вход выполнен')
       router.push(next)
       router.refresh()
-    } catch {
-      toast.error('Ошибка входа')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Ошибка входа')
     } finally {
       setLoading(false)
     }
@@ -77,8 +77,8 @@ function LoginForm() {
         return
       }
       toast.success('Регистрация успешна. Проверьте email для подтверждения.')
-    } catch {
-      toast.error('Ошибка регистрации')
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Ошибка регистрации')
     } finally {
       setLoading(false)
     }

@@ -6,14 +6,19 @@ import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { AutoClient, AutoDeal } from '@/lib/types/database'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { AutoClient, AutoDeal, Contact } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
+import { updateAutoClientContact } from '@/app/actions/auto'
 import { 
   Loader2, User, Phone, Mail, MapPin, CreditCard, Car as CarIcon,
-  Star, Ban, FileText, AlertTriangle
+  Star, Ban, FileText, AlertTriangle, Pencil, Building2
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
+import { toast } from 'sonner'
 
 const CLIENT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
   BUYER: { label: 'Покупатель', color: 'bg-emerald-500/20 text-emerald-400' },
@@ -33,42 +38,92 @@ export default function AutoClientPage() {
   const params = useParams()
   const id = params.id as string
   const [client, setClient] = useState<AutoClient | null>(null)
+  const [contact, setContact] = useState<Contact | null>(null)
   const [deals, setDeals] = useState<AutoDeal[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  // Edit form state
+  const [editFirstName, setEditFirstName] = useState('')
+  const [editLastName, setEditLastName] = useState('')
+  const [editNickname, setEditNickname] = useState('')
+  const [editPhone, setEditPhone] = useState('')
+  const [editEmail, setEditEmail] = useState('')
+  const [editOrganization, setEditOrganization] = useState('')
   const router = useRouter()
   const supabase = createClient()
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        // Загружаем клиента
-        const { data: clientData, error: clientError } = await supabase
-          .from('auto_clients')
-          .select('*')
-          .eq('id', id)
-          .single()
+  async function loadData() {
+    try {
+      // Load auto_client with linked contact
+      const { data: clientData, error: clientError } = await supabase
+        .from('auto_clients')
+        .select('*, contact:contacts(*)')
+        .eq('id', id)
+        .single()
 
-        if (clientError) throw clientError
-        setClient(clientData)
+      if (clientError) throw clientError
+      
+      const { contact: contactData, ...autoClientData } = clientData as any
+      setClient(autoClientData)
+      setContact(contactData || null)
 
-        // Загружаем сделки клиента
-        const { data: dealsData, error: dealsError } = await supabase
-          .from('auto_deals')
-          .select('*')
-          .or(`buyer_id.eq.${id},seller_id.eq.${id}`)
-          .order('created_at', { ascending: false })
+      // Load deals
+      const { data: dealsData, error: dealsError } = await supabase
+        .from('auto_deals')
+        .select('*')
+        .or(`buyer_id.eq.${id},seller_id.eq.${id}`)
+        .order('created_at', { ascending: false })
 
-        if (dealsError) throw dealsError
-        setDeals(dealsData || [])
-      } catch (error) {
-        console.error('[v0] Error loading client:', error)
-      } finally {
-        setIsLoading(false)
-      }
+      if (dealsError) throw dealsError
+      setDeals(dealsData || [])
+    } catch (error) {
+      console.error('[v0] Error loading client:', error)
+    } finally {
+      setIsLoading(false)
     }
+  }
 
+  useEffect(() => {
     loadData()
   }, [id])
+
+  const openEditDialog = () => {
+    setEditFirstName(contact?.first_name || client?.full_name?.split(' ')[0] || '')
+    setEditLastName(contact?.last_name || client?.full_name?.split(' ').slice(1).join(' ') || '')
+    setEditNickname(contact?.nickname || '')
+    setEditPhone(contact?.mobile_phone || client?.phone || '')
+    setEditEmail(client?.email || '')
+    setEditOrganization(contact?.organization || '')
+    setIsEditOpen(true)
+  }
+
+  const handleSaveContact = async () => {
+    setIsSaving(true)
+    try {
+      const result = await updateAutoClientContact({
+        autoClientId: id,
+        first_name: editFirstName,
+        last_name: editLastName,
+        nickname: editNickname,
+        mobile_phone: editPhone,
+        email: editEmail,
+        organization: editOrganization,
+      })
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка сохранения')
+        return
+      }
+      toast.success('Контакт обновлен')
+      setIsEditOpen(false)
+      setIsLoading(true)
+      await loadData()
+    } catch {
+      toast.error('Ошибка сохранения')
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -107,9 +162,20 @@ export default function AutoClientPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h1 className="text-2xl font-bold text-foreground">{client.full_name}</h1>
+                    <h1 className="text-2xl font-bold text-foreground">
+                      {contact?.display_name || client.full_name}
+                    </h1>
                     <Badge className={typeInfo.color}>{typeInfo.label}</Badge>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={openEditDialog}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
+                  {contact?.organization && (
+                    <div className="flex items-center gap-1 text-sm text-muted-foreground mt-0.5">
+                      <Building2 className="h-3.5 w-3.5" />
+                      {contact.organization}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 mt-1">
                     {Array.from({ length: 5 }).map((_, i) => (
                       <Star
@@ -146,20 +212,32 @@ export default function AutoClientPage() {
               </Card>
             )}
 
-            {/* Контакты */}
+            {/* Контакты -- reads from linked contact first, fallback to auto_clients */}
             <Card>
               <CardHeader>
-                <CardTitle>Контактная информация</CardTitle>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Контактная информация</CardTitle>
+                  <Button variant="ghost" size="sm" onClick={openEditDialog} className="gap-1.5">
+                    <Pencil className="h-3.5 w-3.5" />
+                    Изменить
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {client.phone && (
+                {(contact?.mobile_phone || client.phone) && (
                   <div className="flex items-center gap-3">
                     <Phone className="h-5 w-5 text-muted-foreground" />
-                    <a href={`tel:${client.phone}`} className="text-foreground hover:text-primary">
-                      {client.phone}
+                    <a href={`tel:${contact?.mobile_phone || client.phone}`} className="text-foreground hover:text-primary">
+                      {contact?.mobile_phone || client.phone}
                     </a>
                   </div>
                 )}
+                {contact?.extra_phones?.map((p, i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <Phone className="h-5 w-5 text-muted-foreground opacity-50" />
+                    <a href={`tel:${p}`} className="text-foreground hover:text-primary">{p}</a>
+                  </div>
+                ))}
                 {client.email && (
                   <div className="flex items-center gap-3">
                     <Mail className="h-5 w-5 text-muted-foreground" />
@@ -292,6 +370,50 @@ export default function AutoClientPage() {
           </div>
         </div>
       </main>
+
+      {/* Edit Contact Dialog */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Редактировать контакт</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-4 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editFirstName">Имя</Label>
+                <Input id="editFirstName" value={editFirstName} onChange={e => setEditFirstName(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="editLastName">Фамилия</Label>
+                <Input id="editLastName" value={editLastName} onChange={e => setEditLastName(e.target.value)} />
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editNickname">Псевдоним</Label>
+              <Input id="editNickname" value={editNickname} onChange={e => setEditNickname(e.target.value)} placeholder="Как обычно представляется" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editPhone">Мобильный телефон</Label>
+              <Input id="editPhone" value={editPhone} onChange={e => setEditPhone(e.target.value)} placeholder="+7 (999) 123-45-67" />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editEmail">Email</Label>
+              <Input id="editEmail" type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="editOrg">Организация</Label>
+              <Input id="editOrg" value={editOrganization} onChange={e => setEditOrganization(e.target.value)} />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Отмена</Button>
+            <Button onClick={handleSaveContact} disabled={isSaving}>
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Сохранить
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
