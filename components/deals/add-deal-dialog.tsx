@@ -27,6 +27,7 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Cashbox, Car } from '@/lib/types/database'
 import { Textarea } from '@/components/ui/textarea'
+import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
 
 const DEAL_TYPES = [
   { value: 'SALE', label: 'Продажа' },
@@ -56,9 +57,8 @@ export function AddDealDialog() {
 
   // Основные данные
   const [dealType, setDealType] = useState<string>('SALE')
-  const [clientName, setClientName] = useState('')
-  const [clientPhone, setClientPhone] = useState('')
-  const [clientEmail, setClientEmail] = useState('')
+  const [contactId, setContactId] = useState<string | null>(null)
+  const [selectedContact, setSelectedContact] = useState<ContactPickerValue | null>(null)
 
   // Автомобиль
   const [carId, setCarId] = useState<string>('')
@@ -154,8 +154,8 @@ export function AddDealDialog() {
   }
 
   const handleSubmit = async () => {
-    if (!clientName) {
-      toast.error('Укажите имя клиента')
+    if (!contactId) {
+      toast.error('Выберите контакта')
       return
     }
     if (!contractAmount || contractAmount <= 0) {
@@ -186,24 +186,14 @@ export function AddDealDialog() {
         }
       }
 
-      // Создаем/находим контакт клиента
-      let contactId: string | null = null
-      const { data: contactData } = await supabase.rpc('get_or_create_contact', {
-        p_display_name: clientName,
-        p_phone: clientPhone || null,
-        p_email: clientEmail || null,
-        p_module: 'deals'
-      })
-      contactId = contactData
-
       // Создаем сделку
       const { data: deal, error: dealError } = await supabase
         .from('deals')
         .insert({
           deal_number: dealNumber,
-          client_name: clientName,
-          client_phone: clientPhone || null,
-          client_email: clientEmail || null,
+          client_name: selectedContact?.display_name || '',
+          client_phone: selectedContact?.phones?.[0] || null,
+          client_email: null,
           car_id: carId || null,
           contact_id: contactId,
           status: payments.length > 0 ? 'IN_PROGRESS' : 'NEW',
@@ -269,7 +259,7 @@ export function AddDealDialog() {
           p_cashbox_id: payment.cashboxId,
           p_amount: payment.amount,
           p_category: 'DEAL_PAYMENT',
-          p_description: `Оплата по сделке ${dealNumber} от ${clientName}`,
+          p_description: `Оплата по сделке ${dealNumber} от ${selectedContact?.display_name || 'Клиент'}`,
           p_deal_id: deal.id,
           p_created_by: '00000000-0000-0000-0000-000000000000',
         })
@@ -313,9 +303,8 @@ export function AddDealDialog() {
 
   const resetForm = () => {
     setDealType('SALE')
-    setClientName('')
-    setClientPhone('')
-    setClientEmail('')
+    setContactId(null)
+    setSelectedContact(null)
     setCarId('')
     setContractCurrency('USD')
     setContractAmount(null)
@@ -426,32 +415,23 @@ export function AddDealDialog() {
 
           {/* Клиент */}
           <div className="space-y-4">
-            <Label className="text-sm font-medium text-muted-foreground uppercase">
-              Данные клиента
-            </Label>
-            <div className="grid grid-cols-1 gap-3">
-              <Input
-                value={clientName}
-                onChange={(e) => setClientName(e.target.value)}
-                placeholder="ФИО клиента *"
-                className="bg-background border-border"
-              />
-              <div className="grid grid-cols-2 gap-3">
-                <Input
-                  value={clientPhone}
-                  onChange={(e) => setClientPhone(e.target.value)}
-                  placeholder="Телефон"
-                  className="bg-background border-border"
-                />
-                <Input
-                  value={clientEmail}
-                  onChange={(e) => setClientEmail(e.target.value)}
-                  placeholder="Email"
-                  type="email"
-                  className="bg-background border-border"
-                />
+            <ContactPicker
+              label="Клиент *"
+              value={contactId}
+              onChange={(id, contact) => {
+                setContactId(id)
+                setSelectedContact(contact)
+              }}
+              placeholder="Выберите клиента..."
+            />
+            {selectedContact && (selectedContact.phones.length > 0 || selectedContact.organization) && (
+              <div className="px-3 py-2 rounded-lg bg-secondary/30 border border-border text-sm text-muted-foreground">
+                {selectedContact.phones[0] && <span>{selectedContact.phones[0]}</span>}
+                {selectedContact.organization && (
+                  <span className="ml-3">{selectedContact.organization}</span>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
           {/* Сумма контракта */}

@@ -17,6 +17,7 @@ import { FilePlus, Car, User, Calculator, Calendar, Percent } from 'lucide-react
 import { AutoClient, Car as CarType, Cashbox } from '@/lib/types/database'
 import { createAutoDealV2 } from '@/app/actions/auto'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
 
 const DEAL_TYPES = [
   { value: 'CASH_SALE', label: 'Наличная продажа', description: 'Продажа авто с полной оплатой' },
@@ -40,14 +41,15 @@ export function AddAutoDealDialog() {
 
   // Справочники
   const [cars, setCars] = useState<CarType[]>([])
-  const [clients, setClients] = useState<AutoClient[]>([])
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
 
   // Основные данные сделки
   const [dealType, setDealType] = useState('CASH_SALE')
   const [carId, setCarId] = useState('')
-  const [buyerId, setBuyerId] = useState('')
-  const [sellerId, setSellerId] = useState('') // Для комиссии - комитент
+  const [buyerContactId, setBuyerContactId] = useState<string | null>(null)
+  const [buyerContact, setBuyerContact] = useState<ContactPickerValue | null>(null)
+  const [sellerContactId, setSellerContactId] = useState<string | null>(null)
+  const [sellerContact, setSellerContact] = useState<ContactPickerValue | null>(null)
   const [currency, setCurrency] = useState('RUB')
 
   // Наличная продажа / Комиссия
@@ -77,14 +79,12 @@ export function AddAutoDealDialog() {
   // Загрузка справочников
   useEffect(() => {
     async function loadData() {
-      const [carsRes, clientsRes, cashboxesRes] = await Promise.all([
+      const [carsRes, cashboxesRes] = await Promise.all([
         supabase.from('cars').select('*').in('status', ['IN_STOCK', 'AVAILABLE']).order('brand'),
-        supabase.from('auto_clients').select('*').eq('is_blacklisted', false).order('full_name'),
         supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
       ])
 
       if (carsRes.data) setCars(carsRes.data)
-      if (clientsRes.data) setClients(clientsRes.data)
       if (cashboxesRes.data) setCashboxes(cashboxesRes.data)
     }
 
@@ -145,8 +145,10 @@ export function AddAutoDealDialog() {
   const resetForm = () => {
     setDealType('CASH_SALE')
     setCarId('')
-    setBuyerId('')
-    setSellerId('')
+    setBuyerContactId(null)
+    setBuyerContact(null)
+    setSellerContactId(null)
+    setSellerContact(null)
     setCurrency('RUB')
     setSalePrice(null)
     setCommissionPercent(10)

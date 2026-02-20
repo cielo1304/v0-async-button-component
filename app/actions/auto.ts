@@ -326,7 +326,9 @@ export async function recordAutoPaymentV2(params: {
 export async function createAutoDealV2(params: {
   carId: string
   buyerId?: string
+  buyerContactId?: string  // Direct contact_id from ContactPicker
   sellerId?: string
+  sellerContactId?: string // Direct contact_id from ContactPicker
   dealType: string
   salePrice?: number
   currency: string
@@ -353,11 +355,11 @@ export async function createAutoDealV2(params: {
     // Generate deal number
     const dealNumber = `DEAL-${Date.now()}`
 
-    // Get contact IDs from auto_clients if available
-    let buyerContactId: string | null = null
-    let sellerContactId: string | null = null
+    // Get contact IDs: prefer direct contactId from ContactPicker, fallback to auto_clients lookup
+    let buyerContactId: string | null = params.buyerContactId || null
+    let sellerContactId: string | null = params.sellerContactId || null
 
-    if (params.buyerId) {
+    if (!buyerContactId && params.buyerId) {
       const { data: buyerClient } = await supabase
         .from('auto_clients')
         .select('contact_id')
@@ -366,7 +368,7 @@ export async function createAutoDealV2(params: {
       buyerContactId = buyerClient?.contact_id || null
     }
 
-    if (params.sellerId) {
+    if (!sellerContactId && params.sellerId) {
       const { data: sellerClient } = await supabase
         .from('auto_clients')
         .select('contact_id')
