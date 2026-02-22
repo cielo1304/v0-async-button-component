@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { z } from 'zod'
 

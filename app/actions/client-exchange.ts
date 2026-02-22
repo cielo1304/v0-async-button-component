@@ -845,7 +845,7 @@ export async function settleClientExchangeOut(
 // ==================== Auto-Close Helper ====================
 
 async function maybeAutoClose(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   operationId: string,
   actorEmployeeId: string,
 ) {

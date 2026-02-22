@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import type { AssetType, AssetStatus } from '@/lib/types/database'

@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { generateSchedule, computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { writeAuditLog } from '@/lib/audit'

@@ -1,6 +1,5 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
@@ -540,8 +539,7 @@ export async function updateAutoClientContact(params: {
   email?: string
 }): Promise<AutoActionResult> {
   try {
-    await requireUser()
-    const supabase = await createClient()
+    const { supabase } = await createSupabaseAndRequireUser()
 
     // Get auto_client with contact_id
     const { data: ac, error: acErr } = await supabase

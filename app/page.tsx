@@ -2,7 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { DollarSign, Car, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users, Landmark, BoxSelect } from 'lucide-react'
 import Link from 'next/link'
-import { createServerClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 
 const modules = [
   {
@@ -65,7 +65,7 @@ const modules = [
 ]
 
 async function getStats() {
-  const supabase = await createServerClient()
+  const supabase = await createClient()
   
   const [cashboxes, cars, deals, stock, employees, contacts, finDeals, assets] = await Promise.all([
     supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false),

@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { toast } from 'sonner'
-import { Loader2, LogIn, UserPlus } from 'lucide-react'
+import { AlertTriangle, Loader2, LogIn, UserPlus } from 'lucide-react'
 
 export default function LoginPage() {
   return (
@@ -33,6 +33,11 @@ function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const hasEnv = !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  )
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -96,7 +101,16 @@ function LoginForm() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {!inviteToken && (
+          {!hasEnv && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription className="text-sm">
+                Supabase не подключен. Добавьте NEXT_PUBLIC_SUPABASE_URL и NEXT_PUBLIC_SUPABASE_ANON_KEY в переменные окружения проекта (Vars в боковой панели).
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {!inviteToken && hasEnv && (
             <Alert className="mb-4">
               <AlertDescription className="text-sm">
                 Регистрация только по приглашению. Если у вас есть токен приглашения, перейдите на страницу активации.
@@ -136,7 +150,7 @@ function LoginForm() {
                     disabled={loading}
                   />
                 </div>
-                <Button type="submit" className="w-full" disabled={loading}>
+                <Button type="submit" className="w-full" disabled={loading || !hasEnv}>
                   {loading ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
