@@ -6,24 +6,24 @@ In your Supabase Dashboard, go to **Authentication > URL Configuration** and set
 
 ### Site URL
 Set to your production domain (NOT `localhost`):
-```
+\`\`\`
 https://your-domain.vercel.app
-```
+\`\`\`
 
 ### Redirect URLs
 Add these redirect URLs (replace domain accordingly):
-```
+\`\`\`
 https://your-domain.vercel.app/auth/callback
 https://your-domain.vercel.app/login
 https://your-domain.vercel.app/onboarding
-```
+\`\`\`
 
 For local development, also add:
-```
+\`\`\`
 http://localhost:3000/auth/callback
 http://localhost:3000/login
 http://localhost:3000/onboarding
-```
+\`\`\`
 
 ## Important Notes
 

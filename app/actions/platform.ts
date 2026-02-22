@@ -4,20 +4,20 @@ import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 
 /**
  * Check if the current user is a platform admin.
- * Uses employees.role_code = 'super' instead of hardcoded email.
+ * Uses RPC is_platform_admin which checks platform_admins table.
  */
 export async function isPlatformAdmin(): Promise<boolean> {
   try {
-    const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('role_code')
-      .eq('auth_user_id', user.id)
-      .eq('role_code', 'super')
-      .maybeSingle()
+    const { data: isAdmin, error } = await supabase.rpc('is_platform_admin')
+    
+    if (error) {
+      console.error('[v0] is_platform_admin RPC error:', error)
+      return false
+    }
 
-    return !!employee
+    return !!isAdmin
   } catch {
     return false
   }
@@ -31,17 +31,17 @@ export async function createCompanyInvite(
   companyName: string
 ): Promise<{ token?: string; error?: string }> {
   try {
-    const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
-    // Verify platform admin via role_code
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('role_code')
-      .eq('auth_user_id', user.id)
-      .eq('role_code', 'super')
-      .maybeSingle()
+    // Verify platform admin via RPC
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { error: 'Failed to verify admin status' }
+    }
 
-    if (!employee) {
+    if (!isAdmin) {
       return { error: 'Unauthorized: Only platform admins can create invites' }
     }
 
@@ -78,17 +78,17 @@ export async function listCompanyInvites(): Promise<{
   error?: string
 }> {
   try {
-    const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
-    // Verify platform admin via role_code
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('role_code')
-      .eq('auth_user_id', user.id)
-      .eq('role_code', 'super')
-      .maybeSingle()
+    // Verify platform admin via RPC
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { error: 'Failed to verify admin status' }
+    }
 
-    if (!employee) {
+    if (!isAdmin) {
       return { error: 'Unauthorized' }
     }
 
