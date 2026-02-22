@@ -1,7 +1,7 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { generateSchedule, computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { writeAuditLog } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
@@ -15,8 +15,7 @@ import { revalidatePath } from 'next/cache'
  * This ensures every deal has a schedule from day one (Variant A requirement).
  */
 export async function generateInitialSchedule(financeDealId: string, coreDealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data: fd, error: fdErr } = await supabase
@@ -82,8 +81,7 @@ export async function generateInitialSchedule(financeDealId: string, coreDealId:
 // ────────────────────────────────────────────────
 
 export async function regenerateSchedule(financeDealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Fetch deal details
@@ -165,8 +163,7 @@ export async function pauseDeal(params: {
   reason?: string
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Validate dates
@@ -228,8 +225,7 @@ export async function resumeDeal(params: {
   pauseId: string
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const today = new Date().toISOString().slice(0, 10)
@@ -277,8 +273,7 @@ export async function deletePause(params: {
   financeDealId: string
   pauseId: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { error } = await supabase
@@ -327,8 +322,7 @@ export async function deletePause(params: {
 // ────────────────────────────────────────────────
 
 export async function getDealSummary(financeDealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const [fdRes, ledgerRes, pausesRes, scheduleRes] = await Promise.all([

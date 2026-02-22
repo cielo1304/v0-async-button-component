@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 
 export type DepositWithdrawInput = {
@@ -14,8 +14,7 @@ export type DepositWithdrawInput = {
 }
 
 export async function depositWithdraw(input: DepositWithdrawInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const transactionAmount = input.type === 'DEPOSIT' ? input.amount : -input.amount
@@ -81,8 +80,7 @@ export type CashboxOperationV2Input = {
 }
 
 export async function cashboxOperationV2(input: CashboxOperationV2Input) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { data, error } = await supabase.rpc('cashbox_operation_v2', {
       p_cashbox_id: input.cashboxId,
@@ -120,8 +118,7 @@ export async function cashboxOperationV2(input: CashboxOperationV2Input) {
 // ─── P&L from VIEW ───
 
 export async function getFinanceDealPnl(financeDealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('v_finance_deal_pnl')
     .select('*')
@@ -135,8 +132,7 @@ export async function getFinanceDealPnl(financeDealId: string) {
 // ─── Verified cashbox balances ───
 
 export async function getVerifiedBalances() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data } = await supabase.from('v_cashbox_verified_balance').select('*')
   return data || []
 }
@@ -152,8 +148,7 @@ export type CashboxTransferInput = {
 }
 
 export async function cashboxTransfer(input: CashboxTransferInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { data, error } = await supabase.rpc('cashbox_transfer', {
       p_from_cashbox_id: input.fromCashboxId,
@@ -218,8 +213,7 @@ export type CashboxExchangeInput = {
 }
 
 export async function cashboxExchange(input: CashboxExchangeInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   try {
     // Fix #4.2 C1: Use secure internal_exchange_post RPC instead of old cashbox_exchange
     // 1. Get company_id from cashbox (strict - not "first company")
@@ -295,8 +289,7 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
 // ─── Update cashbox sort order ───
 
 export async function updateCashboxSortOrder(cashboxId: string, sortOrder: number) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { error } = await supabase
@@ -329,8 +322,7 @@ export async function updateCashboxSortOrder(cashboxId: string, sortOrder: numbe
 // ─── Toggle exchange enabled flag ───
 
 export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     // STEP 10: Only super users can toggle exchange
@@ -395,8 +387,7 @@ export type CreateCashboxInput = {
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data: newCashbox, error } = await supabase
@@ -461,8 +452,7 @@ export type UpdateCashboxInput = {
 }
 
 export async function updateCashbox(input: UpdateCashboxInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Get before state for audit
@@ -515,8 +505,7 @@ export type DeleteCashboxInput = {
 }
 
 export async function deleteCashbox(input: DeleteCashboxInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Check if there are any transactions
@@ -571,8 +560,7 @@ export type UpdateCashboxSortOrdersInput = {
 }
 
 export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Update each cashbox sort order

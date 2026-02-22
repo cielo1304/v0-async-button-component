@@ -1,15 +1,14 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import type { CashboxLocation } from '@/lib/types/database'
 
 // ─── Fetch all cashbox locations ───
 
 export async function getCashboxLocations() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data, error } = await supabase
@@ -32,8 +31,7 @@ export async function createCashboxLocation(input: {
   description?: string
   sort_order?: number
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data, error } = await supabase
@@ -67,8 +65,7 @@ export async function updateCashboxLocation(
     is_active?: boolean
   }
 ) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data, error } = await supabase
@@ -95,8 +92,7 @@ export async function updateCashboxLocation(
 // ─── Delete cashbox location ───
 
 export async function deleteCashboxLocation(locationId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { error } = await supabase

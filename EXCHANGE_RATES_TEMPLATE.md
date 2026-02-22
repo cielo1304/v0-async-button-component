@@ -10,7 +10,7 @@ The Exchange Rates Template system provides a default set of common currency pai
 
 Default templates are defined in `/lib/constants/exchange-rates.ts`:
 
-```typescript
+\`\`\`typescript
 export const DEFAULT_EXCHANGE_RATE_TEMPLATES: ExchangeRateTemplate[] = [
   { from_currency: 'USD', to_currency: 'RUB', is_popular: true, sort_order: 1 },
   { from_currency: 'EUR', to_currency: 'RUB', is_popular: true, sort_order: 2 },
@@ -19,7 +19,7 @@ export const DEFAULT_EXCHANGE_RATE_TEMPLATES: ExchangeRateTemplate[] = [
   { from_currency: 'ETH', to_currency: 'RUB', is_popular: true, sort_order: 10 },
   // ... more pairs
 ]
-```
+\`\`\`
 
 ### 2. Template Merging
 
@@ -81,12 +81,12 @@ When a user clicks to edit a template rate:
 
 To add more default pairs, edit `/lib/constants/exchange-rates.ts`:
 
-```typescript
+\`\`\`typescript
 export const DEFAULT_EXCHANGE_RATE_TEMPLATES: ExchangeRateTemplate[] = [
   // ... existing templates
   { from_currency: 'GBP', to_currency: 'USD', is_popular: false, sort_order: 16 },
 ]
-```
+\`\`\`
 
 No database migration needed - templates are code-level only.
 

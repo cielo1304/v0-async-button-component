@@ -1,7 +1,7 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import type { AssetType, AssetStatus } from '@/lib/types/database'
 
@@ -10,8 +10,7 @@ export async function getAssets(filters?: {
   assetType?: string
   search?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   let query = supabase
     .from('assets')
@@ -95,8 +94,7 @@ export async function getAssets(filters?: {
 }
 
 export async function getAssetById(id: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
     .from('assets')
@@ -113,8 +111,7 @@ export async function getAssetById(id: string) {
 }
 
 export async function getAssetValuations(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('asset_valuations')
     .select('*, created_by_employee:employees!created_by_employee_id(id, full_name)')
@@ -126,8 +123,7 @@ export async function getAssetValuations(assetId: string) {
 }
 
 export async function getAssetMoves(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('asset_location_moves')
     .select(`
@@ -144,8 +140,7 @@ export async function getAssetMoves(assetId: string) {
 }
 
 export async function getAssetCollateralLinks(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_collateral_links')
     .select('*, finance_deal:finance_deals!finance_deal_id(id, core_deal_id, principal_amount, contract_currency, core_deal:core_deals!core_deal_id(title, status))')
@@ -157,8 +152,7 @@ export async function getAssetCollateralLinks(assetId: string) {
 }
 
 export async function getAssetCollateralChain(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   // Get chain entries where this asset was either old or new
   const { data, error } = await supabase
     .from('finance_collateral_chain')
@@ -171,8 +165,7 @@ export async function getAssetCollateralChain(assetId: string) {
 }
 
 export async function getAssetSaleEvents(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('asset_sale_events')
     .select('*, created_by_employee:employees!created_by_employee_id(id, full_name)')
@@ -184,8 +177,7 @@ export async function getAssetSaleEvents(assetId: string) {
 }
 
 export async function getAssetTimeline(assetId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('v_timeline_asset_events')
     .select('*')
@@ -197,8 +189,7 @@ export async function getAssetTimeline(assetId: string) {
 }
 
 export async function getAssetLocations() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('asset_locations')
     .select('*')
@@ -209,8 +200,7 @@ export async function getAssetLocations() {
 }
 
 export async function getEmployeesList() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('employees')
     .select('id, full_name')
@@ -221,8 +211,7 @@ export async function getEmployeesList() {
 }
 
 export async function getContactsList(search?: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   let query = supabase.from('contacts').select('id, display_name').order('display_name').limit(50)
   if (search) {
     query = query.ilike('display_name', `%${search}%`)
@@ -242,8 +231,7 @@ export async function createAsset(formData: {
   metadata?: Record<string, unknown>
   actor_employee_id?: string | null
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
     .from('assets')
@@ -289,8 +277,7 @@ export async function updateAsset(
     actor_employee_id?: string | null
   }
 ) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   // Get before state
   const { data: before } = await supabase.from('assets').select('*').eq('id', id).single()
@@ -334,8 +321,7 @@ export async function addAssetValuation(formData: {
   source_note?: string | null
   created_by_employee_id?: string | null
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
     .from('asset_valuations')
@@ -364,8 +350,7 @@ export async function addAssetMove(formData: {
   moved_by_employee_id?: string | null
   note?: string | null
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
     .from('asset_location_moves')
@@ -388,8 +373,7 @@ export async function addAssetMove(formData: {
 }
 
 export async function getCashboxesList() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('cashboxes')
     .select('id, name, currency, balance')
@@ -409,8 +393,7 @@ export async function recordAssetSale(formData: {
   created_by_employee_id?: string | null
   note?: string | null
 }): Promise<{ success: boolean; error?: string }> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // 1. Verify asset exists and is not already sold

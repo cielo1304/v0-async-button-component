@@ -1,7 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 
 /**
  * Get the current user's team membership
@@ -17,8 +17,7 @@ export async function getMyMembership(): Promise<{
   error?: string
 }> {
   try {
-    const { user } = await requireUser()
-    const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase
       .from('team_members')
@@ -47,8 +46,7 @@ export async function acceptCompanyInvite(
   fullName: string
 ): Promise<{ companyId?: string; error?: string }> {
   try {
-    const { user } = await requireUser()
-    const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_company_invite', {
       p_token: token,
@@ -74,8 +72,7 @@ export async function acceptEmployeeInvite(
   token: string
 ): Promise<{ employeeId?: string; error?: string }> {
   try {
-    const { user } = await requireUser()
-    const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_employee_invite', {
       p_token: token,

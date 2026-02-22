@@ -1,36 +1,19 @@
 import { createBrowserClient } from '@supabase/ssr'
+import { getPublicSupabaseEnv } from './env'
 
 let browserClient: ReturnType<typeof createBrowserClient> | null = null
 
-// Get environment variables - these are embedded at build time in Next.js
-const getEnvVar = (key: string): string | undefined => {
-  if (typeof window !== 'undefined') {
-    // In browser, check window object first (for v0 runtime)
-    const windowEnv = (window as any).__ENV__
-    if (windowEnv && windowEnv[key]) {
-      return windowEnv[key]
-    }
-  }
-  
-  // Fallback to process.env (standard Next.js)
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[key]
-  }
-  
-  return undefined
-}
-
+/**
+ * Singleton browser Supabase client.
+ * Uses getPublicSupabaseEnv() for clear error messages if env vars are missing.
+ * Only one instance is ever created per browser tab.
+ */
 export function createClient() {
   if (browserClient) return browserClient
-  
-  const supabaseUrl = getEnvVar('NEXT_PUBLIC_SUPABASE_URL')
-  const supabaseAnonKey = getEnvVar('NEXT_PUBLIC_SUPABASE_ANON_KEY')
-  
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY environment variables')
-  }
-  
-  browserClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+
+  const { url, anonKey } = getPublicSupabaseEnv()
+
+  browserClient = createBrowserClient(url, anonKey, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
@@ -41,7 +24,6 @@ export function createClient() {
       fetch: (url, options = {}) => {
         return fetch(url, {
           ...options,
-          // Add credentials and mode to help with CORS in preview environment
           credentials: 'omit',
           mode: 'cors',
         })
