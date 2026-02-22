@@ -1,7 +1,6 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
 
@@ -13,8 +12,7 @@ export async function evaluateCollateral(params: {
   principalOutstanding: number
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // Get collateral link with asset
@@ -75,8 +73,7 @@ export async function replaceCollateral(params: {
   pledgedUnits?: number
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // 1. End old link
@@ -164,8 +161,7 @@ export async function defaultWithSideEffects(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // 1. Update deal status
@@ -250,8 +246,7 @@ export async function releaseCollateral(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const { data: link } = await supabase

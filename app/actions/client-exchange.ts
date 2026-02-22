@@ -1,7 +1,7 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 
 // ==================== STEP 9: Categories from DB ====================
@@ -11,8 +11,7 @@ let _cachedCategories: { in: string; out: string } | null = null
 async function getExchangeCategories(): Promise<{ in: string; out: string }> {
   if (_cachedCategories) return _cachedCategories
 
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { data: categories } = await supabase
     .from('cashbox_transaction_categories')
@@ -87,8 +86,7 @@ export interface ExchangeResult {
 // ==================== Submit Exchange ====================
 
 export async function submitExchange(input: SubmitExchangeInput): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // STEP 9: Get categories from DB
@@ -386,8 +384,7 @@ export async function setFollowup(
   followupNote: string,
   actorEmployeeId: string,
 ): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { error } = await supabase
       .from('client_exchange_operations')
@@ -417,8 +414,7 @@ export async function setFollowup(
 // ==================== Cancel Exchange ====================
 
 export async function cancelExchange(operationId: string, actorEmployeeId: string, reason?: string): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // STEP 9: Get categories from DB
@@ -547,8 +543,7 @@ export async function setClientExchangeStatus(
   actorEmployeeId: string,
   note?: string,
 ): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     // 1. Fetch current operation
@@ -611,8 +606,7 @@ export async function settleClientExchangeIn(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const categories = await getExchangeCategories()
@@ -723,8 +717,7 @@ export async function settleClientExchangeOut(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   try {
     const categories = await getExchangeCategories()
@@ -852,7 +845,7 @@ export async function settleClientExchangeOut(
 // ==================== Auto-Close Helper ====================
 
 async function maybeAutoClose(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   operationId: string,
   actorEmployeeId: string,
 ) {

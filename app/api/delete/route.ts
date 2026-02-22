@@ -1,10 +1,10 @@
 import { del } from '@vercel/blob'
 import { type NextRequest, NextResponse } from 'next/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 
 export async function DELETE(request: NextRequest) {
   try {
-    await requireUser()
+    await createSupabaseAndRequireUser()
     const { url } = await request.json()
 
     if (!url) {

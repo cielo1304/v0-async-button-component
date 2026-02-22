@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { z } from 'zod'
 
 const ExchangeSchema = z.object({
@@ -23,8 +22,7 @@ export type ExchangeInput = z.infer<typeof ExchangeSchema>
  * Will be removed in a future version.
  */
 export async function executeExchange(input: ExchangeInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     // 1. Валидация
@@ -228,8 +226,7 @@ export async function executeExchange(input: ExchangeInput) {
 
 // Получить последние курсы валют
 export async function getCurrencyRates() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { data, error } = await supabase
     .from('currency_rates')
@@ -384,8 +381,7 @@ export type ExchangeLeg = {
 // ─── Get Exchange Deals List ───
 
 export async function getExchangeDeals() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     // Get deals
@@ -433,8 +429,7 @@ export async function getExchangeDeals() {
 // ─── Get Exchange Legs by Deal ID ───
 
 export async function getExchangeLegsByDeal(dealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { data: legs, error } = await supabase
@@ -458,8 +453,7 @@ export async function getExchangeLegsByDeal(dealId: string) {
 // ─── Get Exchange Deal by ID ───
 
 export async function getExchangeDealById(dealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { data: deal, error: dealError } = await supabase
@@ -509,8 +503,7 @@ export type CreateExchangeDealInput = {
 }
 
 export async function createExchangeDeal(input: CreateExchangeDealInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     // Get current user and company_id
@@ -567,8 +560,7 @@ export async function createExchangeDeal(input: CreateExchangeDealInput) {
 // ─── Post Exchange Deal to Cashboxes ───
 
 export async function postExchangeDealToCashboxes(dealId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { error } = await supabase.rpc('exchange_deal_post_to_cashboxes', {
@@ -607,8 +599,7 @@ export type InternalExchangeInput = {
 }
 
 export async function internalExchangePost(input: InternalExchangeInput) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     // Get current user and company
@@ -657,8 +648,7 @@ export async function internalExchangePost(input: InternalExchangeInput) {
 // ─── Apply Settlement to Exchange Leg ───
 
 export async function applySettlement(dealId: string, legId: string, transactionId: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { error } = await supabase.rpc('exchange_apply_settlement', {
@@ -684,8 +674,7 @@ export async function applySettlement(dealId: string, legId: string, transaction
 // ─── Set Exchange Deal Status ───
 
 export async function setExchangeStatus(dealId: string, statusCode: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { error } = await supabase.rpc('exchange_set_status', {
@@ -710,8 +699,7 @@ export async function setExchangeStatus(dealId: string, statusCode: string) {
 // ─── Get Exchange Statuses ───
 
 export async function getExchangeStatuses() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   try {
     const { data, error } = await supabase

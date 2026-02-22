@@ -1,7 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 
 // ================================================
@@ -9,8 +8,7 @@ import { revalidatePath } from 'next/cache'
 // ================================================
 
 export async function searchContacts(query: string, limit = 20) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const q = query.trim()
   if (!q) {
@@ -103,8 +101,7 @@ export interface CreateContactPayload {
 }
 
 export async function createContact(payload: CreateContactPayload) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const firstName = payload.first_name.trim()
   if (!firstName) {
@@ -180,8 +177,7 @@ export interface UpdateContactPayload {
 }
 
 export async function updateContact(payload: UpdateContactPayload) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   const { id, ...fields } = payload
 

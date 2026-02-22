@@ -1,7 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
@@ -18,8 +17,7 @@ export async function createEmployee(data: {
   hired_at?: string
   notes?: string
 }) {
-  const { user } = await requireUser()
-  const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   // Get current user's company_id from team_members
   const { data: membership } = await supabase
@@ -73,8 +71,7 @@ export async function updateEmployee(
     is_active?: boolean
   }
 ) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { data: employee, error } = await supabase
     .from('employees')
@@ -90,8 +87,7 @@ export async function updateEmployee(
 }
 
 export async function listEmployees() {
-  const { user } = await requireUser()
-  const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   // Get current user's company_id
   const { data: membership } = await supabase
@@ -117,8 +113,7 @@ export async function listEmployees() {
 }
 
 export async function deactivateEmployee(employeeId: string) {
-  const { user } = await requireUser()
-  const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   // Verify employee belongs to user's company
   const { data: membership } = await supabase
@@ -168,8 +163,7 @@ export async function setEmployeeModuleAccess(
   module: BusinessModule,
   level: ModuleAccessLevel
 ) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // 1. Получаем текущие данные сотрудника
   const { data: employee, error: fetchError } = await supabase
@@ -258,8 +252,7 @@ export async function setEmployeeModuleVisibility(
   module: BusinessModule,
   scope: VisibilityScope
 ) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { data: employee, error: fetchError } = await supabase
     .from('employees')
@@ -290,8 +283,7 @@ export async function setEmployeeModuleVisibility(
 // ================================================
 
 export async function addEmployeeRole(employeeId: string, roleId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
     .from('employee_roles')
@@ -311,8 +303,7 @@ export async function addEmployeeRole(employeeId: string, roleId: string) {
 }
 
 export async function removeEmployeeRole(employeeId: string, roleId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
     .from('employee_roles')
@@ -330,8 +321,7 @@ export async function removeEmployeeRole(employeeId: string, roleId: string) {
  * Добавляет недостающие роли, не удаляя существующие
  */
 export async function applyPositionDefaultRoles(employeeId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // Получаем должность сотрудника
   const { data: employee, error: empError } = await supabase
@@ -385,8 +375,7 @@ export async function applyPositionDefaultRoles(employeeId: string) {
 // ================================================
 
 export async function createEmployeeInvite(employeeId: string, email: string) {
-  const { user } = await requireUser()
-  const supabase = await createClient()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   if (!email) {
     throw new Error('Email не указан')
@@ -460,8 +449,7 @@ export async function createEmployeeInvite(employeeId: string, email: string) {
  * Вызывает SQL функцию sync_employee_roles_to_user_roles
  */
 export async function syncEmployeeRoles(employeeId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // Проверяем что у сотрудника есть auth_user_id
   const { data: employee, error: empError } = await supabase
@@ -491,8 +479,7 @@ export async function syncEmployeeRoles(employeeId: string) {
 // ================================================
 
 export async function setPositionDefaultRoles(position: string, roleIds: string[]) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // Удаляем старые записи
   await supabase
@@ -518,8 +505,7 @@ export async function setPositionDefaultRoles(position: string, roleIds: string[
 }
 
 export async function deletePositionDefaultRoles(position: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
     .from('position_default_roles')

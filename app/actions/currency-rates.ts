@@ -1,7 +1,6 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
 
 // Базовые валюты системы
@@ -105,8 +104,7 @@ async function fetchExternalRates(): Promise<RateResult> {
 
 // Сохранение курсов в БД
 async function saveRatesToDb(rates: Record<string, Record<string, number>>, source: string) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const ratesToInsert = []
   
@@ -168,8 +166,7 @@ export async function getExchangeRate(from: string, to: string): Promise<{ rate:
     return { rate: 1, source: 'system' }
   }
 
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   // Сначала пробуем из БД
   const { data: dbRate } = await supabase
@@ -207,8 +204,7 @@ export async function getExchangeRate(from: string, to: string): Promise<{ rate:
 
 // Получение всех текущих курсов
 export async function getAllRates(): Promise<Record<string, Record<string, number>>> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const { data } = await supabase
     .from('currency_rates')
@@ -241,8 +237,7 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
 // ========== SYSTEM_CURRENCY_RATES (новая таблица) ==========
 
 export async function getSystemCurrencyRates() {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data } = await supabase
     .from('system_currency_rates')
     .select('*')
@@ -251,8 +246,7 @@ export async function getSystemCurrencyRates() {
 }
 
 export async function updateSystemRate(code: string, rate_to_rub: number, rate_to_usd: number) {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // Сохраняем предыдущий курс
   const { data: prev } = await supabase
@@ -299,8 +293,7 @@ export async function refreshSystemRates() {
     return { success: false, error: apiResult.error }
   }
 
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // Обновляем курсы для USD, EUR, USDT (RUB = base)
   const updates = [
@@ -344,8 +337,7 @@ export async function getRateAtDate(
   currencyCode: string,
   targetDate: string | Date
 ): Promise<{ rate_to_rub: number; rate_to_usd: number; recorded_at: string } | null> {
-  await requireUser()
-  const supabase = await createServerClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   const dateStr = typeof targetDate === 'string' ? targetDate : targetDate.toISOString()
   

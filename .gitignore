@@ -19,6 +19,10 @@ yarn-error.log*
 # env files
 .env*
 
+# Never commit password/secret scripts
+scripts/*password*.sql
+scripts/*secret*.sql
+
 # vercel
 .vercel
 

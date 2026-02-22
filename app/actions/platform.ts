@@ -1,17 +1,23 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
-
-const PLATFORM_ADMIN_EMAIL = 'cielo1304@gmail.com'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 
 /**
- * Check if the current user is a platform admin
+ * Check if the current user is a platform admin.
+ * Uses employees.role_code = 'super' instead of hardcoded email.
  */
 export async function isPlatformAdmin(): Promise<boolean> {
   try {
-    const { user } = await requireUser()
-    return user.email === PLATFORM_ADMIN_EMAIL
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('role_code')
+      .eq('auth_user_id', user.id)
+      .eq('role_code', 'super')
+      .maybeSingle()
+
+    return !!employee
   } catch {
     return false
   }
@@ -25,12 +31,20 @@ export async function createCompanyInvite(
   companyName: string
 ): Promise<{ token?: string; error?: string }> {
   try {
-    const isAdmin = await isPlatformAdmin()
-    if (!isAdmin) {
-      return { error: 'Unauthorized: Only platform admin can create invites' }
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    // Verify platform admin via role_code
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('role_code')
+      .eq('auth_user_id', user.id)
+      .eq('role_code', 'super')
+      .maybeSingle()
+
+    if (!employee) {
+      return { error: 'Unauthorized: Only platform admins can create invites' }
     }
 
-    const supabase = await createClient()
     const { data, error } = await supabase.rpc('create_company_invite', {
       p_email: email,
       p_company_name: companyName,
@@ -64,12 +78,20 @@ export async function listCompanyInvites(): Promise<{
   error?: string
 }> {
   try {
-    const isAdmin = await isPlatformAdmin()
-    if (!isAdmin) {
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    // Verify platform admin via role_code
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('role_code')
+      .eq('auth_user_id', user.id)
+      .eq('role_code', 'super')
+      .maybeSingle()
+
+    if (!employee) {
       return { error: 'Unauthorized' }
     }
 
-    const supabase = await createClient()
     const { data, error } = await supabase
       .from('company_invites')
       .select('*')

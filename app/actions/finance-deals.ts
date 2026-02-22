@@ -1,7 +1,6 @@
 'use server'
 
-import { createServerClient } from '@/lib/supabase/server'
-import { requireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import type {
   CoreDeal, CoreDealStatus, FinanceDeal, FinanceScheduleType,
   FinanceLedgerEntry, FinanceLedgerEntryType, FinancePaymentScheduleItem,
@@ -11,11 +10,10 @@ import { writeAuditLog } from '@/lib/audit'
 
 // ==================== CORE DEALS ====================
 
-const createClient = createServerClient; // Declare the variable here
+
 
 export async function getFinanceDeals() {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('core_deals')
     .select(`
@@ -37,8 +35,7 @@ export async function getFinanceDeals() {
 }
 
 export async function getFinanceDealById(id: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('core_deals')
     .select(`
@@ -71,8 +68,7 @@ export async function createFinanceDeal(params: {
   rate_percent: number
   schedule_type: FinanceScheduleType
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   // Создаём core_deal
   const { data: coreDeal, error: coreErr } = await supabase
@@ -139,8 +135,7 @@ export async function createFinanceDeal(params: {
 }
 
 export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data: before } = await supabase.from('core_deals').select('status, sub_status').eq('id', id).single()
   const { error } = await supabase
     .from('core_deals')
@@ -162,8 +157,7 @@ export async function updateCoreDealStatus(id: string, status: CoreDealStatus, s
 // ==================== LEDGER ====================
 
 export async function getFinanceLedger(financeDealId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_ledger')
     .select('*')
@@ -185,8 +179,7 @@ export async function addLedgerEntry(params: {
   note?: string
   created_by_employee_id?: string
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_ledger')
     .insert({
@@ -228,8 +221,7 @@ export async function addLedgerEntryWithCashbox(params: {
   cashbox_id?: string   // if set, also move money in/out of this cashbox
   created_by_employee_id?: string
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
 
   // If cashbox is linked, use the v2 RPC for atomicity
   if (params.cashbox_id) {
@@ -289,8 +281,7 @@ export async function addLedgerEntryWithCashbox(params: {
 // ==================== P&L VIEW ====================
 
 export async function getFinanceDealPnl(financeDealId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('v_finance_deal_pnl')
     .select('*')
@@ -328,8 +319,7 @@ export async function addParticipant(params: {
   is_primary?: boolean
   note?: string
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_participants')
     .insert({
@@ -345,8 +335,7 @@ export async function addParticipant(params: {
 }
 
 export async function removeParticipant(id: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_participants')
     .delete()
@@ -362,8 +351,7 @@ export async function linkCollateral(params: {
   asset_id: string
   note?: string
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_collateral_links')
     .insert({
@@ -387,8 +375,7 @@ export async function linkCollateral(params: {
 }
 
 export async function updateCollateralStatus(id: string, status: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const update: Record<string, unknown> = { status }
   if (status !== 'active') {
     update.ended_at = new Date().toISOString()
@@ -410,8 +397,7 @@ export async function addPausePeriod(params: {
   reason?: string
   created_by_employee_id?: string
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_pause_periods')
     .insert(params)
@@ -422,8 +408,7 @@ export async function addPausePeriod(params: {
 // ==================== PAYMENT SCHEDULE ====================
 
 export async function getPaymentSchedule(financeDealId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_payment_schedule')
     .select('*')
@@ -435,8 +420,7 @@ export async function getPaymentSchedule(financeDealId: string) {
 }
 
 export async function updatePaymentStatus(id: string, status: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_payment_schedule')
     .update({ status })
@@ -461,8 +445,7 @@ export async function recordFinancePayment(params: {
   created_by?: string
   godmode_actor_employee_id?: string  // God mode: who is actually making this action
 }) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   
   // God mode validation: if godmode is used, validate it's a valid employee
   let effectiveActor = params.created_by || '00000000-0000-0000-0000-000000000000'
@@ -530,8 +513,7 @@ export async function recordFinancePayment(params: {
 // ==================== UNIFIED DEALS ====================
 
 export async function getUnifiedDeals() {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('v_deals_unified')
     .select('*')
@@ -548,8 +530,7 @@ export async function getUnifiedDeals() {
 // ==================== TIMELINE ====================
 
 export async function getFinanceDealTimeline(financeDealId: string) {
-  await requireUser()
-  const supabase = await createClient()
+  const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('v_timeline_finance_deal_events')
     .select('*')
