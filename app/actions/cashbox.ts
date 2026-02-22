@@ -324,20 +324,16 @@ export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean)
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
-    // STEP 10: Only super users can toggle exchange
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return { success: false, error: 'Unauthorized: user not found' }
+    // STEP 10: Only platform admins can toggle exchange
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { success: false, error: 'Failed to verify admin status' }
     }
 
-    const { data: employee } = await supabase
-      .from('employees')
-      .select('role_code')
-      .eq('auth_user_id', user.id)
-      .single()
-
-    if (!employee || employee.role_code !== 'super') {
-      return { success: false, error: 'Access denied: only super users can toggle exchange settings' }
+    if (!isAdmin) {
+      return { success: false, error: 'Access denied: only platform admins can toggle exchange settings' }
     }
 
     const { error } = await supabase
