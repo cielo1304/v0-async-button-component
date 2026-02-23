@@ -66,15 +66,15 @@
 ## Команды для проверки
 
 ### 1. Unicode Check
-```bash
+\`\`\`bash
 pnpm check:unicode
-```
+\`\`\`
 Проверяет отсутствие опасных Unicode символов в коде.
 
 ### 2. Build
-```bash
+\`\`\`bash
 pnpm build
-```
+\`\`\`
 Собирает проект и проверяет отсутствие TS ошибок.
 
 ## Manual Testing

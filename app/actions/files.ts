@@ -3,6 +3,7 @@
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { randomUUID } from 'crypto'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 type EntityType = 'asset' | 'car'
 
@@ -12,6 +13,25 @@ function sanitizeFilename(filename: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .replace(/_{2,}/g, '_')
     .substring(0, 200)
+}
+
+// Helper: get company_id for authenticated user
+async function getCompanyIdForUser(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<string> {
+  const { data, error } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data?.company_id) {
+    throw new Error('No team membership or company not selected')
+  }
+
+  return data.company_id
 }
 
 /**
@@ -34,7 +54,8 @@ export async function createUploadForEntityFile(params: {
   error?: string
 }> {
   try {
-    const { supabase, employee, company } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
+    const companyId = await getCompanyIdForUser(supabase, user.id)
 
     // Verify entity exists and belongs to same company
     if (params.entity_type === 'asset') {
@@ -47,7 +68,7 @@ export async function createUploadForEntityFile(params: {
       if (error || !asset) {
         return { success: false, error: 'Asset not found' }
       }
-      if (asset.company_id !== company.id) {
+      if (!asset.company_id || asset.company_id !== companyId) {
         return { success: false, error: 'Access denied' }
       }
     } else if (params.entity_type === 'car') {
@@ -60,7 +81,7 @@ export async function createUploadForEntityFile(params: {
       if (error || !car) {
         return { success: false, error: 'Car not found' }
       }
-      if (car.company_id !== company.id) {
+      if (!car.company_id || car.company_id !== companyId) {
         return { success: false, error: 'Access denied' }
       }
     } else {
@@ -71,7 +92,7 @@ export async function createUploadForEntityFile(params: {
     const file_id = randomUUID()
     const bucket = 'assets'
     const sanitized = sanitizeFilename(params.filename)
-    const path = `company/${company.id}/${params.entity_type}/${params.entity_id}/${params.kind}/${file_id}-${sanitized}`
+    const path = `company/${companyId}/${params.entity_type}/${params.entity_id}/${params.kind}/${file_id}-${sanitized}`
 
     // Create signed upload URL (60s TTL)
     const { data: uploadData, error: uploadError } = await supabase.storage
@@ -113,18 +134,19 @@ export async function commitUploadedEntityFile(params: {
   size_bytes: number
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const { supabase, employee, company } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
+    const companyId = await getCompanyIdForUser(supabase, user.id)
 
     // Insert into files table
     const { error: fileError } = await supabase.from('files').insert({
       id: params.file_id,
-      company_id: company.id,
+      company_id: companyId,
       bucket: params.bucket,
       path: params.path,
       original_name: params.original_name,
       mime_type: params.mime_type,
       size_bytes: params.size_bytes,
-      created_by: employee.id,
+      created_by: user.id,
     })
 
     if (fileError) {
@@ -134,7 +156,7 @@ export async function commitUploadedEntityFile(params: {
 
     // Insert into entity_files junction
     const { error: linkError } = await supabase.from('entity_files').insert({
-      company_id: company.id,
+      company_id: companyId,
       entity_type: params.entity_type,
       entity_id: params.entity_id,
       file_id: params.file_id,
@@ -151,7 +173,7 @@ export async function commitUploadedEntityFile(params: {
 
     // Audit log
     await writeAuditLog(supabase, {
-      actorEmployeeId: employee.id,
+      actorEmployeeId: user.id,
       action: 'upload_file',
       module: 'files',
       entityTable: 'entity_files',
@@ -285,7 +307,7 @@ export async function deleteEntityFile(file_id: string): Promise<{
   error?: string
 }> {
   try {
-    const { supabase, employee } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
 
     // Get file info
     const { data: file, error: fileError } = await supabase
@@ -321,7 +343,7 @@ export async function deleteEntityFile(file_id: string): Promise<{
 
     // Audit log
     await writeAuditLog(supabase, {
-      actorEmployeeId: employee.id,
+      actorEmployeeId: user.id,
       action: 'delete_file',
       module: 'files',
       entityTable: 'files',
