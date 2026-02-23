@@ -30,25 +30,25 @@ Login events are now logged **server-side at the database level** using a trigge
 
 You **MUST** apply the SQL script to enable DB-level login auditing:
 
-```bash
+\`\`\`bash
 # In Supabase Dashboard → SQL Editor, run:
 scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 Or via CLI:
-```bash
+\`\`\`bash
 supabase db execute --file scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 ### Step 2: Verify Trigger Installation
 
 Run this query in Supabase SQL Editor:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Expected**: Should return one row showing the trigger is enabled.
 
@@ -60,7 +60,7 @@ WHERE tgname = 'trigger_log_auth_login';
 2. Sign in with a regular user account (employee with company)
 3. Run verification query:
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   table_name,
@@ -76,7 +76,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 **Expected**: 
 - New row with your email
@@ -110,7 +110,7 @@ LIMIT 20;
 
 To see what Supabase itself logs:
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   payload->>'action' as action,
@@ -122,7 +122,7 @@ FROM auth.audit_log_entries
 WHERE payload->>'action' = 'login'
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 This shows the source data that triggers our logging function.
 
@@ -130,7 +130,7 @@ This shows the source data that triggers our logging function.
 
 ### Count Sign-Ins by User
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -141,11 +141,11 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC;
-```
+\`\`\`
 
 ### Platform Admin Activity
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   new_data->>'email' as email,
@@ -158,11 +158,11 @@ WHERE table_name = 'auth_events'
   AND (new_data->>'company_id' IS NULL OR new_data->>'company_id' = 'null')
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 ### Recent Login Activity (Last 24h)
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
@@ -173,7 +173,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
   AND created_at > now() - interval '24 hours'
 ORDER BY created_at DESC;
-```
+\`\`\`
 
 ## Technical Details
 
@@ -181,7 +181,7 @@ ORDER BY created_at DESC;
 
 The trigger function handles different Supabase payload formats:
 
-```sql
+\`\`\`sql
 -- User ID (different versions use different keys)
 actor := COALESCE(
   NEW.payload->>'user_id',
@@ -200,11 +200,11 @@ provider := COALESCE(
   NEW.payload->'traits'->>'provider',
   'email'
 );
-```
+\`\`\`
 
 ### Company ID Resolution
 
-```sql
+\`\`\`sql
 -- Fetch from employees table
 SELECT e.company_id INTO company_id
 FROM employees e
@@ -213,7 +213,7 @@ LIMIT 1;
 
 -- If no match found, company_id remains NULL
 -- This is expected and correct for platform admins
-```
+\`\`\`
 
 ### Logged Data Structure
 
@@ -231,6 +231,8 @@ Each login event in `audit_log` contains:
   "payload": { /* full auth payload */ }
 }
 ```
+
+**Note on Timestamps**: The trigger function handles cases where `created_at` in `auth.audit_log_entries` might be NULL (e.g., during manual simulation/testing). When NULL, it falls back to `now()` to ensure a valid timestamp is always recorded.
 
 ## Migration from Client-Side Logging
 
@@ -260,25 +262,25 @@ Each login event in `audit_log` contains:
 ### No login events appearing
 
 1. **Verify trigger exists**:
-   ```sql
+   \`\`\`sql
    SELECT tgname FROM pg_trigger WHERE tgname = 'trigger_log_auth_login';
-   ```
+   \`\`\`
 
 2. **Check auth.audit_log_entries is being populated**:
-   ```sql
+   \`\`\`sql
    SELECT count(*) FROM auth.audit_log_entries WHERE payload->>'action' = 'login';
-   ```
+   \`\`\`
 
 3. **Check function exists**:
-   ```sql
+   \`\`\`sql
    SELECT proname FROM pg_proc WHERE proname = 'log_auth_login_to_audit';
-   ```
+   \`\`\`
 
 4. **If trigger exists but not working, recreate it**:
-   ```sql
+   \`\`\`sql
    DROP TRIGGER IF EXISTS trigger_log_auth_login ON auth.audit_log_entries;
    -- Then re-run the CREATE TRIGGER statement from 005b_auth_login_audit.sql
-   ```
+   \`\`\`
 
 ### Platform admin login not logged
 
@@ -294,7 +296,7 @@ Each login event in `audit_log` contains:
 
 ## Build & Verification Commands
 
-```bash
+\`\`\`bash
 # Check for dangerous Unicode characters
 pnpm check:unicode
 
@@ -303,7 +305,7 @@ pnpm build
 
 # Type check
 pnpm tsc --noEmit
-```
+\`\`\`
 
 ## Summary
 

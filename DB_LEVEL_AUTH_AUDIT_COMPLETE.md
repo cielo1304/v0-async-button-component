@@ -22,7 +22,7 @@
 **Key Features**:
 
 1. **Multi-version payload support**:
-   ```sql
+   \`\`\`sql
    -- Event detection
    event_action := COALESCE(
      NEW.payload->>'action',  -- Supabase v1
@@ -49,7 +49,7 @@
      NEW.payload->'traits'->>'provider',
      'email'  -- fallback
    );
-   ```
+   \`\`\`
 
 2. **Safe company_id lookup**:
    - Queries `employees.auth_user_id`
@@ -135,11 +135,11 @@ Code changes are already complete in this branch:
 
 After applying SQL migration, verify trigger is active:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Expected**: 1 row with `tgenabled = 'O'` (enabled)
 
@@ -160,7 +160,7 @@ WHERE tgname = 'trigger_log_auth_login';
 2. Sign in with employee account (has company)
 3. Run verification query:
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
@@ -171,7 +171,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 5;
-```
+\`\`\`
 
 **Expected Result**:
 - ✅ New row appears with your email
@@ -219,7 +219,7 @@ Test with different authentication providers:
 
 ### Daily Login Activity
 
-```sql
+\`\`\`sql
 SELECT 
   DATE(created_at) as date,
   COUNT(*) as logins,
@@ -230,11 +230,11 @@ WHERE table_name = 'auth_events'
 GROUP BY DATE(created_at)
 ORDER BY date DESC
 LIMIT 30;
-```
+\`\`\`
 
 ### Top Active Users
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -246,11 +246,11 @@ WHERE table_name = 'auth_events'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC
 LIMIT 20;
-```
+\`\`\`
 
 ### Login Methods Distribution
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'provider' as provider,
   COUNT(*) as count,
@@ -260,7 +260,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 GROUP BY new_data->>'provider'
 ORDER BY count DESC;
-```
+\`\`\`
 
 ---
 
@@ -268,7 +268,7 @@ ORDER BY count DESC;
 
 Run these commands in your local repo to verify code quality:
 
-```bash
+\`\`\`bash
 # 1. Check for dangerous Unicode characters
 pnpm check:unicode
 # Expected: ✅ No dangerous Unicode characters found.
@@ -280,7 +280,7 @@ pnpm tsc --noEmit
 # 3. Build (includes prebuild unicode check)
 pnpm build
 # Expected: Build completed successfully
-```
+\`\`\`
 
 ---
 
@@ -289,13 +289,13 @@ pnpm build
 ### Issue: Trigger not firing
 
 **Diagnosis**:
-```sql
+\`\`\`sql
 -- Check trigger exists
 SELECT * FROM pg_trigger WHERE tgname = 'trigger_log_auth_login';
 
 -- Check function exists
 SELECT * FROM pg_proc WHERE proname = 'log_auth_login_to_audit';
-```
+\`\`\`
 
 **Fix**: Re-run `scripts/005b_auth_login_audit.sql`
 
@@ -317,7 +317,7 @@ SELECT * FROM pg_proc WHERE proname = 'log_auth_login_to_audit';
 ### Issue: company_id always NULL
 
 **Diagnosis**:
-```sql
+\`\`\`sql
 -- Check employees table structure
 SELECT 
   id,
@@ -330,14 +330,14 @@ LIMIT 5;
 -- Check specific user
 SELECT * FROM employees 
 WHERE auth_user_id = '<USER_UUID>';
-```
+\`\`\`
 
 **Fix**: Ensure `employees.auth_user_id` is populated:
-```sql
+\`\`\`sql
 UPDATE employees
 SET auth_user_id = '<AUTH_UUID>'
 WHERE email = '<USER_EMAIL>';
-```
+\`\`\`
 
 ---
 
@@ -349,11 +349,11 @@ WHERE email = '<USER_EMAIL>';
 1. Check if old client-side code still exists
 2. Verify AuthListener is removed from layout.tsx
 3. Check for multiple triggers:
-   ```sql
+   \`\`\`sql
    SELECT tgname, tgrelid::regclass
    FROM pg_trigger
    WHERE tgname LIKE '%auth%login%';
-   ```
+   \`\`\`
 
 ---
 
@@ -362,19 +362,19 @@ WHERE email = '<USER_EMAIL>';
 If DB-level approach causes issues:
 
 ### Step 1: Disable Trigger
-```sql
+\`\`\`sql
 ALTER TABLE auth.audit_log_entries 
 DISABLE TRIGGER trigger_log_auth_login;
-```
+\`\`\`
 
 ### Step 2: Restore Client-Side (if needed)
 Revert the deletion of `auth-listener.tsx` from git history.
 
 ### Step 3: Re-enable Later
-```sql
+\`\`\`sql
 ALTER TABLE auth.audit_log_entries 
 ENABLE TRIGGER trigger_log_auth_login;
-```
+\`\`\`
 
 ---
 
@@ -403,7 +403,7 @@ ENABLE TRIGGER trigger_log_auth_login;
 ## Architecture Comparison
 
 ### Before (Client-Side)
-```
+\`\`\`
 Browser
   ↓ onAuthStateChange
 React Component (auth-listener.tsx)
@@ -411,7 +411,7 @@ React Component (auth-listener.tsx)
 Server Action
   ↓ INSERT
 public.audit_log
-```
+\`\`\`
 
 **Problems**:
 - Can be bypassed
@@ -420,7 +420,7 @@ public.audit_log
 - Only works in browser
 
 ### After (DB-Level)
-```
+\`\`\`
 User Login
   ↓
 Supabase Auth
@@ -430,7 +430,7 @@ auth.audit_log_entries
 log_auth_login_to_audit()
   ↓ INSERT
 public.audit_log
-```
+\`\`\`
 
 **Benefits**:
 - Cannot be bypassed

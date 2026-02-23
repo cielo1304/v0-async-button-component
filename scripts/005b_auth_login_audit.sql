@@ -35,7 +35,11 @@ DECLARE
   provider TEXT;
   company_id UUID;
   actor_uuid UUID;
+  ts TIMESTAMPTZ; -- Timestamp with NULL fallback
 BEGIN
+  -- 0) Обрабатываем возможный NULL в created_at (при ручной симуляции)
+  ts := COALESCE(NEW.created_at, now());
+  
   -- 1) Определяем тип события (совместимость с разными payload)
   event_action := COALESCE(
     NEW.payload->>'action',
@@ -113,12 +117,12 @@ BEGIN
       'email', email,
       'company_id', company_id,
       'ip_address', NEW.ip_address,
-      'timestamp', NEW.created_at,
+      'timestamp', ts, -- используем обработанный timestamp
       'provider', provider,
       'payload', NEW.payload -- полный payload для отладки
     ),
     actor,
-    NEW.created_at
+    ts -- используем обработанный timestamp
   );
   
   RETURN NEW;
