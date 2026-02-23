@@ -181,7 +181,7 @@ ORDER BY created_at DESC;
 
 The trigger function handles different Supabase payload formats:
 
-```sql
+\`\`\`sql
 -- User ID (different versions use different keys)
 actor := COALESCE(
   NEW.payload->>'user_id',
@@ -200,13 +200,13 @@ provider := COALESCE(
   NEW.payload->'traits'->>'provider',
   'email'
 );
-```
+\`\`\`
 
 ### Timestamp Safety
 
 The function uses `coalesce(NEW.created_at, now())` to ensure a valid timestamp is always recorded, even if `created_at` is NULL in test scenarios:
 
-```sql
+\`\`\`sql
 -- Insert into public.audit_log with safe timestamp
 INSERT INTO public.audit_log (
   table_name,
@@ -226,11 +226,11 @@ INSERT INTO public.audit_log (
   ),
   coalesce(NEW.created_at, now())  -- Fallback to now() if NULL
 );
-```
+\`\`\`
 
 ### Company ID Resolution
 
-```sql
+\`\`\`sql
 -- Fetch from employees table
 SELECT e.company_id INTO company_id
 FROM employees e
@@ -239,7 +239,7 @@ LIMIT 1;
 
 -- If no match found, company_id remains NULL
 -- This is expected and correct for platform admins
-```
+\`\`\`
 
 ### Logged Data Structure
 

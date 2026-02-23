@@ -55,7 +55,7 @@
 
 ## Команды Проверки
 
-```bash
+\`\`\`bash
 # 1. Проверка Unicode
 pnpm check:unicode
 # Ожидается: ✅ "No dangerous Unicode characters found."
@@ -67,7 +67,7 @@ pnpm build
 # 3. TypeScript проверка (опционально)
 pnpm tsc --noEmit
 # Ожидается: нет ошибок TypeScript
-```
+\`\`\`
 
 **Примечание**: Я не могу выполнить эти команды в среде v0, но они корректны и должны быть выполнены локально.
 
@@ -75,7 +75,7 @@ pnpm tsc --noEmit
 
 ## Текущая Архитектура
 
-```
+\`\`\`
 Логин пользователя
   ↓
 Supabase Auth
@@ -85,7 +85,7 @@ auth.audit_log_entries
 log_auth_login_to_audit()
   ↓ INSERT с coalesce(created_at, now())
 public.audit_log
-```
+\`\`\`
 
 **Ключевые особенности**:
 - ✅ 100% серверная сторона (только DB триггер)
@@ -107,11 +107,11 @@ public.audit_log
 2. Выполнить файл: `scripts/005b_auth_login_audit.sql`
 3. Проверить триггер:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Ожидается**: 1 строка с `tgenabled = 'O'` (enabled)
 
@@ -121,13 +121,13 @@ WHERE tgname = 'trigger_log_auth_login';
 
 ### Тест 1: Логин обычного пользователя
 
-```bash
+\`\`\`bash
 1. Выйти из системы
 2. Войти под обычным пользователем (с company)
 3. Выполнить SQL в Supabase:
-```
+\`\`\`
 
-```sql
+\`\`\`sql
 SELECT 
   created_at,
   table_name,
@@ -140,7 +140,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 **Ожидается**:
 - ✅ Новая строка с вашим email
@@ -149,11 +149,11 @@ LIMIT 20;
 
 ### Тест 2: Логин platform admin
 
-```bash
+\`\`\`bash
 1. Выйти
 2. Войти под platform admin
 3. Выполнить тот же SQL
-```
+\`\`\`
 
 **Ожидается**:
 - ✅ Новая строка с email админа
@@ -162,11 +162,11 @@ LIMIT 20;
 
 ### Тест 3: Нет дубликатов при обновлении
 
-```bash
+\`\`\`bash
 1. Остаться залогиненным
 2. Обновить браузер 5 раз
 3. Выполнить SQL из Теста 1
-```
+\`\`\`
 
 **Ожидается**:
 - ✅ НОВЫХ строк НЕ появляется
@@ -179,7 +179,7 @@ LIMIT 20;
 
 ### Код из триггера:
 
-```sql
+\`\`\`sql
 INSERT INTO public.audit_log (
   table_name,
   record_id,
@@ -195,7 +195,7 @@ INSERT INTO public.audit_log (
   jsonb_build_object(...),
   coalesce(NEW.created_at, now())  -- ← Fallback на now() если NULL
 );
-```
+\`\`\`
 
 ### Почему это важно:
 
@@ -237,11 +237,11 @@ INSERT INTO public.audit_log (
 
 ### Для Разработчиков:
 
-```bash
+\`\`\`bash
 git pull origin v0-async-button-component
 pnpm check:unicode
 pnpm build
-```
+\`\`\`
 
 ### Для DevOps:
 
