@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prebuild": "pnpm check:unicode",
     "build": "next build",
+    "check:unicode": "node scripts/check-unicode.cjs",
     "dev": "next dev",
     "lint": "eslint .",
     "route-audit": "npx ts-node scripts/route-audit.ts",
