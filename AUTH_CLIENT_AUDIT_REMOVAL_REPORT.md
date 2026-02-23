@@ -16,13 +16,13 @@ Login-audit работает **ТОЛЬКО через DB-триггер**, ка
 ## 1. Проверка файла `components/auth/auth-listener.tsx`
 
 ### Результат поиска:
-```bash
+\`\`\`bash
 # Команда
 find . -name "auth-listener.tsx" -o -name "auth-listener.ts"
 
 # Результат
 Файл НЕ НАЙДЕН ❌
-```
+\`\`\`
 
 **Вывод:** Файл `components/auth/auth-listener.tsx` уже удалён из проекта.
 
@@ -31,14 +31,14 @@ find . -name "auth-listener.tsx" -o -name "auth-listener.ts"
 ## 2. Проверка использования AuthListener в коде
 
 ### Поиск импортов и использования:
-```bash
+\`\`\`bash
 # Команда
 grep -r "AuthListener\|auth-listener\|onAuthStateChange" \
   --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx"
 
 # Результат
 НЕТ СОВПАДЕНИЙ в .ts/.tsx/.js/.jsx файлах ✅
-```
+\`\`\`
 
 **Найдено только в документации:**
 - `AUDIT_LOGIN_CHECK.md` (документация)
@@ -55,14 +55,14 @@ grep -r "AuthListener\|auth-listener\|onAuthStateChange" \
 ## 3. Проверка клиентских вызовов audit_log
 
 ### Поиск клиентского логирования:
-```bash
+\`\`\`bash
 # Команда
 grep -ri "logAudit.*SIGNED_IN\|audit_log.*insert.*sign" \
   --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx"
 
 # Результат
 Найдено только в AUDIT_LOGIN_CHECK.md (примеры документации) ✅
-```
+\`\`\`
 
 **Вывод:** В коде НЕТ клиентских вызовов для логирования входа.
 
@@ -71,13 +71,13 @@ grep -ri "logAudit.*SIGNED_IN\|audit_log.*insert.*sign" \
 ## 4. Проверка app/layout.tsx
 
 ### Импорты в layout.tsx:
-```bash
+\`\`\`bash
 # Команда
 grep "import.*auth" app/layout.tsx
 
 # Результат
 НЕТ ИМПОРТОВ auth-listener или AuthListener ✅
-```
+\`\`\`
 
 **Вывод:** `app/layout.tsx` не содержит импортов `AuthListener`.
 
@@ -87,7 +87,7 @@ grep "import.*auth" app/layout.tsx
 
 ### Механизм (DB-Trigger Only):
 
-```sql
+\`\`\`sql
 -- 1) Триггер на auth.audit_log_entries (Supabase Auth Events)
 CREATE TRIGGER on_auth_login_event
   AFTER INSERT ON auth.audit_log_entries
@@ -108,7 +108,7 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-```
+\`\`\`
 
 ### Ключевые особенности:
 
@@ -123,7 +123,7 @@ $$;
 ## 6. Команды для проверки (выполнить локально)
 
 ### Проверка сборки:
-```bash
+\`\`\`bash
 # Установка зависимостей (если нужно)
 pnpm install
 
@@ -132,13 +132,13 @@ pnpm build
 
 # Проверка опасных Unicode символов
 pnpm check:unicode
-```
+\`\`\`
 
 ### Ожидаемый результат:
-```
+\`\`\`
 ✓ Build successful (no errors)
 ✓ No dangerous Unicode found
-```
+\`\`\`
 
 ---
 
@@ -161,16 +161,16 @@ pnpm check:unicode
 ## 8. Миграция БД (если ещё не применена)
 
 ### Файл миграции:
-```
+\`\`\`
 scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 ### Команда для применения:
-```sql
+\`\`\`sql
 -- В Supabase Dashboard > SQL Editor
 -- Вставить содержимое scripts/005b_auth_login_audit.sql
 -- Запустить
-```
+\`\`\`
 
 ### Что создаётся:
 1. Функция `log_auth_login_to_audit()`
@@ -202,18 +202,18 @@ scripts/005b_auth_login_audit.sql
 3. Вставить содержимое `scripts/005b_auth_login_audit.sql`
 4. Выполнить
 5. Проверить, что триггер создан:
-   ```sql
+   \`\`\`sql
    SELECT * FROM pg_trigger WHERE tgname = 'on_auth_login_event';
-   ```
+   \`\`\`
 
 ### B. Локальная проверка:
-```bash
+\`\`\`bash
 # В директории проекта
 pnpm build && pnpm check:unicode
-```
+\`\`\`
 
 ### C. Проверка логов в production:
-```sql
+\`\`\`sql
 -- Проверить логи входа в public.audit_log
 SELECT 
   created_at,
@@ -228,7 +228,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 ---
 

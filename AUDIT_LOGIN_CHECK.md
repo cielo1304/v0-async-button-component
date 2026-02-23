@@ -273,7 +273,8 @@ Each login event in `audit_log` contains:
 - Trigger on `auth.audit_log_entries` handles everything
 - No client code involved
 - Guaranteed logging for all authentication events
-- `components/auth/auth-listener.tsx` has been **removed**
+- `components/auth/auth-listener.tsx` has been **PERMANENTLY REMOVED** ✅
+- Project verified clean: no imports, no usage, file deleted
 
 ### Why DB-Level is Better
 
@@ -341,6 +342,9 @@ pnpm tsc --noEmit
 ✅ **Handles NULL company_id** gracefully for admins
 ✅ **Captures all auth methods** - password, OAuth, etc.
 ✅ **No duplicate logs** - only actual logins, not token refreshes
-✅ **Client-side logging removed** - auth-listener.tsx deleted
+✅ **Client-side logging PERMANENTLY REMOVED**:
+   - `components/auth/auth-listener.tsx` - DELETED ✅
+   - No imports or usage in codebase - VERIFIED ✅
+   - Project clean - CONFIRMED ✅
 
 **Remember**: You must apply `scripts/005b_auth_login_audit.sql` in Supabase to enable this feature!
