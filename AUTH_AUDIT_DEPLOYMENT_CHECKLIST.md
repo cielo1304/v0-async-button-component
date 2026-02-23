@@ -45,7 +45,7 @@
 
 **Action**: Merge or pull branch `v0-async-button-component`
 
-```bash
+\`\`\`bash
 # If deploying from local
 git checkout v0-async-button-component
 git pull origin v0-async-button-component
@@ -54,7 +54,7 @@ git pull origin v0-async-button-component
 git checkout main
 git merge v0-async-button-component
 git push origin main
-```
+\`\`\`
 
 - [ ] Code deployed to environment
 - [ ] Application restarted/rebuilt
@@ -73,9 +73,9 @@ git push origin main
 5. [ ] Verify success message: `Success. No rows returned`
 
 **Alternative (CLI)**:
-```bash
+\`\`\`bash
 supabase db execute --file scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 ### Step 3: Verify Trigger Installation
 
@@ -83,7 +83,7 @@ supabase db execute --file scripts/005b_auth_login_audit.sql
 
 Run this query in Supabase SQL Editor:
 
-```sql
+\`\`\`sql
 SELECT 
   tgname as trigger_name,
   tgrelid::regclass as table_name,
@@ -91,14 +91,14 @@ SELECT
   tgtype as trigger_type
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Expected Result**:
-```
+\`\`\`
 trigger_name             | table_name              | enabled | trigger_type
 ------------------------|-------------------------|---------|-------------
 trigger_log_auth_login  | auth.audit_log_entries  | O       | 5
-```
+\`\`\`
 
 - [ ] Trigger exists
 - [ ] `enabled = 'O'` (enabled)
@@ -108,21 +108,21 @@ trigger_log_auth_login  | auth.audit_log_entries  | O       | 5
 
 **Action**: Check function exists
 
-```sql
+\`\`\`sql
 SELECT 
   proname as function_name,
   prosecdef as security_definer,
   provolatile as volatility
 FROM pg_proc
 WHERE proname = 'log_auth_login_to_audit';
-```
+\`\`\`
 
 **Expected Result**:
-```
+\`\`\`
 function_name           | security_definer | volatility
 ------------------------|------------------|------------
 log_auth_login_to_audit | true            | v
-```
+\`\`\`
 
 - [ ] Function exists
 - [ ] `security_definer = true`
@@ -138,7 +138,7 @@ log_auth_login_to_audit | true            | v
 2. [ ] Sign in with regular employee account (has company_id)
 3. [ ] Run verification query:
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   created_at,
@@ -153,7 +153,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 **Expected**:
 - [ ] New row appears with your email
@@ -203,7 +203,7 @@ LIMIT 10;
 
 **Action**: Check all timestamps are valid
 
-```sql
+\`\`\`sql
 SELECT 
   COUNT(*) as total_logins,
   COUNT(created_at) as logins_with_timestamp,
@@ -212,7 +212,7 @@ SELECT
 FROM audit_log
 WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in';
-```
+\`\`\`
 
 **Expected**:
 - [ ] `total_logins = logins_with_timestamp` (no NULL timestamps)
@@ -225,7 +225,7 @@ WHERE table_name = 'auth_events'
 ### Daily Monitoring Queries
 
 **1. Login Activity (Last 24h)**:
-```sql
+\`\`\`sql
 SELECT 
   DATE_TRUNC('hour', created_at) as hour,
   COUNT(*) as logins,
@@ -236,10 +236,10 @@ WHERE table_name = 'auth_events'
   AND created_at > now() - interval '24 hours'
 GROUP BY hour
 ORDER BY hour DESC;
-```
+\`\`\`
 
 **2. Failed Triggers (if any)**:
-```sql
+\`\`\`sql
 -- Check for auth events that might not have triggered
 SELECT 
   COUNT(*) as auth_events_logged,
@@ -254,7 +254,7 @@ SELECT
 FROM audit_log
 WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in';
-```
+\`\`\`
 
 **Expected**: Counts should match (or be very close)
 
@@ -280,33 +280,33 @@ If issues are discovered:
 
 **Action**: Temporarily disable trigger without removing it
 
-```sql
+\`\`\`sql
 ALTER TABLE auth.audit_log_entries 
 DISABLE TRIGGER trigger_log_auth_login;
-```
+\`\`\`
 
 - [ ] Trigger disabled
 - [ ] Login auditing stopped
 - [ ] Application still functions normally
 
 **Re-enable when ready**:
-```sql
+\`\`\`sql
 ALTER TABLE auth.audit_log_entries 
 ENABLE TRIGGER trigger_log_auth_login;
-```
+\`\`\`
 
 ### Full Rollback (Remove Trigger)
 
 **Action**: Completely remove trigger and function
 
-```sql
+\`\`\`sql
 -- Drop trigger
 DROP TRIGGER IF EXISTS trigger_log_auth_login 
 ON auth.audit_log_entries;
 
 -- Drop function
 DROP FUNCTION IF EXISTS log_auth_login_to_audit();
-```
+\`\`\`
 
 - [ ] Trigger removed
 - [ ] Function removed

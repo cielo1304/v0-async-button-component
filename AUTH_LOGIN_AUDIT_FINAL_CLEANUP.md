@@ -40,7 +40,7 @@ The DB trigger uses `coalesce(NEW.created_at, now())` to ensure a valid timestam
 ### 3. Architecture Confirmed ✅
 
 **Current State**:
-```
+\`\`\`
 User Login
   ↓
 Supabase Auth
@@ -50,7 +50,7 @@ auth.audit_log_entries
 log_auth_login_to_audit() function
   ↓ INSERT with coalesce(created_at, now())
 public.audit_log
-```
+\`\`\`
 
 **Key Features**:
 - ✅ 100% server-side (DB trigger only)
@@ -83,7 +83,7 @@ public.audit_log
 
 To verify the build and code quality, run:
 
-```bash
+\`\`\`bash
 # 1. Check for dangerous Unicode characters
 pnpm check:unicode
 # Expected: ✅ "No dangerous Unicode characters found."
@@ -95,7 +95,7 @@ pnpm build
 # 3. Type checking (optional)
 pnpm tsc --noEmit
 # Expected: No TypeScript errors
-```
+\`\`\`
 
 **Note**: I cannot execute these commands directly in the v0 environment, but the commands are correct and should be run locally or in CI/CD.
 
@@ -111,11 +111,11 @@ pnpm tsc --noEmit
 2. Run the file: `scripts/005b_auth_login_audit.sql`
 3. Verify trigger installation:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Expected**: 1 row with `tgenabled = 'O'` (enabled)
 
@@ -125,13 +125,13 @@ WHERE tgname = 'trigger_log_auth_login';
 
 ### Test 1: Regular User Login
 
-```bash
+\`\`\`bash
 1. Sign out completely
 2. Sign in with employee account
 3. Run verification query in Supabase SQL Editor:
-```
+\`\`\`
 
-```sql
+\`\`\`sql
 SELECT 
   created_at,
   table_name,
@@ -145,7 +145,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 **Expected Result**:
 - ✅ New row with your email
@@ -155,11 +155,11 @@ LIMIT 20;
 
 ### Test 2: Platform Admin Login
 
-```bash
+\`\`\`bash
 1. Sign out
 2. Sign in with platform admin account
 3. Run same query as Test 1
-```
+\`\`\`
 
 **Expected Result**:
 - ✅ New row with admin email
@@ -169,11 +169,11 @@ LIMIT 20;
 
 ### Test 3: No Duplicates on Refresh
 
-```bash
+\`\`\`bash
 1. Stay logged in
 2. Refresh browser 5 times
 3. Run query from Test 1
-```
+\`\`\`
 
 **Expected Result**:
 - ✅ NO new rows appear
@@ -188,7 +188,7 @@ LIMIT 20;
 
 The trigger function includes this safeguard:
 
-```sql
+\`\`\`sql
 INSERT INTO public.audit_log (
   table_name,
   record_id,
@@ -213,7 +213,7 @@ INSERT INTO public.audit_log (
   ),
   coalesce(NEW.created_at, now())  -- ← Fallback to now() if NULL
 );
-```
+\`\`\`
 
 **Why This Matters**:
 - In production, `auth.audit_log_entries.created_at` is always populated by Supabase
@@ -278,7 +278,7 @@ These items were verified as already correct:
 
 If issues arise, disable the trigger temporarily:
 
-```sql
+\`\`\`sql
 -- Disable trigger (stops logging)
 ALTER TABLE auth.audit_log_entries 
 DISABLE TRIGGER trigger_log_auth_login;
@@ -286,7 +286,7 @@ DISABLE TRIGGER trigger_log_auth_login;
 -- Re-enable later when ready
 ALTER TABLE auth.audit_log_entries 
 ENABLE TRIGGER trigger_log_auth_login;
-```
+\`\`\`
 
 **Note**: Disabling the trigger is safe and non-destructive. Existing audit logs are preserved.
 
@@ -312,10 +312,10 @@ All criteria met:
 
 1. **Pull latest code** from branch `v0-async-button-component`
 2. **Run verification**:
-   ```bash
+   \`\`\`bash
    pnpm check:unicode
    pnpm build
-   ```
+   \`\`\`
 3. **Review** `AUDIT_LOGIN_CHECK.md` for full details
 
 ### For DevOps:
