@@ -84,7 +84,7 @@
 
 ### 1. Unicode Check
 
-```bash
+\`\`\`bash
 # Проверить на опасные символы
 pnpm check:unicode
 
@@ -94,13 +94,13 @@ pnpm check:unicode
 
 # Build (unicode check запустится автоматически)
 pnpm build
-```
+\`\`\`
 
 ### 2. Type Check
 
-```bash
+\`\`\`bash
 pnpm tsc --noEmit
-```
+\`\`\`
 
 ## КРИТИЧЕСКИ ВАЖНО: Применение SQL Миграции
 
@@ -112,17 +112,17 @@ pnpm tsc --noEmit
 2. Запустить содержимое файла `scripts/005b_auth_login_audit.sql`
 3. Проверить создание триггера:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 ### Или через CLI:
 
-```bash
+\`\`\`bash
 supabase db execute --file scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 ## Как проверить Login Audit руками
 
@@ -132,7 +132,7 @@ supabase db execute --file scripts/005b_auth_login_audit.sql
 2. Зайти как employee с company
 3. Выполнить SQL:
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   table_name,
@@ -147,7 +147,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 **Ожидаемый результат**: 
 - Новая запись с вашим email
@@ -170,7 +170,7 @@ LIMIT 20;
 
 Посмотреть, что именно пишет Supabase:
 
-```sql
+\`\`\`sql
 SELECT 
   id,
   payload->>'action' as action,
@@ -182,7 +182,7 @@ FROM auth.audit_log_entries
 WHERE payload->>'action' = 'login'
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 Это показывает исходные данные, которые триггер обрабатывает.
 
@@ -190,7 +190,7 @@ LIMIT 10;
 
 ### Все недавние логины:
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
@@ -201,11 +201,11 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 50;
-```
+\`\`\`
 
 ### Количество входов по пользователю:
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -216,11 +216,11 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC;
-```
+\`\`\`
 
 ### Platform admin логины (без company):
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'user_id' as user_id,
@@ -232,11 +232,11 @@ WHERE table_name = 'auth_events'
   AND (new_data->>'company_id' IS NULL OR new_data->>'company_id' = 'null')
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 ### Активность за последние 24 часа:
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -247,7 +247,7 @@ WHERE table_name = 'auth_events'
   AND created_at > now() - interval '24 hours'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC;
-```
+\`\`\`
 
 ## Технические детали
 
@@ -265,14 +265,14 @@ ORDER BY login_count DESC;
 - **Условие**: `NEW.payload->>'action' = 'login'`
 - **Функция**: `log_auth_login_to_audit()` (SECURITY DEFINER, search_path = public)
 - **Извлечение данных**:
-  ```sql
+  \`\`\`sql
   actor := COALESCE(NEW.payload->>'user_id', NEW.payload->>'actor_id')
   email := COALESCE(NEW.payload->>'email', NEW.payload->>'actor_username')
   provider := COALESCE(NEW.payload->'metadata'->>'provider', NEW.payload->'traits'->>'provider', 'email')
-  ```
+  \`\`\`
 - **Company ID**: подтягивается из `employees` по `auth_user_id`, NULL если не найден
 - **Logged data**:
-  ```json
+  \`\`\`json
   {
     "event": "sign_in",
     "user_id": "uuid",
@@ -283,7 +283,7 @@ ORDER BY login_count DESC;
     "provider": "email",
     "payload": { /* full auth payload */ }
   }
-  ```
+  \`\`\`
 
 ### Почему DB-Level лучше Client-Side
 

@@ -54,7 +54,7 @@
 
 Created server-side login auditing using PostgreSQL trigger:
 
-```
+\`\`\`
 User Login
     ↓
 Supabase Auth
@@ -66,7 +66,7 @@ TRIGGER: trigger_log_auth_login
 FUNCTION: log_auth_login_to_audit()
     ↓
 INSERT into public.audit_log
-```
+\`\`\`
 
 **Key Features**:
 - Tamper-proof (server-side only)
@@ -99,7 +99,7 @@ Completely removed client-side login logging:
 
 ### Command Results
 
-```bash
+\`\`\`bash
 # 1. Unicode Check
 $ pnpm check:unicode
 ✅ Result: No dangerous Unicode characters found
@@ -111,7 +111,7 @@ $ pnpm tsc --noEmit
 # 3. Build (includes prebuild unicode check)
 $ pnpm build
 ✅ Result: Build completed successfully
-```
+\`\`\`
 
 All local checks passed ✅
 
@@ -139,11 +139,11 @@ All local checks passed ✅
 
 Run this query immediately after migration:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Expected Result**: 1 row with `tgenabled = 'O'` (enabled)
 
@@ -160,7 +160,7 @@ WHERE tgname = 'trigger_log_auth_login';
 2. Sign in as employee user (with company)
 3. Run SQL query:
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
@@ -172,7 +172,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 5;
-```
+\`\`\`
 
 **Expected**: New row with:
 - ✅ Your email
@@ -217,7 +217,7 @@ LIMIT 5;
 
 ### Check Raw Auth Events (Source Data)
 
-```sql
+\`\`\`sql
 SELECT 
   payload->>'action' as action,
   payload->>'user_id' as user_id,
@@ -228,7 +228,7 @@ FROM auth.audit_log_entries
 WHERE COALESCE(payload->>'action', payload->>'type') = 'login'
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 Shows what Supabase logs natively (before our trigger).
 
@@ -236,7 +236,7 @@ Shows what Supabase logs natively (before our trigger).
 
 ### Recent Login Activity (Last 20)
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
@@ -247,13 +247,13 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 20;
-```
+\`\`\`
 
 ---
 
 ### Login Count by User
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -264,13 +264,13 @@ WHERE table_name = 'auth_events'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC
 LIMIT 20;
-```
+\`\`\`
 
 ---
 
 ### Platform Admin Logins (No Company)
 
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'user_id' as user_id,
@@ -281,7 +281,7 @@ WHERE table_name = 'auth_events'
   AND (new_data->>'company_id' IS NULL OR new_data->>'company_id' = 'null')
 ORDER BY created_at DESC
 LIMIT 10;
-```
+\`\`\`
 
 ---
 
@@ -290,7 +290,7 @@ LIMIT 10;
 ### Issue: No audit entries appearing
 
 **Diagnosis**:
-```sql
+\`\`\`sql
 -- Check trigger exists
 SELECT tgname, tgenabled FROM pg_trigger 
 WHERE tgname = 'trigger_log_auth_login';
@@ -298,7 +298,7 @@ WHERE tgname = 'trigger_log_auth_login';
 -- Check function exists
 SELECT proname FROM pg_proc 
 WHERE proname = 'log_auth_login_to_audit';
-```
+\`\`\`
 
 **Fix**: Re-run `scripts/005b_auth_login_audit.sql`
 
@@ -319,18 +319,18 @@ WHERE proname = 'log_auth_login_to_audit';
 ### Issue: company_id always NULL
 
 **Check employees table**:
-```sql
+\`\`\`sql
 SELECT id, auth_user_id, company_id, email
 FROM employees
 WHERE auth_user_id = '<USER_UUID>';
-```
+\`\`\`
 
 **Fix if auth_user_id is NULL**:
-```sql
+\`\`\`sql
 UPDATE employees
 SET auth_user_id = '<AUTH_UUID>'
 WHERE email = '<USER_EMAIL>';
-```
+\`\`\`
 
 ---
 
@@ -349,7 +349,7 @@ WHERE email = '<USER_EMAIL>';
 
 Handles multiple Supabase versions:
 
-```sql
+\`\`\`sql
 -- Event type
 event_action := COALESCE(
   NEW.payload->>'action',  -- v1
@@ -376,13 +376,13 @@ provider := COALESCE(
   NEW.payload->'traits'->>'provider',
   'email'  -- fallback
 );
-```
+\`\`\`
 
 ### Logged Data Structure
 
 Each login creates this entry in `audit_log`:
 
-```json
+\`\`\`json
 {
   "event": "sign_in",
   "user_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -393,7 +393,7 @@ Each login creates this entry in `audit_log`:
   "provider": "email",
   "payload": { /* full auth payload for debugging */ }
 }
-```
+\`\`\`
 
 ---
 

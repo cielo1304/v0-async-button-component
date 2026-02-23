@@ -66,19 +66,19 @@
 4. Нажать "Run"
 
 #### Через Supabase CLI:
-```bash
+\`\`\`bash
 supabase db execute --file scripts/005b_auth_login_audit.sql
-```
+\`\`\`
 
 ### Шаг 2: Проверить создание триггера
 
 Выполнить в SQL Editor:
 
-```sql
+\`\`\`sql
 SELECT tgname, tgrelid::regclass, tgenabled
 FROM pg_trigger
 WHERE tgname = 'trigger_log_auth_login';
-```
+\`\`\`
 
 **Ожидаемый результат**: 
 | tgname | tgrelid | tgenabled |
@@ -89,11 +89,11 @@ WHERE tgname = 'trigger_log_auth_login';
 
 ### Шаг 3: Проверить функцию
 
-```sql
+\`\`\`sql
 SELECT proname, prosecdef 
 FROM pg_proc 
 WHERE proname = 'log_auth_login_to_audit';
-```
+\`\`\`
 
 **Ожидаемый результат**:
 | proname | prosecdef |
@@ -113,7 +113,7 @@ WHERE proname = 'log_auth_login_to_audit';
 2. Sign in как employee с company
 
 **SQL проверка**:
-```sql
+\`\`\`sql
 SELECT 
   id,
   new_data->>'event' as event_type,
@@ -127,7 +127,7 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
 ORDER BY created_at DESC
 LIMIT 5;
-```
+\`\`\`
 
 **Ожидается**:
 - Новая запись с email пользователя
@@ -153,7 +153,7 @@ LIMIT 5;
 
 Посмотреть raw auth events от Supabase:
 
-```sql
+\`\`\`sql
 SELECT 
   payload->>'action' as action,
   payload->>'user_id' as user_id,
@@ -164,7 +164,7 @@ FROM auth.audit_log_entries
 WHERE payload->>'action' = 'login'
 ORDER BY created_at DESC
 LIMIT 5;
-```
+\`\`\`
 
 Это показывает исходные данные, которые триггер обрабатывает.
 
@@ -173,26 +173,26 @@ LIMIT 5;
 ## Команды локальной проверки
 
 ### 1. Unicode Check
-```bash
+\`\`\`bash
 pnpm check:unicode
-```
+\`\`\`
 
 **Ожидается**: 
-```
+\`\`\`
 ✅ No dangerous Unicode characters found.
-```
+\`\`\`
 
 ### 2. TypeScript Check
-```bash
+\`\`\`bash
 pnpm tsc --noEmit
-```
+\`\`\`
 
 **Ожидается**: No errors
 
 ### 3. Build
-```bash
+\`\`\`bash
 pnpm build
-```
+\`\`\`
 
 **Ожидается**: 
 - Unicode check проходит автоматически (prebuild)
@@ -223,7 +223,7 @@ pnpm build
 ### Проблема: Логины не логируются
 
 **Диагностика**:
-```sql
+\`\`\`sql
 -- 1. Проверить что триггер существует и включён
 SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = 'trigger_log_auth_login';
 
@@ -232,19 +232,19 @@ SELECT proname FROM pg_proc WHERE proname = 'log_auth_login_to_audit';
 
 -- 3. Проверить что auth.audit_log_entries пополняется
 SELECT count(*) FROM auth.audit_log_entries WHERE payload->>'action' = 'login';
-```
+\`\`\`
 
 **Решение**: Если что-то не найдено - применить миграцию снова.
 
 ### Проблема: Platform admin не логируется
 
 **Проверка**:
-```sql
+\`\`\`sql
 -- Смотрим raw auth events
 SELECT * FROM auth.audit_log_entries 
 WHERE payload->>'email' = 'admin@example.com' 
 ORDER BY created_at DESC LIMIT 1;
-```
+\`\`\`
 
 Если есть запись в `auth.audit_log_entries` но нет в `audit_log` - проверить ошибки функции.
 
@@ -260,7 +260,7 @@ ORDER BY created_at DESC LIMIT 1;
 
 Функция поддерживает разные форматы payload:
 
-```sql
+\`\`\`sql
 -- User ID
 actor := COALESCE(
   NEW.payload->>'user_id',    -- новые версии
@@ -279,16 +279,16 @@ provider := COALESCE(
   NEW.payload->'traits'->>'provider',    -- другие версии
   'email'                                -- fallback default
 );
-```
+\`\`\`
 
 ### Company ID Resolution
 
-```sql
+\`\`\`sql
 SELECT e.company_id INTO company_id
 FROM employees e
 WHERE e.auth_user_id = actor::UUID
 LIMIT 1;
-```
+\`\`\`
 
 Если не найдено → `company_id = NULL` (нормально для platform admins).
 
@@ -304,7 +304,7 @@ LIMIT 1;
 ## SQL для анализа (бонус)
 
 ### Все логины за сегодня
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   new_data->>'ip_address' as ip,
@@ -314,10 +314,10 @@ WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
   AND created_at::date = current_date
 ORDER BY created_at DESC;
-```
+\`\`\`
 
 ### Топ-5 активных пользователей
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
@@ -329,10 +329,10 @@ WHERE table_name = 'auth_events'
 GROUP BY new_data->>'email'
 ORDER BY login_count DESC
 LIMIT 5;
-```
+\`\`\`
 
 ### Подозрительная активность (много IP)
-```sql
+\`\`\`sql
 SELECT 
   new_data->>'email' as email,
   COUNT(DISTINCT new_data->>'ip_address') as unique_ips,
@@ -344,7 +344,7 @@ WHERE table_name = 'auth_events'
 GROUP BY new_data->>'email'
 HAVING COUNT(DISTINCT new_data->>'ip_address') > 3
 ORDER BY unique_ips DESC;
-```
+\`\`\`
 
 ---
 
