@@ -68,6 +68,7 @@ import {
   recordAssetSale,
 } from '@/app/actions/assets'
 import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
+import { FileAttachments } from '@/components/files/file-attachments'
 import type { AssetStatus } from '@/lib/types/database'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -403,6 +404,7 @@ export default function AssetDetailPage() {
             <TabsTrigger value="valuations" className="gap-1"><TrendingUp className="h-4 w-4" />Оценки</TabsTrigger>
             <TabsTrigger value="moves" className="gap-1"><MapPin className="h-4 w-4" />Перемещения</TabsTrigger>
             <TabsTrigger value="collateral" className="gap-1"><Landmark className="h-4 w-4" />Залоги</TabsTrigger>
+            <TabsTrigger value="files" className="gap-1"><Shield className="h-4 w-4" />Файлы</TabsTrigger>
             <TabsTrigger value="timeline" className="gap-1"><Clock className="h-4 w-4" />История</TabsTrigger>
             <TabsTrigger value="visibility" className="gap-1"><Eye className="h-4 w-4" />Видимость</TabsTrigger>
           </TabsList>
@@ -702,6 +704,23 @@ export default function AssetDetailPage() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* Files */}
+          <TabsContent value="files">
+            <FileAttachments
+              entityType="asset"
+              entityId={id}
+              allowedKinds={[
+                { value: 'photo', label: 'Фото' },
+                { value: 'egrn', label: 'ЕГРН' },
+                { value: 'plan', label: 'План/схема' },
+                { value: 'valuation', label: 'Оценка' },
+                { value: 'certificate', label: 'Сертификат' },
+                { value: 'contract', label: 'Договор' },
+                { value: 'other', label: 'Прочее' },
+              ]}
+            />
           </TabsContent>
 
           {/* Visibility */}

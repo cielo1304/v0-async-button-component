@@ -11,6 +11,7 @@ import { Loader2, ArrowLeft, Car as CarIcon, Wrench, DollarSign, Calendar, Gauge
 import { Car, CarExpense, CarTimeline } from '@/lib/types/database'
 import { AddExpenseToCarDialog } from '@/components/cars/add-expense-to-car-dialog'
 import { ExpenseDetailDialog } from '@/components/cars/expense-detail-dialog'
+import { FileAttachments } from '@/components/files/file-attachments'
 
 const STATUS_MAP: Record<string, 'stock' | 'sold' | 'preparing' | 'reserved' | 'active'> = {
   'IN_STOCK': 'stock',
@@ -345,6 +346,21 @@ export default function CarDetailPage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* Files */}
+            <FileAttachments
+              entityType="car"
+              entityId={car.id}
+              allowedKinds={[
+                { value: 'photo', label: 'Фото' },
+                { value: 'pts', label: 'ПТС' },
+                { value: 'sts', label: 'СТС' },
+                { value: 'contract', label: 'Договор' },
+                { value: 'invoice', label: 'Инвойс' },
+                { value: 'inspection', label: 'Осмотр' },
+                { value: 'other', label: 'Прочее' },
+              ]}
+            />
 
             {/* Notes */}
             {car.notes && (
