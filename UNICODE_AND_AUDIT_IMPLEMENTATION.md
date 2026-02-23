@@ -1,10 +1,25 @@
 # Unicode Check + Login Audit Implementation Summary
 
+## LATEST UPDATE: Server-Side DB-Level Login Auditing
+
+### Migration from Client-Side to DB-Level (BREAKING CHANGE)
+
+**Previous Implementation (Client-Side)**:
+- `components/auth/auth-listener.tsx` listened to auth events
+- Client code wrote to `audit_log` on every sign-in
+- Vulnerable to tampering and client failures
+
+**New Implementation (DB-Level)**:
+- Database trigger on `auth.audit_log_entries` (Supabase internal table)
+- Completely server-side, tamper-proof
+- No client code required
+- **REQUIRES SQL MIGRATION**: `scripts/005b_auth_login_audit.sql`
+
 ## Изменённые файлы
 
 ### PART 1: Unicode / Trojan Source Guard
 
-1. **scripts/check-unicode.cjs** (NEW)
+1. **scripts/check-unicode.cjs** (CREATED)
    - CJS-скрипт для сканирования опасных Unicode символов
    - Поддержка расширений: .ts, .tsx, .js, .jsx, .cjs, .mjs, .json, .md, .css, .scss, .sql, .yml, .yaml
    - Использует `git ls-files -z` (fallback на ручной walk)
@@ -16,27 +31,37 @@
    - Добавлен prebuild: `"prebuild": "pnpm check:unicode"`
    - Unicode check теперь автоматически запускается перед каждым build
 
-### PART 2: Login Audit Logging
+### PART 2A: DB-Level Login Audit (NEW - Authoritative)
 
-3. **components/auth/auth-listener.tsx** (NEW)
-   - Клиентский компонент для отслеживания auth events
-   - Использует `supabase.auth.onAuthStateChange`
-   - Логирует только `SIGNED_IN` события (не каждый рендер)
-   - Получает `company_id` из `employees` table (если доступен)
-   - Записывает в `audit_log` через `logAudit()` helper
+3. **scripts/005b_auth_login_audit.sql** (CREATED)
+   - Создаёт функцию `log_auth_login_to_audit()` (SECURITY DEFINER)
+   - Создаёт триггер `trigger_log_auth_login` на `auth.audit_log_entries`
+   - При `payload->>'action' = 'login'` → автоматически пишет в `public.audit_log`
+   - Поддержка разных версий payload (user_id/actor_id, email/actor_username)
+   - Получает `company_id` из `employees` если доступен
+   - Полностью серверное решение, tamper-proof
 
-4. **app/layout.tsx** (MODIFIED)
-   - Добавлен import `AuthListener`
-   - Компонент монтируется в root layout (работает на всех страницах)
+### PART 2B: Client-Side Logging Removal
 
-5. **AUDIT_LOGIN_CHECK.md** (NEW)
-   - Полная документация по проверке audit logging
-   - SQL запросы для верификации
-   - Инструкции по тестированию platform admin
-   - Troubleshooting guide
+4. **components/auth/auth-listener.tsx** (DELETED)
+   - Удалён клиентский компонент, который писал в audit_log
+   - Больше не нужен - логирование теперь на уровне БД
 
-6. **UNICODE_AND_AUDIT_IMPLEMENTATION.md** (NEW - этот файл)
-   - Summary всех изменений
+5. **app/layout.tsx** (MODIFIED)
+   - Удалён import `AuthListener`
+   - Удалён `<AuthListener />` из body
+   - Никакого клиентского кода для логирования логинов
+
+### PART 2C: Documentation Updates
+
+6. **AUDIT_LOGIN_CHECK.md** (UPDATED)
+   - Полностью переписана под DB-level подход
+   - Добавлены инструкции по применению SQL миграции
+   - Обновлены SQL запросы для проверки
+   - Добавлен troubleshooting для trigger-based logging
+
+7. **UNICODE_AND_AUDIT_IMPLEMENTATION.md** (UPDATED - этот файл)
+   - Отражает переход на DB-level logging
 
 ## Что сделано
 
@@ -46,13 +71,14 @@
 ✅ Поддержка автофикса через `--fix` флаг
 ✅ Фейлит build при обнаружении опасных символов
 
-### Login Audit
-✅ Реализовано логирование всех sign-in событий
-✅ Работает для обычных пользователей и platform admins
-✅ Логируется только при реальном входе (не при token refresh)
-✅ Записывается: user_id, email, company_id, timestamp
-✅ Graceful handling для platform admins без company
-✅ Использует существующую систему audit (`audit_log` table + `logAudit()` helper)
+### Login Audit - DB-Level (Authoritative)
+✅ Создан SQL триггер на `auth.audit_log_entries`
+✅ Автоматическое логирование всех логинов на уровне БД
+✅ Tamper-proof - невозможно обойти или подделать
+✅ Работает для всех методов аутентификации (password, OAuth, etc.)
+✅ Поддержка platform admins (company_id может быть NULL)
+✅ Совместимость с разными версиями Supabase payload
+✅ Удалён клиентский код (auth-listener.tsx)
 
 ## Команды проверки
 
@@ -70,35 +96,51 @@ pnpm check:unicode
 pnpm build
 ```
 
-**Результаты моего запуска**:
-```
-[unicode-check] Scanning for dangerous Unicode characters...
-[unicode-check] Scanning XXX files...
-✅ No dangerous Unicode characters found.
-```
-
-### 2. Type Check (optional)
+### 2. Type Check
 
 ```bash
 pnpm tsc --noEmit
 ```
 
-**Ожидаемый результат**: No type errors
+## КРИТИЧЕСКИ ВАЖНО: Применение SQL Миграции
+
+**БЕЗ ЭТОГО ШАГА ЛОГИРОВАНИЕ НЕ БУДЕТ РАБОТАТЬ!**
+
+### В Supabase Dashboard:
+
+1. Открыть SQL Editor
+2. Запустить содержимое файла `scripts/005b_auth_login_audit.sql`
+3. Проверить создание триггера:
+
+```sql
+SELECT tgname, tgrelid::regclass, tgenabled
+FROM pg_trigger
+WHERE tgname = 'trigger_log_auth_login';
+```
+
+### Или через CLI:
+
+```bash
+supabase db execute --file scripts/005b_auth_login_audit.sql
+```
 
 ## Как проверить Login Audit руками
 
-### Шаг 1: Выход и вход обычным пользователем
+### Шаг 1: Проверка обычного пользователя
 
 1. Выйти из системы (sign out)
-2. Зайти как обычный employee с company
+2. Зайти как employee с company
 3. Выполнить SQL:
 
 ```sql
 SELECT 
   id,
+  table_name,
+  new_data->>'event' as event_type,
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
-  new_data->>'timestamp' as login_timestamp,
+  new_data->>'ip_address' as ip_address,
+  new_data->>'provider' as provider,
   created_at
 FROM audit_log
 WHERE table_name = 'auth_events'
@@ -107,26 +149,42 @@ ORDER BY created_at DESC
 LIMIT 20;
 ```
 
-**Ожидаемый результат**: Новая запись с вашим email, company_id заполнен, timestamp соответствует времени входа.
+**Ожидаемый результат**: 
+- Новая запись с вашим email
+- `company_id` заполнен UUID вашей компании
+- `ip_address` и `provider` присутствуют
+- Запись создана автоматически БЕЗ клиентского кода
 
 ### Шаг 2: Проверка platform admin
 
 1. Выйти
-2. Зайти как platform admin (superuser)
+2. Зайти как platform admin
 3. Выполнить тот же SQL запрос
 
-**Ожидаемый результат**: Новая запись с:
-- Email platform admin
-- `company_id` может быть NULL (если platform admin не привязан к company)
-- Событие успешно залогировано
+**Ожидаемый результат**:
+- Новая запись с email админа
+- `company_id` может быть NULL - **это нормально**
+- Логин успешно залогирован автоматически
 
-### Шаг 3: Проверка отсутствия дублирования
+### Шаг 3: Проверка источника данных
 
-1. Остаться залогиненным
-2. Обновить страницу несколько раз (F5)
-3. Выполнить SQL запрос снова
+Посмотреть, что именно пишет Supabase:
 
-**Ожидаемый результат**: Новых записей НЕ должно появиться (логируется только реальный sign-in, не token refresh)
+```sql
+SELECT 
+  id,
+  payload->>'action' as action,
+  payload->>'user_id' as user_id,
+  payload->>'email' as email,
+  ip_address,
+  created_at
+FROM auth.audit_log_entries
+WHERE payload->>'action' = 'login'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+Это показывает исходные данные, которые триггер обрабатывает.
 
 ## SQL запросы для анализа
 
@@ -136,6 +194,7 @@ LIMIT 20;
 SELECT 
   new_data->>'email' as email,
   new_data->>'company_id' as company_id,
+  new_data->>'ip_address' as ip_address,
   created_at
 FROM audit_log
 WHERE table_name = 'auth_events'
@@ -150,7 +209,8 @@ LIMIT 50;
 SELECT 
   new_data->>'email' as email,
   COUNT(*) as login_count,
-  MAX(created_at) as last_login
+  MAX(created_at) as last_login,
+  MIN(created_at) as first_login
 FROM audit_log
 WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
@@ -164,13 +224,29 @@ ORDER BY login_count DESC;
 SELECT 
   new_data->>'email' as email,
   new_data->>'user_id' as user_id,
+  new_data->>'ip_address' as ip_address,
   created_at
 FROM audit_log
 WHERE table_name = 'auth_events'
   AND new_data->>'event' = 'sign_in'
-  AND new_data->>'company_id' IS NULL
+  AND (new_data->>'company_id' IS NULL OR new_data->>'company_id' = 'null')
 ORDER BY created_at DESC
 LIMIT 20;
+```
+
+### Активность за последние 24 часа:
+
+```sql
+SELECT 
+  new_data->>'email' as email,
+  COUNT(*) as login_count,
+  array_agg(DISTINCT new_data->>'ip_address') as ip_addresses
+FROM audit_log
+WHERE table_name = 'auth_events'
+  AND new_data->>'event' = 'sign_in'
+  AND created_at > now() - interval '24 hours'
+GROUP BY new_data->>'email'
+ORDER BY login_count DESC;
 ```
 
 ## Технические детали
@@ -184,51 +260,81 @@ LIMIT 20;
 - **Репорт**: file, index, hex, name, context (20 chars)
 - **Автофикс**: удаляет найденные символы
 
-### Login Audit
-- **Точка логирования**: Client-side `onAuthStateChange` listener
-- **Событие**: `SIGNED_IN` (не TOKEN_REFRESHED)
-- **Данные**:
-  - `table_name`: 'auth_events'
-  - `record_id`: user.id
-  - `action`: 'INSERT'
-  - `new_data`: { event, user_id, email, company_id, timestamp }
-  - `changed_by`: user.id
-- **Platform admin**: company_id может быть NULL - это нормально
-- **Таблица**: `audit_log` (существующая, определена в `scripts/005a_foundation.sql`)
+### DB-Level Login Audit
+- **Триггер**: `AFTER INSERT ON auth.audit_log_entries`
+- **Условие**: `NEW.payload->>'action' = 'login'`
+- **Функция**: `log_auth_login_to_audit()` (SECURITY DEFINER, search_path = public)
+- **Извлечение данных**:
+  ```sql
+  actor := COALESCE(NEW.payload->>'user_id', NEW.payload->>'actor_id')
+  email := COALESCE(NEW.payload->>'email', NEW.payload->>'actor_username')
+  provider := COALESCE(NEW.payload->'metadata'->>'provider', NEW.payload->'traits'->>'provider', 'email')
+  ```
+- **Company ID**: подтягивается из `employees` по `auth_user_id`, NULL если не найден
+- **Logged data**:
+  ```json
+  {
+    "event": "sign_in",
+    "user_id": "uuid",
+    "email": "user@example.com",
+    "company_id": "uuid-or-null",
+    "timestamp": "2024-01-01T12:00:00Z",
+    "ip_address": "192.168.1.1",
+    "provider": "email",
+    "payload": { /* full auth payload */ }
+  }
+  ```
 
-## Важные замечания
+### Почему DB-Level лучше Client-Side
 
-### Unicode Check
-- ✅ Запускается автоматически при `pnpm build` (prebuild hook)
-- ✅ Фейлит build при обнаружении опасных символов
-- ✅ Можно запустить вручную: `pnpm check:unicode`
-- ✅ Автофикс: `node scripts/check-unicode.cjs --fix`
-
-### Login Audit
-- ✅ Работает на всех страницах (mounted in root layout)
-- ✅ Логирует только реальный sign-in (не каждый рендер)
-- ✅ Graceful handling ошибок (не ломает логин если audit фейлится)
-- ✅ Platform admin логируется так же как обычные пользователи
-- ✅ Никаких email checks или role_code проверок
-- ✅ Использует существующую инфраструктуру audit
+| Aspect | Client-Side (Old) | DB-Level (New) |
+|--------|-------------------|----------------|
+| Security | ❌ Can be bypassed/tampered | ✅ Tamper-proof |
+| Reliability | ❌ Depends on client code | ✅ Always works |
+| Coverage | ❌ Only JS-based auth | ✅ All auth methods |
+| Maintenance | ❌ Client dependency | ✅ Zero client code |
+| Performance | ❌ Extra client→server call | ✅ DB-internal only |
 
 ## Что НЕ делалось
 
 ❌ НЕ создавался PR
 ❌ НЕ делался merge
 ❌ НЕ использовался GitHub API/CLI
-❌ НЕ менялся UI (только backend логирование)
+❌ НЕ менялся UI (чисто backend изменения)
 ❌ НЕ создавались новые таблицы (используется существующий `audit_log`)
+❌ НЕ оставлен клиентский код для логирования
 
 ## Следующие шаги
 
-1. Запустить unicode check: `pnpm check:unicode`
-2. Если нужно - автофикс: `node scripts/check-unicode.cjs --fix`
-3. Build проекта: `pnpm build`
-4. Протестировать логин обычного пользователя + проверить SQL
-5. Протестировать логин platform admin + проверить SQL
-6. Убедиться что нет дублирования при refresh страницы
+### Обязательно:
+
+1. **Применить SQL миграцию** `scripts/005b_auth_login_audit.sql` в Supabase
+2. Проверить создание триггера (SQL query выше)
+3. Протестировать логин обычного пользователя + проверить audit_log
+4. Протестировать логин platform admin + проверить audit_log
+
+### Опционально:
+
+5. Запустить `pnpm check:unicode` для проверки Unicode
+6. Запустить `pnpm build` для финальной проверки сборки
+
+## Файловые изменения - Summary
+
+**Создано:**
+- `scripts/check-unicode.cjs` (Unicode guard)
+- `scripts/005b_auth_login_audit.sql` (DB trigger для логирования)
+
+**Изменено:**
+- `package.json` (добавлены scripts: check:unicode, prebuild)
+- `app/layout.tsx` (удалён AuthListener)
+- `AUDIT_LOGIN_CHECK.md` (переписана под DB-level)
+- `UNICODE_AND_AUDIT_IMPLEMENTATION.md` (этот файл - обновлён)
+
+**Удалено:**
+- `components/auth/auth-listener.tsx` (клиентское логирование больше не нужно)
 
 ## Контакты и поддержка
 
-Все файлы изменены, документация создана. Для проверки следуйте инструкциям в `AUDIT_LOGIN_CHECK.md`.
+Все изменения применены. Для успешного запуска логирования логинов **ОБЯЗАТЕЛЬНО** примените SQL миграцию из `scripts/005b_auth_login_audit.sql`.
+
+Детальные инструкции по проверке - в `AUDIT_LOGIN_CHECK.md`.
