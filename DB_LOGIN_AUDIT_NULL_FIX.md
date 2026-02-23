@@ -40,7 +40,7 @@ Added `coalesce(NEW.created_at, now())` to ensure a valid timestamp is always us
 
 ## Verification Commands
 
-```bash
+\`\`\`bash
 # 1. Unicode Check
 pnpm check:unicode
 
@@ -49,7 +49,7 @@ pnpm tsc --noEmit
 
 # 3. Build
 pnpm build
-```
+\`\`\`
 
 ## Verification Results
 
@@ -60,7 +60,7 @@ pnpm build
 ## SQL Changes Detail
 
 **Before**:
-```sql
+\`\`\`sql
 INSERT INTO audit_log (
   ...
   created_at
@@ -68,10 +68,10 @@ INSERT INTO audit_log (
   ...
   NEW.created_at  -- Could be NULL!
 );
-```
+\`\`\`
 
 **After**:
-```sql
+\`\`\`sql
 DECLARE
   ts TIMESTAMPTZ;
 BEGIN
@@ -85,7 +85,7 @@ BEGIN
     ts  -- Always valid timestamp
   );
 END;
-```
+\`\`\`
 
 ## Impact
 
@@ -97,13 +97,13 @@ END;
 ## Testing Recommendations
 
 ### Test Case 1: Normal Login (Real Supabase Auth)
-```sql
+\`\`\`sql
 -- Should work as before, created_at populated by Supabase
 -- Login via UI → check audit_log
-```
+\`\`\`
 
 ### Test Case 2: Manual Simulation with NULL
-```sql
+\`\`\`sql
 -- Insert test event with NULL created_at
 INSERT INTO auth.audit_log_entries (
   instance_id,
@@ -119,17 +119,17 @@ INSERT INTO auth.audit_log_entries (
   )
 );
 -- created_at defaults to NULL or now(), trigger should handle both
-```
+\`\`\`
 
 ### Test Case 3: Verify Fallback
-```sql
+\`\`\`sql
 -- Check that timestamps are never NULL in audit_log
 SELECT count(*) 
 FROM audit_log 
 WHERE table_name = 'auth_events' 
   AND created_at IS NULL;
 -- Expected: 0
-```
+\`\`\`
 
 ## Files Modified
 
@@ -139,18 +139,18 @@ WHERE table_name = 'auth_events'
 ## Deployment Instructions
 
 1. Apply updated SQL script in Supabase SQL Editor:
-   ```sql
+   \`\`\`sql
    -- Run contents of scripts/005b_auth_login_audit.sql
-   ```
+   \`\`\`
 
 2. Verify trigger is updated:
-   ```sql
+   \`\`\`sql
    SELECT 
      p.proname,
      pg_get_functiondef(p.oid) as definition
    FROM pg_proc p
    WHERE p.proname = 'log_auth_login_to_audit';
-   ```
+   \`\`\`
 
 3. Check for `COALESCE(NEW.created_at, now())` in the function definition
 
