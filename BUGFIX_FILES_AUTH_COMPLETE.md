@@ -14,7 +14,7 @@
 ### 1. `/app/actions/files.ts`
 
 **Добавлен helper для получения company_id:**
-```typescript
+\`\`\`typescript
 async function getCompanyIdForUser(
   supabase: SupabaseClient,
   userId: string
@@ -32,7 +32,7 @@ async function getCompanyIdForUser(
 
   return data.company_id
 }
-```
+\`\`\`
 
 **Исправлены все server actions:**
 
@@ -61,11 +61,11 @@ async function getCompanyIdForUser(
 ## Security Improvements
 
 1. **Добавлены null-checks для company_id:**
-   ```typescript
+   \`\`\`typescript
    if (!asset.company_id || asset.company_id !== companyId) {
      return { success: false, error: 'Access denied' }
    }
-   ```
+   \`\`\`
 
 2. **Проверка team membership:**
    - Helper `getCompanyIdForUser` проверяет существование записи в `team_members`
@@ -86,13 +86,13 @@ async function getCompanyIdForUser(
 - [ ] Просмотр файла (signed URL) → должен открываться
 
 ### Build Verification:
-```bash
+\`\`\`bash
 # Unicode check
 pnpm check:unicode
 
 # Build check
 pnpm build
-```
+\`\`\`
 
 ## Files Changed
 - ✅ `/app/actions/files.ts` - исправлен auth pattern + добавлен helper

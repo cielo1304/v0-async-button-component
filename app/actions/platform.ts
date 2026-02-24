@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { adminSupabase } from '@/lib/supabase/admin'
 
 /**
  * Check if the current user is a platform admin.
@@ -106,5 +107,64 @@ export async function listCompanyInvites(): Promise<{
   } catch (err) {
     console.error('[v0] listCompanyInvites error:', err)
     return { error: 'Failed to list invites' }
+  }
+}
+
+/**
+ * Invite a future company owner (Boss) by email.
+ * - Creates a company_invite token (company_id = null — Boss creates it during onboarding)
+ * - Sends a Supabase magic-link email via the service-role admin client
+ * - The email link leads to: /auth/callback?next=/onboarding?type=company&token=<TOKEN>
+ */
+export async function inviteCompanyOwnerByEmail(
+  email: string
+): Promise<{ token?: string; error?: string }> {
+  try {
+    const { supabase } = await createSupabaseAndRequireUser()
+
+    // Verify caller is a platform admin
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { error: 'Failed to verify admin status' }
+    }
+    if (!isAdmin) {
+      return { error: 'Unauthorized: Only platform admins can send invites' }
+    }
+
+    // Create a company_invite token with a placeholder company name (Boss will fill it in onboarding)
+    const { data: token, error: inviteError } = await supabase.rpc('create_company_invite', {
+      p_email: email,
+      p_company_name: '',
+    })
+
+    if (inviteError) {
+      console.error('[v0] create_company_invite RPC error:', inviteError)
+      return { error: inviteError.message }
+    }
+
+    const inviteToken = token as string
+
+    // Build the redirect URL that the email link will point to
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.mutka2.xyz'
+    // /auth/callback will exchange the code, then redirect to /set-password?next=...
+    // /set-password will then redirect to the `next` value after the user sets their password
+    const nextPath = `/onboarding?type=company&token=${inviteToken}`
+    const redirectTo = `${baseUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`
+
+    // Send the Supabase invite email
+    const { error: emailError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+    })
+
+    if (emailError) {
+      console.error('[v0] inviteUserByEmail error:', emailError)
+      return { error: emailError.message }
+    }
+
+    return { token: inviteToken }
+  } catch (err) {
+    console.error('[v0] inviteCompanyOwnerByEmail error:', err)
+    return { error: 'Failed to send invite' }
   }
 }

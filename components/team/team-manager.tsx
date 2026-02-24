@@ -36,7 +36,7 @@ import {
 import { 
   Users, Shield, Wallet, Plus, Trash2, RefreshCw, Loader2, 
   ChevronRight, Pencil, Mail, Phone, Calendar, Briefcase,
-  ArrowLeftRight, Car, Package
+  ArrowLeftRight, Car, Package, Link2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -51,7 +51,8 @@ import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
 import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
 import { 
   setEmployeeModuleAccess, 
-  createEmployeeInvite, 
+  createEmployeeInvite,
+  inviteEmployeeByEmail,
   syncEmployeeRoles,
   setPositionDefaultRoles,
   deletePositionDefaultRoles
@@ -112,6 +113,7 @@ export function TeamManager() {
   
   // Приглашения
   const [isSendingInvite, setIsSendingInvite] = useState(false)
+  const [isSendingEmailInvite, setIsSendingEmailInvite] = useState(false)
   const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
@@ -402,6 +404,30 @@ export function TeamManager() {
     }
   }
   
+  // Отправка приглашения по email (магическая ссылка Supabase)
+  const handleSendEmailInvite = async () => {
+    if (!editingEmployee?.email) {
+      toast.error('У сотрудника не указан email')
+      return
+    }
+
+    setIsSendingEmailInvite(true)
+    try {
+      const result = await inviteEmployeeByEmail(editingEmployee.id, editingEmployee.email)
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка отправки')
+        return
+      }
+      toast.success('Письмо с приглашением отправлено на ' + editingEmployee.email)
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка отправки приглашения')
+      console.error('[v0] handleSendEmailInvite error:', err)
+    } finally {
+      setIsSendingEmailInvite(false)
+    }
+  }
+
   // Синхронизация ролей с auth
   const handleSyncRoles = async () => {
     if (!editingEmployee?.auth_user_id) {
@@ -1153,21 +1179,40 @@ export function TeamManager() {
                     <p className="text-sm text-muted-foreground">
                       Сотрудник не привязан к учетной записи. Отправьте приглашение по email для регистрации.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSendInvite}
-                      disabled={isSendingInvite || !editingEmployee.email}
-                      className="w-full bg-transparent"
-                    >
-                      {isSendingInvite ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <Mail className="h-3 w-3 mr-1" />
-                      )}
-                      Пригласить по email
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      {/* Magic-link invite — preferred */}
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={handleSendEmailInvite}
+                        disabled={isSendingEmailInvite || !editingEmployee.email}
+                        className="w-full"
+                      >
+                        {isSendingEmailInvite ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Mail className="h-3 w-3 mr-1" />
+                        )}
+                        Отправить письмо-приглашение
+                      </Button>
+                      {/* Legacy token invite — fallback */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSendInvite}
+                        disabled={isSendingInvite || !editingEmployee.email}
+                        className="w-full bg-transparent"
+                      >
+                        {isSendingInvite ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Link2 className="h-3 w-3 mr-1" />
+                        )}
+                        Создать ссылку-приглашение
+                      </Button>
+                    </div>
                     {!editingEmployee.email && (
                       <p className="text-xs text-amber-400">
                         Укажите email сотрудника для отправки приглашения

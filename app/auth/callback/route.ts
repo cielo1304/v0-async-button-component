@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url)
   const code = searchParams.get('code')
+  // `next` is where the user should land after setting their password
   const next = searchParams.get('next') ?? '/'
 
   if (code) {
@@ -32,7 +33,13 @@ export async function GET(request: Request) {
 
     const { error } = await supabase.auth.exchangeCodeForSession(code)
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`)
+      // Always go to /set-password first, carrying `next` so the user ends
+      // up in the right place after they choose a password.
+      const setPasswordUrl = new URL('/set-password', origin)
+      if (next !== '/') {
+        setPasswordUrl.searchParams.set('next', next)
+      }
+      return NextResponse.redirect(setPasswordUrl.toString())
     }
   }
 
