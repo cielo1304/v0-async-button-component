@@ -19,6 +19,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -53,6 +63,7 @@ import {
   setEmployeeModuleAccess, 
   createEmployeeInvite,
   inviteEmployeeByEmail,
+  deleteEmployeeInvite,
   syncEmployeeRoles,
   setPositionDefaultRoles,
   deletePositionDefaultRoles
@@ -114,6 +125,9 @@ export function TeamManager() {
   // Приглашения
   const [isSendingInvite, setIsSendingInvite] = useState(false)
   const [isSendingEmailInvite, setIsSendingEmailInvite] = useState(false)
+  const [deletingInviteToken, setDeletingInviteToken] = useState<string | null>(null)
+  const [isDeletingInvite, setIsDeletingInvite] = useState(false)
+  const [lastInviteToken, setLastInviteToken] = useState<string | null>(null)
   const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
@@ -382,7 +396,10 @@ export function TeamManager() {
       const invite = await createEmployeeInvite(editingEmployee.id, editingEmployee.email)
       
       if (invite && invite.token) {
-        const inviteLink = `${window.location.origin}/onboarding?token=${invite.token}&type=employee`
+        const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+        const inviteLink = `${base}/onboarding?type=employee&token=${invite.token}`
+        
+        setLastInviteToken(invite.token)
         
         // Copy to clipboard
         await navigator.clipboard.writeText(inviteLink)
@@ -425,6 +442,27 @@ export function TeamManager() {
       console.error('[v0] handleSendEmailInvite error:', err)
     } finally {
       setIsSendingEmailInvite(false)
+    }
+  }
+
+  // Удаление токена приглашения
+  const handleDeleteInvite = async () => {
+    if (!deletingInviteToken) return
+    setIsDeletingInvite(true)
+    try {
+      const result = await deleteEmployeeInvite(deletingInviteToken)
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка удаления')
+        return
+      }
+      toast.success('Приглашение удалено')
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка удаления приглашения')
+      console.error('[v0] handleDeleteInvite error:', err)
+    } finally {
+      setIsDeletingInvite(false)
+      setDeletingInviteToken(null)
     }
   }
 
@@ -646,6 +684,7 @@ export function TeamManager() {
             onClick={(e) => {
               e.stopPropagation()
               setEditingEmployee(row)
+              setLastInviteToken(null)
               setIsEditDialogOpen(true)
             }}
           >
