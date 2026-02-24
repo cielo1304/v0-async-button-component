@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, inviteCompanyOwnerByEmail, deleteCompanyInvite } from '@/app/actions/platform'
+import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, deleteCompanyInvite } from '@/app/actions/platform'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Mail, Trash2 } from 'lucide-react'
+import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,12 +48,6 @@ export default function PlatformPage() {
   const [deletingToken, setDeletingToken] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  // Email invite (Supabase magic-link)
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [sendingEmailInvite, setSendingEmailInvite] = useState(false)
-  const [emailInviteError, setEmailInviteError] = useState('')
-  const [emailInviteSent, setEmailInviteSent] = useState(false)
-
   useEffect(() => {
     checkAdminAndLoadInvites()
   }, [])
@@ -88,8 +82,8 @@ export default function PlatformPage() {
     setError('')
     setGeneratedToken('')
 
-    if (!email || !companyName) {
-      setError('Заполните все поля')
+    if (!companyName) {
+      setError('Введите название компании')
       return
     }
 
@@ -122,45 +116,6 @@ export default function PlatformPage() {
     }
   }
 
-  const handleSendEmailInvite = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setEmailInviteError('')
-    setEmailInviteSent(false)
-
-    if (!inviteEmail) {
-      setEmailInviteError('Введите email')
-      return
-    }
-
-    setSendingEmailInvite(true)
-    try {
-      const result = await inviteCompanyOwnerByEmail(inviteEmail)
-      if (result.error) {
-        setEmailInviteError(result.error)
-        return
-      }
-      setEmailInviteSent(true)
-      setInviteEmail('')
-      toast.success('Письмо с приглашением отправлено!')
-
-      // Reload invites list
-      const listResult = await listCompanyInvites()
-      if (listResult.invites) {
-        setInvites(listResult.invites)
-      }
-    } catch (err) {
-      setEmailInviteError('Ошибка отправки приглашения')
-      console.error('[v0] Send email invite error:', err)
-    } finally {
-      setSendingEmailInvite(false)
-    }
-  }
-
-  const copyToken = (token: string) => {
-    navigator.clipboard.writeText(token)
-    toast.success('Токен скопирован!')
-  }
-
   const copyInviteLink = (token: string) => {
     const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
     const link = `${base}/onboarding?type=company&token=${token}`
@@ -178,6 +133,7 @@ export default function PlatformPage() {
         return
       }
       toast.success('Приглашение удалено')
+      if (deletingToken === generatedToken) setGeneratedToken('')
       const listResult = await listCompanyInvites()
       if (listResult.invites) setInvites(listResult.invites)
     } catch (err) {
@@ -212,70 +168,13 @@ export default function PlatformPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Email Invite — Supabase magic-link */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mail className="h-5 w-5" />
-              Пригласить Boss по email
-            </CardTitle>
-            <CardDescription>
-              Отправить письмо с магической ссылкой. Boss сразу попадёт на onboarding.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSendEmailInvite} className="flex flex-col gap-4">
-              {emailInviteError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{emailInviteError}</AlertDescription>
-                </Alert>
-              )}
-              {emailInviteSent && (
-                <Alert>
-                  <CheckCircle2 className="h-4 w-4" />
-                  <AlertDescription>
-                    Письмо отправлено! Boss получит ссылку на email.
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="inviteEmail">Email Boss</Label>
-                <Input
-                  id="inviteEmail"
-                  type="email"
-                  placeholder="boss@company.com"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  disabled={sendingEmailInvite}
-                />
-              </div>
-
-              <Button type="submit" disabled={sendingEmailInvite}>
-                {sendingEmailInvite ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Отправка...
-                  </>
-                ) : (
-                  <>
-                    <Mail className="mr-2 h-4 w-4" />
-                    Отправить приглашение
-                  </>
-                )}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Create Invite Form (manual token) */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Create Invite Form (token + link) */}
         <Card>
           <CardHeader>
             <CardTitle>Создать приглашение</CardTitle>
             <CardDescription>
-              Создайте новое приглашение для регистрации компании
+              Создайте ссылку-приглашение и отправьте её в мессенджере
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -288,40 +187,48 @@ export default function PlatformPage() {
               )}
 
               {generatedToken && (
-                <Alert>
-                  <CheckCircle2 className="h-4 w-4" />
-                  <AlertDescription>
-                    <div className="flex flex-col gap-2">
-                      <p className="font-semibold">Приглашение создано!</p>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 rounded bg-muted px-2 py-1 text-xs font-mono">
-                          {generatedToken}
-                        </code>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => copyToken(generatedToken)}
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => copyInviteLink(generatedToken)}
-                      >
-                        <Copy className="mr-2 h-3 w-3" />
-                        Копировать ссылку
-                      </Button>
-                    </div>
-                  </AlertDescription>
-                </Alert>
+                <div className="rounded-md border border-border bg-secondary/30 p-3 space-y-3">
+                  <p className="text-sm font-semibold text-foreground">Приглашение создано!</p>
+                  <p className="text-xs text-muted-foreground">
+                    Скопируйте ссылку и отправьте в мессенджере
+                  </p>
+                  <code className="block truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                    {(() => {
+                      const base = typeof window !== 'undefined'
+                        ? (process.env.NEXT_PUBLIC_SITE_URL || window.location.origin)
+                        : ''
+                      return `${base}/onboarding?type=company&token=${generatedToken}`
+                    })()}
+                  </code>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 bg-transparent"
+                      onClick={() => copyInviteLink(generatedToken)}
+                    >
+                      <Copy className="mr-2 h-3 w-3" />
+                      Скопировать ссылку
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => setDeletingToken(generatedToken)}
+                    >
+                      <Trash2 className="mr-2 h-3 w-3" />
+                      Удалить
+                    </Button>
+                  </div>
+                </div>
               )}
 
               <div className="flex flex-col gap-2">
-                <Label htmlFor="email">Email</Label>
+                <Label htmlFor="email">
+                  Email <span className="text-muted-foreground">(необязательно)</span>
+                </Label>
                 <Input
                   id="email"
                   type="email"
