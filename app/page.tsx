@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { DollarSign, Car, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users, Landmark, BoxSelect } from 'lucide-react'
+import { DollarSign, Car, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users, Landmark, BoxSelect, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 
@@ -64,6 +64,17 @@ const modules = [
   },
 ]
 
+async function checkPlatformAdmin(): Promise<boolean> {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase.rpc('is_platform_admin')
+    if (error) return false
+    return !!data
+  } catch {
+    return false
+  }
+}
+
 async function getStats() {
   const supabase = await createClient()
   
@@ -91,7 +102,7 @@ async function getStats() {
 }
 
 export default async function HomePage() {
-  const stats = await getStats()
+  const [stats, isPlatformAdmin] = await Promise.all([getStats(), checkPlatformAdmin()])
 
   return (
     <div className="min-h-screen bg-background">
@@ -136,6 +147,28 @@ export default async function HomePage() {
               </Card>
             </Link>
           ))}
+
+          {/* Platform Admin tile — only visible to platform admins */}
+          {isPlatformAdmin && (
+            <Link href="/platform">
+              <Card className="hover:border-zinc-700 transition-all cursor-pointer h-full group bg-card border-border border-dashed">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="p-3 rounded-lg bg-secondary group-hover:bg-zinc-800 transition-colors">
+                      <Building2 className="h-6 w-6 text-rose-400" />
+                    </div>
+                  </div>
+                  <CardTitle className="mt-4 text-foreground">{'Платформа'}</CardTitle>
+                  <CardDescription className="text-muted-foreground">
+                    {'Управление компаниями и приглашениями'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-rose-400 group-hover:text-rose-300 transition-colors">{'Только для администраторов'}</p>
+                </CardContent>
+              </Card>
+            </Link>
+          )}
         </div>
 
         {/* Quick Stats */}

@@ -36,7 +36,7 @@ import {
 import { 
   Users, Shield, Wallet, Plus, Trash2, RefreshCw, Loader2, 
   ChevronRight, Pencil, Mail, Phone, Calendar, Briefcase,
-  ArrowLeftRight, Car, Package
+  ArrowLeftRight, Car, Package, Link2
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
@@ -1179,21 +1179,40 @@ export function TeamManager() {
                     <p className="text-sm text-muted-foreground">
                       Сотрудник не привязан к учетной записи. Отправьте приглашение по email для регистрации.
                     </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleSendInvite}
-                      disabled={isSendingInvite || !editingEmployee.email}
-                      className="w-full bg-transparent"
-                    >
-                      {isSendingInvite ? (
-                        <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                      ) : (
-                        <Mail className="h-3 w-3 mr-1" />
-                      )}
-                      Пригласить по email
-                    </Button>
+                    <div className="flex flex-col gap-2">
+                      {/* Magic-link invite — preferred */}
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        onClick={handleSendEmailInvite}
+                        disabled={isSendingEmailInvite || !editingEmployee.email}
+                        className="w-full"
+                      >
+                        {isSendingEmailInvite ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Mail className="h-3 w-3 mr-1" />
+                        )}
+                        Отправить письмо-приглашение
+                      </Button>
+                      {/* Legacy token invite — fallback */}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSendInvite}
+                        disabled={isSendingInvite || !editingEmployee.email}
+                        className="w-full bg-transparent"
+                      >
+                        {isSendingInvite ? (
+                          <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                        ) : (
+                          <Link2 className="h-3 w-3 mr-1" />
+                        )}
+                        Создать ссылку-приглашение
+                      </Button>
+                    </div>
                     {!editingEmployee.email && (
                       <p className="text-xs text-amber-400">
                         Укажите email сотрудника для отправки приглашения
