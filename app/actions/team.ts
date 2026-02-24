@@ -607,3 +607,59 @@ export async function inviteEmployeeByEmail(
   revalidatePath('/settings')
   return { success: true }
 }
+
+/**
+ * Delete an employee invite token (Boss/manager only — must share same company).
+ */
+export async function deleteEmployeeInvite(
+  token: string
+): Promise<{ success: boolean; error?: string }> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  // Caller must be a team member
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!membership) {
+    return { success: false, error: 'Нет доступа' }
+  }
+
+  // Find the invite and verify it belongs to the same company
+  const { data: invite } = await supabase
+    .from('employee_invites')
+    .select('id, employee_id, employees(company_id)')
+    .eq('token', token)
+    .maybeSingle()
+
+  if (!invite) {
+    return { success: false, error: 'Приглашение не найдено' }
+  }
+
+  // Safely extract company_id from the join
+  const inviteCompanyId =
+    invite.employees && !Array.isArray(invite.employees)
+      ? (invite.employees as { company_id: string }).company_id
+      : Array.isArray(invite.employees) && invite.employees.length > 0
+        ? (invite.employees[0] as { company_id: string }).company_id
+        : null
+
+  if (!inviteCompanyId || inviteCompanyId !== membership.company_id) {
+    return { success: false, error: 'Нет доступа к этому приглашению' }
+  }
+
+  const { error } = await supabase
+    .from('employee_invites')
+    .delete()
+    .eq('token', token)
+
+  if (error) {
+    console.error('[v0] deleteEmployeeInvite error:', error)
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/settings')
+  return { success: true }
+}

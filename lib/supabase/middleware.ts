@@ -46,7 +46,9 @@ export async function updateSession(request: NextRequest) {
   // Allow public paths without auth
   const isPublicPath =
     pathname === '/login' ||
-    pathname.startsWith('/auth') ||
+    pathname.startsWith('/auth') ||        // /auth/callback must be reachable unauthenticated
+    pathname.startsWith('/onboarding') ||  // onboarding is reached before membership exists
+    pathname.startsWith('/set-password') || // set-password is reached before session is established
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname === '/favicon.ico' ||
@@ -76,6 +78,7 @@ export async function updateSession(request: NextRequest) {
   // Onboarding gate: if user has no membership and is not platform admin, redirect to /onboarding
   const onboardingAllowlist = [
     '/onboarding',
+    '/set-password',
     '/platform',
     '/login',
     '/auth',

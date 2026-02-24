@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, inviteCompanyOwnerByEmail } from '@/app/actions/platform'
+import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, inviteCompanyOwnerByEmail, deleteCompanyInvite } from '@/app/actions/platform'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +11,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Mail } from 'lucide-react'
+import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Mail, Trash2 } from 'lucide-react'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface Invite {
   id: string
@@ -33,6 +43,10 @@ export default function PlatformPage() {
   const [creating, setCreating] = useState(false)
   const [generatedToken, setGeneratedToken] = useState('')
   const [error, setError] = useState('')
+
+  // Delete invite state
+  const [deletingToken, setDeletingToken] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   // Email invite (Supabase magic-link)
   const [inviteEmail, setInviteEmail] = useState('')
@@ -148,9 +162,31 @@ export default function PlatformPage() {
   }
 
   const copyInviteLink = (token: string) => {
-    const link = `${window.location.origin}/onboarding?token=${token}`
+    const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+    const link = `${base}/onboarding?type=company&token=${token}`
     navigator.clipboard.writeText(link)
     toast.success('Ссылка скопирована!')
+  }
+
+  const handleDeleteInvite = async () => {
+    if (!deletingToken) return
+    setIsDeleting(true)
+    try {
+      const result = await deleteCompanyInvite(deletingToken)
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      toast.success('Приглашение удалено')
+      const listResult = await listCompanyInvites()
+      if (listResult.invites) setInvites(listResult.invites)
+    } catch (err) {
+      toast.error('Ошибка удаления')
+      console.error('[v0] deleteInvite error:', err)
+    } finally {
+      setIsDeleting(false)
+      setDeletingToken(null)
+    }
   }
 
   if (loading) {
@@ -377,8 +413,19 @@ export default function PlatformPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => copyInviteLink(invite.token)}
+                          title="Скопировать ссылку"
                         >
                           <Copy className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setDeletingToken(invite.token)}
+                          title="Удалить приглашение"
+                          className="bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
                     )}
@@ -393,6 +440,28 @@ export default function PlatformPage() {
           </CardContent>
         </Card>
       </div>
+      {/* Confirm delete dialog */}
+      <AlertDialog open={!!deletingToken} onOpenChange={(open) => { if (!open) setDeletingToken(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить приглашение?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Токен станет недействительным. Это действие необратимо.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteInvite}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

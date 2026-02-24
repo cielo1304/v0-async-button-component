@@ -111,6 +111,41 @@ export async function listCompanyInvites(): Promise<{
 }
 
 /**
+ * Delete a company invite (platform admin only)
+ */
+export async function deleteCompanyInvite(
+  token: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { supabase } = await createSupabaseAndRequireUser()
+
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { success: false, error: 'Failed to verify admin status' }
+    }
+    if (!isAdmin) {
+      return { success: false, error: 'Unauthorized' }
+    }
+
+    const { error } = await supabase
+      .from('company_invites')
+      .delete()
+      .eq('token', token)
+
+    if (error) {
+      console.error('[v0] deleteCompanyInvite error:', error)
+      return { success: false, error: error.message }
+    }
+
+    return { success: true }
+  } catch (err) {
+    console.error('[v0] deleteCompanyInvite error:', err)
+    return { success: false, error: 'Failed to delete invite' }
+  }
+}
+
+/**
  * Invite a future company owner (Boss) by email.
  * - Creates a company_invite token (company_id = null — Boss creates it during onboarding)
  * - Sends a Supabase magic-link email via the service-role admin client
