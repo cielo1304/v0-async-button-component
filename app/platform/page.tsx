@@ -2,15 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createCompanyInvite, listCompanyInvites, isPlatformAdmin } from '@/app/actions/platform'
+import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, inviteCompanyOwnerByEmail } from '@/app/actions/platform'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
+import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
+import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Mail } from 'lucide-react'
 
 interface Invite {
   id: string
@@ -32,6 +33,12 @@ export default function PlatformPage() {
   const [creating, setCreating] = useState(false)
   const [generatedToken, setGeneratedToken] = useState('')
   const [error, setError] = useState('')
+
+  // Email invite (Supabase magic-link)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [sendingEmailInvite, setSendingEmailInvite] = useState(false)
+  const [emailInviteError, setEmailInviteError] = useState('')
+  const [emailInviteSent, setEmailInviteSent] = useState(false)
 
   useEffect(() => {
     checkAdminAndLoadInvites()
@@ -101,6 +108,40 @@ export default function PlatformPage() {
     }
   }
 
+  const handleSendEmailInvite = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setEmailInviteError('')
+    setEmailInviteSent(false)
+
+    if (!inviteEmail) {
+      setEmailInviteError('Введите email')
+      return
+    }
+
+    setSendingEmailInvite(true)
+    try {
+      const result = await inviteCompanyOwnerByEmail(inviteEmail)
+      if (result.error) {
+        setEmailInviteError(result.error)
+        return
+      }
+      setEmailInviteSent(true)
+      setInviteEmail('')
+      toast.success('Письмо с приглашением отправлено!')
+
+      // Reload invites list
+      const listResult = await listCompanyInvites()
+      if (listResult.invites) {
+        setInvites(listResult.invites)
+      }
+    } catch (err) {
+      setEmailInviteError('Ошибка отправки приглашения')
+      console.error('[v0] Send email invite error:', err)
+    } finally {
+      setSendingEmailInvite(false)
+    }
+  }
+
   const copyToken = (token: string) => {
     navigator.clipboard.writeText(token)
     toast.success('Токен скопирован!')
@@ -135,8 +176,65 @@ export default function PlatformPage() {
         </p>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Create Invite Form */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Email Invite — Supabase magic-link */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5" />
+              Пригласить Boss по email
+            </CardTitle>
+            <CardDescription>
+              Отправить письмо с магической ссылкой. Boss сразу попадёт на onboarding.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSendEmailInvite} className="flex flex-col gap-4">
+              {emailInviteError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{emailInviteError}</AlertDescription>
+                </Alert>
+              )}
+              {emailInviteSent && (
+                <Alert>
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription>
+                    Письмо отправлено! Boss получит ссылку на email.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="inviteEmail">Email Boss</Label>
+                <Input
+                  id="inviteEmail"
+                  type="email"
+                  placeholder="boss@company.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  disabled={sendingEmailInvite}
+                />
+              </div>
+
+              <Button type="submit" disabled={sendingEmailInvite}>
+                {sendingEmailInvite ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Отправка...
+                  </>
+                ) : (
+                  <>
+                    <Mail className="mr-2 h-4 w-4" />
+                    Отправить приглашение
+                  </>
+                )}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Create Invite Form (manual token) */}
         <Card>
           <CardHeader>
             <CardTitle>Создать приглашение</CardTitle>

@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { adminSupabase } from '@/lib/supabase/admin'
 import { revalidatePath } from 'next/cache'
 import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
@@ -515,4 +516,94 @@ export async function deletePositionDefaultRoles(position: string) {
   if (error) throw new Error(error.message)
   
   revalidatePath('/settings')
+}
+
+// ================================================
+// Email invites (Supabase magic-link flow)
+// ================================================
+
+/**
+ * Invite an employee by email using Supabase's magic-link invite flow.
+ * - Creates an employee_invite token for the given employee record
+ * - Sends a Supabase invite email pointing to /auth/callback?next=/onboarding?type=employee&token=<TOKEN>
+ */
+export async function inviteEmployeeByEmail(
+  employeeId: string,
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  if (!email) {
+    return { success: false, error: 'Email не указан' }
+  }
+
+  // Verify caller's company membership
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!membership) {
+    return { success: false, error: 'Вы должны быть членом компании' }
+  }
+
+  // Verify employee belongs to same company
+  const { data: employee } = await supabase
+    .from('employees')
+    .select('company_id, email')
+    .eq('id', employeeId)
+    .single()
+
+  if (!employee || employee.company_id !== membership.company_id) {
+    return { success: false, error: 'Сотрудник не найден или нет доступа' }
+  }
+
+  // Update employee email if changed
+  if (email !== employee.email) {
+    await supabase.from('employees').update({ email }).eq('id', employeeId)
+  }
+
+  // Cancel previous active invites
+  await supabase
+    .from('employee_invites')
+    .update({ status: 'cancelled' })
+    .eq('employee_id', employeeId)
+    .eq('status', 'sent')
+
+  // Create new token
+  const token = crypto.randomUUID()
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + 7)
+
+  const { error: insertError } = await supabase
+    .from('employee_invites')
+    .insert({
+      employee_id: employeeId,
+      email,
+      status: 'sent',
+      token,
+      expires_at: expiresAt.toISOString(),
+    })
+
+  if (insertError) {
+    return { success: false, error: insertError.message }
+  }
+
+  // Send Supabase magic-link email
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.mutka2.xyz'
+  const nextPath = `/onboarding?type=employee&token=${token}`
+  const redirectTo = `${baseUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`
+
+  const { error: emailError } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo,
+  })
+
+  if (emailError) {
+    console.error('[v0] inviteEmployeeByEmail emailError:', emailError)
+    return { success: false, error: emailError.message }
+  }
+
+  revalidatePath('/settings')
+  return { success: true }
 }

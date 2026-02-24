@@ -51,7 +51,8 @@ import { AddEmployeeDialog } from '@/components/hr/add-employee-dialog'
 import { AddBonusDialog } from '@/components/hr/add-bonus-dialog'
 import { 
   setEmployeeModuleAccess, 
-  createEmployeeInvite, 
+  createEmployeeInvite,
+  inviteEmployeeByEmail,
   syncEmployeeRoles,
   setPositionDefaultRoles,
   deletePositionDefaultRoles
@@ -112,6 +113,7 @@ export function TeamManager() {
   
   // Приглашения
   const [isSendingInvite, setIsSendingInvite] = useState(false)
+  const [isSendingEmailInvite, setIsSendingEmailInvite] = useState(false)
   const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
@@ -402,6 +404,30 @@ export function TeamManager() {
     }
   }
   
+  // Отправка приглашения по email (магическая ссылка Supabase)
+  const handleSendEmailInvite = async () => {
+    if (!editingEmployee?.email) {
+      toast.error('У сотрудника не указан email')
+      return
+    }
+
+    setIsSendingEmailInvite(true)
+    try {
+      const result = await inviteEmployeeByEmail(editingEmployee.id, editingEmployee.email)
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка отправки')
+        return
+      }
+      toast.success('Письмо с приглашением отправлено на ' + editingEmployee.email)
+      loadData()
+    } catch (err) {
+      toast.error('Ошибка отправки приглашения')
+      console.error('[v0] handleSendEmailInvite error:', err)
+    } finally {
+      setIsSendingEmailInvite(false)
+    }
+  }
+
   // Синхронизация ролей с auth
   const handleSyncRoles = async () => {
     if (!editingEmployee?.auth_user_id) {
