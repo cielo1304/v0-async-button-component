@@ -456,6 +456,7 @@ export function TeamManager() {
         return
       }
       toast.success('Приглашение удалено')
+      setLastInviteToken(null)
       loadData()
     } catch (err) {
       toast.error('Ошибка удаления приглашения')
@@ -1252,6 +1253,43 @@ export function TeamManager() {
                         Создать ссылку-приглашение
                       </Button>
                     </div>
+                    {/* Last created token — copy / delete */}
+                    {lastInviteToken && (
+                      <div className="rounded-md border border-border bg-secondary/30 p-3 space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Последнее приглашение</p>
+                        <code className="block truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                          {lastInviteToken}
+                        </code>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 bg-transparent"
+                            onClick={() => {
+                              const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+                              const link = `${base}/onboarding?type=employee&token=${lastInviteToken}`
+                              navigator.clipboard.writeText(link)
+                              toast.success('Ссылка скопирована!')
+                            }}
+                          >
+                            <Link2 className="h-3 w-3 mr-1" />
+                            Скопировать ссылку
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            onClick={() => setDeletingInviteToken(lastInviteToken)}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Удалить
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
                     {!editingEmployee.email && (
                       <p className="text-xs text-amber-400">
                         Укажите email сотрудника для отправки приглашения
@@ -1264,7 +1302,7 @@ export function TeamManager() {
           )}
           
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} className="bg-transparent">
+            <Button variant="outline" onClick={() => { setIsEditDialogOpen(false); setLastInviteToken(null) }} className="bg-transparent">
               Отмена
             </Button>
             <Button onClick={handleUpdateEmployee}>
@@ -1274,6 +1312,29 @@ export function TeamManager() {
         </DialogContent>
       </Dialog>
       
+      {/* Подтверждение удаления токена приглашения */}
+      <AlertDialog open={!!deletingInviteToken} onOpenChange={(open) => { if (!open) setDeletingInviteToken(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить приглашение?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Токен станет недействительным. Это действие необратимо.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingInvite}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteInvite}
+              disabled={isDeletingInvite}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingInvite ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Диалог редактирования должности */}
       <Dialog open={isPositionDialogOpen} onOpenChange={setIsPositionDialogOpen}>
         <DialogContent>

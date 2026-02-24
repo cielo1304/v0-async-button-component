@@ -1,8 +1,9 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { acceptCompanyInvite, acceptEmployeeInvite } from '@/app/actions/tenant'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,6 +35,32 @@ function OnboardingForm() {
   const [fullName, setFullName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [authChecked, setAuthChecked] = useState(false)
+
+  // If there's an invite token in the URL and no active session, send user to
+  // /login with this full URL as the ?next param so they come back after auth.
+  useEffect(() => {
+    const checkAuth = async () => {
+      if (!urlToken) {
+        setAuthChecked(true)
+        return
+      }
+      try {
+        const supabase = createClient()
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) {
+          const currentUrl = window.location.href
+          const loginUrl = `/login?next=${encodeURIComponent(currentUrl)}`
+          router.replace(loginUrl)
+          return
+        }
+      } catch {
+        // If we can't check session, let the form proceed
+      }
+      setAuthChecked(true)
+    }
+    checkAuth()
+  }, [urlToken, router])
 
   const handleActivate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -90,6 +117,15 @@ function OnboardingForm() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Show spinner while we check session (only when a token is in the URL)
+  if (urlToken && !authChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
   }
 
   return (
