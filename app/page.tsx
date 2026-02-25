@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { DollarSign, Car, Briefcase, TrendingUp, Settings, ArrowLeftRight, Users, Landmark, BoxSelect, Building2 } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
+import { CompanyBadge } from '@/components/layout/company-badge'
 
 const modules = [
   {
@@ -116,6 +117,7 @@ export default async function HomePage() {
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm text-muted-foreground font-mono">v3.0</span>
+              <CompanyBadge />
               <Link href="/settings">
                 <Button variant="outline" size="icon">
                   <Settings className="h-5 w-5" />
