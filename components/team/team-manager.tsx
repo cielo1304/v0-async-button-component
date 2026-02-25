@@ -109,6 +109,8 @@ export function TeamManager() {
   const [employees, setEmployees] = useState<EmployeeWithUser[]>([])
   const [roles, setRoles] = useState<SystemRole[]>([])
   const [users, setUsers] = useState<UserWithRoles[]>([])
+  const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null)
+  const [activeCompanyName, setActiveCompanyName] = useState<string | null>(null)
   
   // Диалоги
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -136,10 +138,48 @@ export function TeamManager() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Загрузка сотрудников
+      // Определяем активную компанию текущего пользователя
+      const { data: { user: currentUserEarly } } = await supabase.auth.getUser()
+      
+      let companyId: string | null = null
+      let companyName: string | null = null
+      
+      if (currentUserEarly) {
+        const { data: membership } = await supabase
+          .from('team_members')
+          .select('company_id, companies(name)')
+          .eq('user_id', currentUserEarly.id)
+          .limit(1)
+          .single()
+        
+        if (membership) {
+          companyId = membership.company_id
+          const comp = membership.companies
+          if (comp && !Array.isArray(comp)) {
+            companyName = (comp as { name: string }).name
+          } else if (Array.isArray(comp) && comp.length > 0) {
+            companyName = (comp[0] as { name: string }).name
+          }
+        }
+      }
+      
+      setActiveCompanyId(companyId)
+      setActiveCompanyName(companyName)
+      
+      if (!companyId) {
+        // Нет компании — показываем пустое состояние
+        setEmployees([])
+        setRoles([])
+        setUsers([])
+        setPositionDefaults([])
+        return
+      }
+      
+      // Загрузка сотрудников только текущей компании
       const { data: employeesData } = await supabase
         .from('employees')
         .select('*')
+        .eq('company_id', companyId)
         .order('full_name')
       
       // Загрузка ролей
@@ -148,20 +188,26 @@ export function TeamManager() {
         .select('*')
         .order('name')
       
-      // Загрузка текущего пользователя
-      const { data: { user: currentUser } } = await supabase.auth.getUser()
+      // Используем уже полученного пользователя
+      const currentUser = currentUserEarly
       
-      // Загрузка employee_roles (source of truth)
-      const { data: employeeRolesData } = await supabase
-        .from('employee_roles')
-        .select(`
-          id,
-          employee_id,
-          role_id,
-          assigned_at,
-          assigned_by,
-          system_roles (*)
-        `)
+      // ID сотрудников этой компании для фильтрации employee_roles
+      const employeeIds = (employeesData || []).map(e => e.id)
+      
+      // Загрузка employee_roles только для сотрудников этой компании
+      const { data: employeeRolesData } = employeeIds.length > 0
+        ? await supabase
+            .from('employee_roles')
+            .select(`
+              id,
+              employee_id,
+              role_id,
+              assigned_at,
+              assigned_by,
+              system_roles (*)
+            `)
+            .in('employee_id', employeeIds)
+        : { data: [] }
       
       // Также загружаем user_roles для совместимости
       const { data: userRolesData } = await supabase
@@ -705,8 +751,23 @@ export function TeamManager() {
     )
   }
 
+  if (!activeCompanyId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+        <Users className="h-10 w-10 opacity-40" />
+        <p className="text-base font-medium">Нет компании</p>
+        <p className="text-sm">Вы не являетесь участником ни одной компании.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
+      {/* Активная компания */}
+      <p className="text-xs text-muted-foreground">
+        Компания: <span className="font-medium text-foreground">{activeCompanyName || activeCompanyId}</span>
+      </p>
+      
       {/* Статистика */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="bg-card border-border">
