@@ -78,28 +78,30 @@ async function checkPlatformAdmin(): Promise<boolean> {
 
 async function getStats() {
   const supabase = await createClient()
-  
-  const [cashboxes, cars, deals, stock, employees, contacts, finDeals, assets] = await Promise.all([
-    supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false),
-    supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK'),
-    supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT']),
-    supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true),
-    supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true),
-    supabase.from('contacts').select('id', { count: 'exact', head: true }),
-    supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE']),
-    supabase.from('assets').select('id', { count: 'exact', head: true }),
-  ])
 
-  return {
-    cashboxCount: cashboxes.count || 0,
-    carsInStock: cars.count || 0,
-    activeDeals: deals.count || 0,
-    stockItems: stock.count || 0,
-    employeesCount: employees.count || 0,
-    contactsCount: contacts.count || 0,
-    finDealsCount: finDeals.count || 0,
-    assetsCount: assets.count || 0,
+  const safeCount = async (query: Promise<{ count: number | null; error: unknown }>): Promise<number> => {
+    try {
+      const result = await query
+      if ((result as { error: unknown }).error) return 0
+      return (result as { count: number | null }).count || 0
+    } catch {
+      return 0
+    }
   }
+
+  const [cashboxCount, carsInStock, activeDeals, stockItems, employeesCount, contactsCount, finDealsCount, assetsCount] =
+    await Promise.all([
+      safeCount(supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false)),
+      safeCount(supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK')),
+      safeCount(supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT'])),
+      safeCount(supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true)),
+      safeCount(supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true)),
+      safeCount(supabase.from('contacts').select('id', { count: 'exact', head: true })),
+      safeCount(supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE'])),
+      safeCount(supabase.from('assets').select('id', { count: 'exact', head: true })),
+    ])
+
+  return { cashboxCount, carsInStock, activeDeals, stockItems, employeesCount, contactsCount, finDealsCount, assetsCount }
 }
 
 export default async function HomePage() {

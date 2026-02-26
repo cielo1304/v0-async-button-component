@@ -46,6 +46,7 @@ function OnboardingForm() {
   const inviteType = searchParams.get('type') || 'company'
 
   const [step, setStep] = useState<Step>('checking')
+  const [didRedirect, setDidRedirect] = useState(false)
 
   // Activation form state
   const [email, setEmail] = useState('')
@@ -59,30 +60,50 @@ function OnboardingForm() {
   const [fullName, setFullName] = useState('')
   const [inviteError, setInviteError] = useState('')
   const [accepting, setAccepting] = useState(false)
+  const [inviteSuccess, setInviteSuccess] = useState(false)
 
   // On mount: check session and decide which step to show
   useEffect(() => {
     const checkAuth = async () => {
-      if (!urlToken) {
-        // No token — just show the invite form (it will show an empty token field)
-        setStep('invite')
-        return
-      }
       try {
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
+
+        // If authenticated but token/type are missing, check for existing membership
+        if (session && (!urlToken || !inviteType)) {
+          const { data: membership } = await supabase
+            .from('team_members')
+            .select('id')
+            .eq('user_id', session.user.id)
+            .limit(1)
+            .maybeSingle()
+
+          if (membership) {
+            router.replace(next)
+            return
+          }
+          // No membership yet — show invite form
+          setStep('invite')
+          return
+        }
+
+        if (!urlToken) {
+          setStep('invite')
+          return
+        }
+
         if (session) {
           setStep('invite')
         } else {
           setStep('activation')
         }
       } catch {
-        // Can't check — default to invite step
         setStep('invite')
       }
     }
     checkAuth()
-  }, [urlToken])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   /** Step 1: Sign in (or create account) and then advance to invite step */
   const handleActivation = async (e: React.FormEvent) => {
@@ -151,9 +172,18 @@ function OnboardingForm() {
     }
   }
 
+  /** Maps server error codes/messages to friendly Russian text */
+  const mapInviteError = (msg: string): string => {
+    if (msg.includes('invite_not_active')) return 'Приглашение уже использовано или удалено. Создайте новое.'
+    if (msg.includes('invite_not_found')) return 'Приглашение не найдено. Проверьте ссылку.'
+    if (msg.includes('invite_expired')) return 'Срок приглашения истёк. Создайте новое.'
+    return msg
+  }
+
   /** Step 2: Accept the invite */
   const handleAcceptInvite = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (accepting || inviteSuccess || didRedirect) return
     setInviteError('')
 
     if (inviteType === 'employee') {
@@ -179,21 +209,23 @@ function OnboardingForm() {
       if (inviteType === 'employee') {
         const result = await acceptEmployeeInvite(token)
         if (result.error) {
-          setInviteError(result.error)
+          setInviteError(mapInviteError(result.error))
           return
         }
         toast.success('Приглашение принято! Вы добавлены в команду.')
       } else {
         const result = await acceptCompanyInvite(token, fullName)
         if (result.error) {
-          setInviteError(result.error)
+          setInviteError(mapInviteError(result.error))
           return
         }
         toast.success('Приглашение активировано! Добро пожаловать.')
       }
 
-      router.push(next)
+      setInviteSuccess(true)
+      setDidRedirect(true)
       router.refresh()
+      router.replace(next)
     } catch (err) {
       setInviteError('Произошла ошибка при активации приглашения')
       console.error('[v0] Accept invite error:', err)
@@ -351,11 +383,11 @@ function OnboardingForm() {
               </div>
             )}
 
-            <Button type="submit" className="w-full" disabled={accepting}>
-              {accepting ? (
+            <Button type="submit" className="w-full" disabled={accepting || inviteSuccess}>
+              {accepting || inviteSuccess ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Активация...
+                  {inviteSuccess ? 'Перенаправление...' : 'Активация...'}
                 </>
               ) : (
                 <>
