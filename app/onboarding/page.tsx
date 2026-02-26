@@ -38,15 +38,30 @@ type Step =
   | 'activation'     // unauthenticated — show email+password form
   | 'invite'         // authenticated — show invite acceptance form
 
+/** Compute a safe redirect target from the `next` query param */
+function safeRedirectTarget(raw: string | null): string {
+  if (!raw) return '/'
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(raw)
+  } catch {
+    return '/'
+  }
+  if (!decoded.startsWith('/')) return '/'
+  if (decoded.startsWith('/onboarding')) return '/'
+  return decoded
+}
+
 function OnboardingForm() {
   const searchParams = useSearchParams()
   const router = useRouter()
-  const next = searchParams.get('next') || '/'
+  const redirectTarget = safeRedirectTarget(searchParams.get('next'))
   const urlToken = searchParams.get('token') || ''
   const inviteType = searchParams.get('type') || 'company'
 
   const [step, setStep] = useState<Step>('checking')
   const [didRedirect, setDidRedirect] = useState(false)
+  const [showFallbackButton, setShowFallbackButton] = useState(false)
 
   // Activation form state
   const [email, setEmail] = useState('')
@@ -79,7 +94,7 @@ function OnboardingForm() {
             .maybeSingle()
 
           if (membership) {
-            router.replace(next)
+            window.location.assign(redirectTarget)
             return
           }
           // No membership yet — show invite form
@@ -180,6 +195,18 @@ function OnboardingForm() {
     return msg
   }
 
+  /** Triggers the guaranteed redirect and starts the fallback timer */
+  const doRedirect = () => {
+    setInviteSuccess(true)
+    setDidRedirect(true)
+    // Best-effort Next.js navigation
+    router.replace(redirectTarget)
+    // Guaranteed hard navigation after a short paint delay
+    setTimeout(() => window.location.assign(redirectTarget), 200)
+    // Fallback: if still here after 2 s, show a manual button
+    setTimeout(() => setShowFallbackButton(true), 2000)
+  }
+
   /** Step 2: Accept the invite */
   const handleAcceptInvite = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -222,10 +249,7 @@ function OnboardingForm() {
         toast.success('Приглашение активировано! Добро пожаловать.')
       }
 
-      setInviteSuccess(true)
-      setDidRedirect(true)
-      router.refresh()
-      router.replace(next)
+      doRedirect()
     } catch (err) {
       setInviteError('Произошла ошибка при активации приглашения')
       console.error('[v0] Accept invite error:', err)
@@ -396,6 +420,17 @@ function OnboardingForm() {
                 </>
               )}
             </Button>
+
+            {showFallbackButton && (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => window.location.assign(redirectTarget)}
+              >
+                Перейти на главную
+              </Button>
+            )}
           </form>
         </CardContent>
       </Card>
