@@ -237,7 +237,8 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
 // ========== COMPANY_CURRENCY_RATES (per-company rates) ==========
 
 // Helper: get the active company_id for the current user
-async function getActiveCompanyId(supabase: ReturnType<typeof createSupabaseAndRequireUser> extends Promise<infer T> ? T['supabase'] : never, userId: string): Promise<string | null> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getActiveCompanyId(supabase: any, userId: string): Promise<string | null> {
   const { data } = await supabase
     .from('team_members')
     .select('company_id')
