@@ -234,10 +234,45 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
   return rates
 }
 
-// ========== SYSTEM_CURRENCY_RATES (новая таблица) ==========
+// ========== COMPANY_CURRENCY_RATES (per-company rates) ==========
+
+// Helper: get the active company_id for the current user
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getActiveCompanyId(supabase: any, userId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', userId)
+    .limit(1)
+    .maybeSingle()
+  return data?.company_id ?? null
+}
 
 export async function getSystemCurrencyRates() {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  // Try per-company rates first (059 table)
+  const companyId = await getActiveCompanyId(supabase, user.id)
+  if (companyId) {
+    const { data: companyRates } = await supabase
+      .from('company_currency_rates')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('sort_order')
+    if (companyRates && companyRates.length > 0) {
+      return companyRates
+    }
+    // Ensure company rates are seeded, then retry
+    await supabase.rpc('ensure_company_currency_rates', { p_company_id: companyId }).catch(() => {})
+    const { data: seeded } = await supabase
+      .from('company_currency_rates')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('sort_order')
+    if (seeded && seeded.length > 0) return seeded
+  }
+
+  // Fallback: global system_currency_rates
   const { data } = await supabase
     .from('system_currency_rates')
     .select('*')
@@ -246,41 +281,69 @@ export async function getSystemCurrencyRates() {
 }
 
 export async function updateSystemRate(code: string, rate_to_rub: number, rate_to_usd: number) {
-  const { supabase } = await createSupabaseAndRequireUser()
-  
-  // Сохраняем предыдущий курс
-  const { data: prev } = await supabase
-    .from('system_currency_rates')
-    .select('rate_to_rub')
-    .eq('code', code)
-    .single()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
-  const { error } = await supabase
-    .from('system_currency_rates')
-    .update({
-      rate_to_rub,
-      rate_to_usd,
-      prev_rate_to_rub: prev?.rate_to_rub || rate_to_rub,
-      change_24h: prev?.rate_to_rub ? ((rate_to_rub - prev.rate_to_rub) / prev.rate_to_rub) * 100 : 0,
-      last_updated: new Date().toISOString(),
-    })
-    .eq('code', code)
+  const companyId = await getActiveCompanyId(supabase, user.id)
 
-  if (error) throw error
+  if (companyId) {
+    // Update company-specific rate
+    const { data: prev } = await supabase
+      .from('company_currency_rates')
+      .select('rate_to_rub')
+      .eq('company_id', companyId)
+      .eq('code', code)
+      .maybeSingle()
 
-  // STEP 5: Write to currency_rate_history for audit trail
-  try {
-    await supabase
-      .from('currency_rate_history')
-      .insert({
-        currency_code: code,
+    const { error } = await supabase
+      .from('company_currency_rates')
+      .upsert({
+        company_id: companyId,
+        code,
         rate_to_rub,
         rate_to_usd,
-        source: 'system_update',
+        prev_rate_to_rub: prev?.rate_to_rub || rate_to_rub,
+        change_24h: prev?.rate_to_rub ? ((rate_to_rub - prev.rate_to_rub) / prev.rate_to_rub) * 100 : 0,
+        last_updated: new Date().toISOString(),
+      }, { onConflict: 'company_id,code' })
+
+    if (error) throw error
+
+    // Write to currency_rate_history with company_id
+    try {
+      await supabase
+        .from('currency_rate_history')
+        .insert({ code, rate_to_rub, company_id: companyId })
+    } catch (historyErr) {
+      console.error('[v0] Failed to write currency_rate_history:', historyErr)
+    }
+  } else {
+    // Fallback: update global system_currency_rates (no company membership)
+    const { data: prev } = await supabase
+      .from('system_currency_rates')
+      .select('rate_to_rub')
+      .eq('code', code)
+      .maybeSingle()
+
+    const { error } = await supabase
+      .from('system_currency_rates')
+      .update({
+        rate_to_rub,
+        rate_to_usd,
+        prev_rate_to_rub: prev?.rate_to_rub || rate_to_rub,
+        change_24h: prev?.rate_to_rub ? ((rate_to_rub - prev.rate_to_rub) / prev.rate_to_rub) * 100 : 0,
+        last_updated: new Date().toISOString(),
       })
-  } catch (historyErr) {
-    console.error('[v0] Failed to write currency_rate_history:', historyErr)
-    // Non-blocking: don't fail the main update
+      .eq('code', code)
+
+    if (error) throw error
+
+    try {
+      await supabase
+        .from('currency_rate_history')
+        .insert({ code, rate_to_rub })
+    } catch (historyErr) {
+      console.error('[v0] Failed to write currency_rate_history:', historyErr)
+    }
   }
 
   revalidatePath('/finance')
@@ -288,13 +351,11 @@ export async function updateSystemRate(code: string, rate_to_rub: number, rate_t
 
 export async function refreshSystemRates() {
   const apiResult = await fetchExternalRates()
-  
+
   if (!apiResult.success || !apiResult.rates) {
     return { success: false, error: apiResult.error }
   }
 
-  const { supabase } = await createSupabaseAndRequireUser()
-  
   // Обновляем курсы для USD, EUR, USDT (RUB = base)
   const updates = [
     { code: 'USD', rate_to_rub: apiResult.rates['USD']['RUB'], rate_to_usd: 1 },
@@ -306,7 +367,9 @@ export async function refreshSystemRates() {
     await updateSystemRate(update.code, update.rate_to_rub, update.rate_to_usd).catch(() => {})
   }
 
-  // STEP 5: Also save to currency_rates for legacy compatibility
+  const { supabase } = await createSupabaseAndRequireUser()
+
+  // Also save to currency_rates for legacy compatibility (global rows, company_id = null)
   const ratesToInsert = []
   for (const from of Object.keys(apiResult.rates)) {
     for (const to of Object.keys(apiResult.rates[from])) {
@@ -315,7 +378,8 @@ export async function refreshSystemRates() {
           from_currency: from,
           to_currency: to,
           rate: apiResult.rates[from][to],
-          source: 'auto_refresh'
+          source: 'auto_refresh',
+          company_id: null,
         })
       }
     }
