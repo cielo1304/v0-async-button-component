@@ -535,12 +535,16 @@ export async function createEmployeeInviteLink(): Promise<{
 
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id')
+    .select('company_id, member_role')
     .eq('user_id', user.id)
     .single()
 
   if (!membership) {
-    return { error: 'Вы должны быть членом компании' }
+    return { error: 'no_company' }
+  }
+
+  if (membership.member_role !== 'owner') {
+    return { error: 'forbidden' }
   }
 
   const { data, error } = await supabase
@@ -567,12 +571,16 @@ export async function deleteEmployeeInviteLink(
 
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id')
+    .select('company_id, member_role')
     .eq('user_id', user.id)
     .single()
 
   if (!membership) {
-    return { success: false, error: 'Нет доступа' }
+    return { success: false, error: 'no_company' }
+  }
+
+  if (membership.member_role !== 'owner') {
+    return { success: false, error: 'forbidden' }
   }
 
   // RLS enforces company scoping, but double-check explicitly
@@ -609,12 +617,16 @@ export async function listEmployeeInviteLinks(): Promise<{
 
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id')
+    .select('company_id, member_role')
     .eq('user_id', user.id)
     .single()
 
   if (!membership) {
-    return { error: 'Нет доступа' }
+    return { error: 'no_company' }
+  }
+
+  if (membership.member_role !== 'owner') {
+    return { error: 'forbidden' }
   }
 
   const { data, error } = await supabase
