@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { revalidatePath } from 'next/cache'
 
 // ================================================
@@ -101,7 +102,9 @@ export interface CreateContactPayload {
 }
 
 export async function createContact(payload: CreateContactPayload) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  const companyId = await getCompanyId(supabase, user.id)
 
   const firstName = payload.first_name.trim()
   if (!firstName) {
@@ -124,6 +127,7 @@ export async function createContact(payload: CreateContactPayload) {
   const { data: contact, error } = await supabase
     .from('contacts')
     .insert({
+      company_id: companyId,
       display_name: displayName,
       first_name: firstName,
       last_name: payload.last_name?.trim() || null,

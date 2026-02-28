@@ -81,7 +81,19 @@ export function CreateContactDialog({ open, onOpenChange, onCreated }: CreateCon
       onOpenChange(false)
       onCreated?.()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Ошибка создания контакта')
+      const e = err as Error & { code?: string }
+      if (e.code === 'no_company') {
+        toast.error('Вы не состоите в компании')
+      } else if (
+        e.message?.includes('new row violates') ||
+        e.message?.includes('violates row-level security') ||
+        e.message?.includes('insufficient_privilege') ||
+        e.message?.includes('permission denied')
+      ) {
+        toast.error('Недостаточно прав для создания контакта')
+      } else {
+        toast.error('Ошибка создания контакта')
+      }
     } finally {
       setIsSaving(false)
     }
