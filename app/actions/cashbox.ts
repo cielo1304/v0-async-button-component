@@ -379,12 +379,29 @@ export type CreateCashboxInput = {
   is_archived?: boolean
   is_exchange_enabled?: boolean
   actorEmployeeId?: string
+  // Explicit company_id override (optional; resolved from team_members if omitted)
+  company_id?: string
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
+    // Resolve company_id: prefer explicit override, then lookup from team_members
+    let companyId = input.company_id ?? null
+    if (!companyId) {
+      const { data: membership, error: memberError } = await supabase
+        .from('team_members')
+        .select('company_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .maybeSingle()
+      if (memberError || !membership?.company_id) {
+        return { success: false, error: `Не удалось определить компанию пользователя: ${memberError?.message || 'нет членства'}` }
+      }
+      companyId = membership.company_id
+    }
+
     const { data: newCashbox, error } = await supabase
       .from('cashboxes')
       .insert({
@@ -399,6 +416,7 @@ export async function createCashbox(input: CreateCashboxInput) {
         is_hidden: input.is_hidden ?? false,
         is_archived: input.is_archived ?? false,
         is_exchange_enabled: input.is_exchange_enabled ?? false,
+        company_id: companyId,
       })
       .select()
       .single()
