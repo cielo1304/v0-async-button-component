@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
 import { updateContact } from '@/app/actions/contacts'
@@ -539,7 +540,7 @@ export async function updateAutoClientContact(params: {
   email?: string
 }): Promise<AutoActionResult> {
   try {
-    const { supabase } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
 
     // Get auto_client with contact_id
     const { data: ac, error: acErr } = await supabase
@@ -554,9 +555,12 @@ export async function updateAutoClientContact(params: {
 
     // If no contact linked, create one
     if (!contactId) {
+      const companyId = await getCompanyId(supabase, user.id)
+
       const { data: newContact, error: cErr } = await supabase
         .from('contacts')
         .insert({
+          company_id: companyId,
           first_name: params.first_name || ac.full_name,
           last_name: params.last_name || null,
           nickname: params.nickname || null,
