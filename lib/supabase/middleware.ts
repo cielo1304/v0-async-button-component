@@ -114,14 +114,12 @@ export async function updateSession(request: NextRequest) {
       const { data: isAdmin } = await supabase.rpc('is_platform_admin')
 
       if (!isAdmin) {
-        const { data: membership } = await supabase
-          .from('team_members')
-          .select('id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
+        const { data: hasMembership, error: membershipError } = await supabase.rpc('has_team_membership')
+        if (membershipError) {
+          console.error('[middleware] has_team_membership rpc error:', membershipError.message)
+        }
 
-        if (isOnboarding && membership) {
+        if (isOnboarding && hasMembership) {
           // User already has membership but landed on /onboarding -> send them home
           const next = safeRedirect(request.nextUrl.searchParams.get('next'))
           const url = request.nextUrl.clone()
@@ -130,7 +128,7 @@ export async function updateSession(request: NextRequest) {
           return NextResponse.redirect(url)
         }
 
-        if (!isOnboarding && !membership) {
+        if (!isOnboarding && !hasMembership) {
           // No membership -> redirect to onboarding
           const url = request.nextUrl.clone()
           url.pathname = '/onboarding'
