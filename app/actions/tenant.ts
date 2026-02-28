@@ -16,7 +16,7 @@ export async function getMyMembership(): Promise<{
   error?: string
 }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase
       .from('team_members')
@@ -45,7 +45,7 @@ export async function acceptCompanyInvite(
   fullName: string
 ): Promise<{ companyId?: string; error?: string }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_company_invite', {
       p_token: token,
@@ -65,13 +65,40 @@ export async function acceptCompanyInvite(
 }
 
 /**
+ * Accept a link-based employee invite.
+ * Creates a new employee record + team membership for the current user.
+ */
+export async function acceptEmployeeInviteLink(
+  token: string,
+  fullName: string
+): Promise<{ employeeId?: string; error?: string }> {
+  try {
+    const { supabase } = await createSupabaseAndRequireUser()
+
+    const { data, error } = await supabase.rpc('accept_employee_invite_link', {
+      p_token: token,
+      p_full_name: fullName,
+    })
+
+    if (error) {
+      console.error('[v0] accept_employee_invite_link RPC error:', error)
+      return { error: error.message }
+    }
+
+    return { employeeId: data as string }
+  } catch (err) {
+    console.error('[v0] acceptEmployeeInviteLink error:', err)
+    return { error: 'Failed to accept invite link' }
+  }
+}
+/**
  * Accept an employee invite and link to existing employee record
  */
 export async function acceptEmployeeInvite(
   token: string
 ): Promise<{ employeeId?: string; error?: string }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_employee_invite', {
       p_token: token,

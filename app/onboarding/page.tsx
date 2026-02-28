@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { acceptCompanyInvite, acceptEmployeeInvite } from '@/app/actions/tenant'
+import { acceptCompanyInvite, acceptEmployeeInviteLink } from '@/app/actions/tenant'
 import { createUserByInvite } from '@/app/actions/auth-admin'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -191,7 +191,8 @@ function OnboardingForm() {
   const mapInviteError = (msg: string): string => {
     if (msg.includes('invite_not_active')) return 'Приглашение уже использовано или удалено. Создайте новое.'
     if (msg.includes('invite_not_found')) return 'Приглашение не найдено. Проверьте ссылку.'
-    if (msg.includes('invite_expired')) return 'Срок приглашения истёк. Создайте новое.'
+    if (msg.includes('invite_expired')) return 'Срок приглашения истёк. Попросите создать новое.'
+    if (msg.includes('already_member')) return 'Вы уже являетесь членом этой компании.'
     return msg
   }
 
@@ -221,8 +222,8 @@ function OnboardingForm() {
     setInviteError('')
 
     if (inviteType === 'employee') {
-      if (!token) {
-        setInviteError('Пожалуйста, введите токен приглашения')
+      if (!token || !fullName.trim()) {
+        setInviteError('Пожалуйста, заполните все поля')
         return
       }
     } else {
@@ -241,7 +242,7 @@ function OnboardingForm() {
     setAccepting(true)
     try {
       if (inviteType === 'employee') {
-        const result = await acceptEmployeeInvite(token)
+        const result = await acceptEmployeeInviteLink(token, fullName)
         if (result.error) {
           setInviteError(mapInviteError(result.error))
           return
@@ -371,7 +372,7 @@ function OnboardingForm() {
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             {inviteType === 'employee'
-              ? 'Введите токен приглашения для присоединения к компании'
+              ? 'Введите токен и ваше имя для присоединения к компании'
               : 'Введите токен приглашения и ваше имя для завершения регистрации'}
           </CardDescription>
         </CardHeader>
@@ -400,19 +401,17 @@ function OnboardingForm() {
               </p>
             </div>
 
-            {inviteType === 'company' && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="fullName">Ваше полное имя</Label>
-                <Input
-                  id="fullName"
-                  type="text"
-                  placeholder="Иван Иванов"
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  disabled={accepting}
-                />
-              </div>
-            )}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="fullName">Ваше полное имя</Label>
+              <Input
+                id="fullName"
+                type="text"
+                placeholder="Иван Иванов"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                disabled={accepting}
+              />
+            </div>
 
             <Button type="submit" className="w-full" disabled={accepting || inviteSuccess}>
               {accepting || inviteSuccess ? (

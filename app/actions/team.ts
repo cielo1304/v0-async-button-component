@@ -519,6 +519,118 @@ export async function deletePositionDefaultRoles(position: string) {
 }
 
 // ================================================
+// Employee Invite Links (link-based, no email required)
+// ================================================
+
+/**
+ * Create a shareable invite link for the current company.
+ * Anyone who visits the link and logs in can join the company as a new employee.
+ */
+export async function createEmployeeInviteLink(): Promise<{
+  token?: string
+  id?: string
+  error?: string
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!membership) {
+    return { error: 'Вы должны быть членом компании' }
+  }
+
+  const { data, error } = await supabase
+    .from('employee_invite_links')
+    .insert({ company_id: membership.company_id })
+    .select('id, token')
+    .single()
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  revalidatePath('/settings')
+  return { token: (data as { id: string; token: string }).token, id: (data as { id: string; token: string }).id }
+}
+
+/**
+ * Cancel / delete an invite link by id.
+ */
+export async function deleteEmployeeInviteLink(
+  linkId: string
+): Promise<{ success: boolean; error?: string }> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!membership) {
+    return { success: false, error: 'Нет доступа' }
+  }
+
+  // RLS enforces company scoping, but double-check explicitly
+  const { error } = await supabase
+    .from('employee_invite_links')
+    .delete()
+    .eq('id', linkId)
+    .eq('company_id', membership.company_id)
+
+  if (error) {
+    return { success: false, error: error.message }
+  }
+
+  revalidatePath('/settings')
+  return { success: true }
+}
+
+/**
+ * List all invite links for the current company.
+ */
+export async function listEmployeeInviteLinks(): Promise<{
+  links?: {
+    id: string
+    token: string
+    status: string
+    created_at: string
+    expires_at: string
+    accepted_at: string | null
+    accepted_by: string | null
+  }[]
+  error?: string
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (!membership) {
+    return { error: 'Нет доступа' }
+  }
+
+  const { data, error } = await supabase
+    .from('employee_invite_links')
+    .select('id, token, status, created_at, expires_at, accepted_at, accepted_by')
+    .eq('company_id', membership.company_id)
+    .order('created_at', { ascending: false })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return { links: data as typeof data & { token: string; status: string; accepted_at: string | null; accepted_by: string | null }[] }
+}
+
+// ================================================
 // Email invites (Supabase magic-link flow)
 // ================================================
 
