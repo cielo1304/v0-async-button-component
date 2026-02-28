@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { acceptCompanyInvite, acceptEmployeeInvite } from '@/app/actions/tenant'
+import { acceptCompanyInvite, acceptEmployeeInvite, acceptEmployeeInviteLink } from '@/app/actions/tenant'
 import { createUserByInvite } from '@/app/actions/auth-admin'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -191,7 +191,8 @@ function OnboardingForm() {
   const mapInviteError = (msg: string): string => {
     if (msg.includes('invite_not_active')) return 'Приглашение уже использовано или удалено. Создайте новое.'
     if (msg.includes('invite_not_found')) return 'Приглашение не найдено. Проверьте ссылку.'
-    if (msg.includes('invite_expired')) return 'Срок приглашения истёк. Создайте новое.'
+    if (msg.includes('invite_expired')) return 'Срок приглашения истёк. Попросите создать новое.'
+    if (msg.includes('already_member')) return 'Вы уже являетесь членом этой компании.'
     return msg
   }
 
@@ -226,6 +227,7 @@ function OnboardingForm() {
         return
       }
     } else {
+      // company and invite_link both require fullName
       if (!token || !fullName.trim()) {
         setInviteError('Пожалуйста, заполните все поля')
         return
@@ -240,7 +242,18 @@ function OnboardingForm() {
 
     setAccepting(true)
     try {
-      if (inviteType === 'employee') {
+      if (inviteType === 'invite_link') {
+        if (!fullName.trim()) {
+          setInviteError('Пожалуйста, введите ваше имя')
+          return
+        }
+        const result = await acceptEmployeeInviteLink(token, fullName)
+        if (result.error) {
+          setInviteError(mapInviteError(result.error))
+          return
+        }
+        toast.success('Добро пожаловать! Теперь войдите по логину и паролю.')
+      } else if (inviteType === 'employee') {
         const result = await acceptEmployeeInvite(token)
         if (result.error) {
           setInviteError(mapInviteError(result.error))
@@ -367,11 +380,17 @@ function OnboardingForm() {
             <CheckCircle2 className="h-6 w-6 text-primary" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            {inviteType === 'employee' ? 'Присоединиться к команде' : 'Активация аккаунта'}
+            {inviteType === 'employee'
+              ? 'Присоединиться к команде'
+              : inviteType === 'invite_link'
+              ? 'Активация ссылки-приглашения'
+              : 'Активация аккаунта'}
           </CardTitle>
           <CardDescription className="text-muted-foreground">
             {inviteType === 'employee'
               ? 'Введите токен приглашения для присоединения к компании'
+              : inviteType === 'invite_link'
+              ? 'Введите ваше имя для присоединения к компании'
               : 'Введите токен приглашения и ваше имя для завершения регистрации'}
           </CardDescription>
         </CardHeader>
@@ -400,7 +419,7 @@ function OnboardingForm() {
               </p>
             </div>
 
-            {inviteType === 'company' && (
+            {(inviteType === 'company' || inviteType === 'invite_link') && (
               <div className="flex flex-col gap-2">
                 <Label htmlFor="fullName">Ваше полное имя</Label>
                 <Input

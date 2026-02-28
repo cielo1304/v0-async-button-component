@@ -66,7 +66,10 @@ import {
   deleteEmployeeInvite,
   syncEmployeeRoles,
   setPositionDefaultRoles,
-  deletePositionDefaultRoles
+  deletePositionDefaultRoles,
+  createEmployeeInviteLink,
+  deleteEmployeeInviteLink,
+  listEmployeeInviteLinks,
 } from '@/app/actions/team'
 
 // Типы
@@ -81,6 +84,16 @@ interface EmployeeWithUser extends Employee {
   system_roles?: SystemRole[]
   employee_roles?: EmployeeRole[]
   computed_module_access?: ModuleAccess
+}
+
+interface InviteLink {
+  id: string
+  token: string
+  status: string
+  created_at: string
+  expires_at: string
+  accepted_at: string | null
+  accepted_by: string | null
 }
 
 // Константы модулей B3
@@ -133,6 +146,12 @@ export function TeamManager() {
   const [isSyncingRoles, setIsSyncingRoles] = useState(false)
   const [positionDefaults, setPositionDefaults] = useState<(PositionDefaultRole & { role?: SystemRole })[]>([])
   const [editingEmployeeDefaultRoles, setEditingEmployeeDefaultRoles] = useState<SystemRole[]>([])
+
+  // Invite links (link-based)
+  const [inviteLinks, setInviteLinks] = useState<InviteLink[]>([])
+  const [isCreatingInviteLink, setIsCreatingInviteLink] = useState(false)
+  const [deletingInviteLinkId, setDeletingInviteLinkId] = useState<string | null>(null)
+  const [isDeletingInviteLink, setIsDeletingInviteLink] = useState(false)
   
   // Загрузка данных
   const loadData = useCallback(async () => {
@@ -304,6 +323,10 @@ export function TeamManager() {
         ...pd,
         role: pd.system_roles as SystemRole
       })))
+
+      // Load invite links
+      const { links } = await listEmployeeInviteLinks()
+      setInviteLinks((links || []) as InviteLink[])
     } catch (error) {
       console.error('[v0] Error loading team data:', error)
       toast.error('Ошибка загрузки данных')
@@ -510,6 +533,52 @@ export function TeamManager() {
     } finally {
       setIsDeletingInvite(false)
       setDeletingInviteToken(null)
+    }
+  }
+
+  // Создать invite link (link-based, no email)
+  const handleCreateInviteLink = async () => {
+    setIsCreatingInviteLink(true)
+    try {
+      const result = await createEmployeeInviteLink()
+      if (result.error) {
+        toast.error(result.error)
+        return
+      }
+      if (result.token) {
+        const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
+        const link = `${base}/onboarding?type=invite_link&token=${result.token}`
+        await navigator.clipboard.writeText(link)
+        toast.success('Ссылка создана и скопирована в буфер обмена', {
+          description: link,
+          duration: 8000,
+        })
+      }
+      loadData()
+    } catch {
+      toast.error('Ошибка создания ссылки')
+    } finally {
+      setIsCreatingInviteLink(false)
+    }
+  }
+
+  // Удалить invite link
+  const handleDeleteInviteLink = async () => {
+    if (!deletingInviteLinkId) return
+    setIsDeletingInviteLink(true)
+    try {
+      const result = await deleteEmployeeInviteLink(deletingInviteLinkId)
+      if (!result.success) {
+        toast.error(result.error || 'Ошибка удаления')
+        return
+      }
+      toast.success('Ссылка удалена')
+      loadData()
+    } catch {
+      toast.error('Ошибка удаления ссылки')
+    } finally {
+      setIsDeletingInviteLink(false)
+      setDeletingInviteLinkId(null)
     }
   }
 
@@ -820,6 +889,10 @@ export function TeamManager() {
               <Briefcase className="h-4 w-4" />
               Должности
             </TabsTrigger>
+            <TabsTrigger value="invite_links" className="flex items-center gap-2">
+              <Link2 className="h-4 w-4" />
+              Ссылки-приглашения
+            </TabsTrigger>
           </TabsList>
           
           <div className="flex items-center gap-2">
@@ -833,6 +906,20 @@ export function TeamManager() {
                 <AddEmployeeDialog />
                 <AddBonusDialog />
               </>
+            )}
+            {activeTab === 'invite_links' && (
+              <Button
+                size="sm"
+                onClick={handleCreateInviteLink}
+                disabled={isCreatingInviteLink}
+              >
+                {isCreatingInviteLink ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4 mr-2" />
+                )}
+                Создать ссылку
+              </Button>
             )}
           </div>
         </div>
