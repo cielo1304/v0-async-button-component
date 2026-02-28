@@ -29,8 +29,9 @@ function LoginForm() {
   const router = useRouter()
   const next = searchParams.get('next') || '/'
   const inviteToken = searchParams.get('invite') || searchParams.get('token')
+  const prefillEmail = searchParams.get('email') || ''
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(prefillEmail)
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
 
