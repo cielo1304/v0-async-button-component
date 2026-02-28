@@ -1,6 +1,15 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+/** Return a safe internal redirect target from a raw `next` param. */
+function safeRedirect(raw: string | null): string {
+  if (!raw) return '/'
+  let decoded: string
+  try { decoded = decodeURIComponent(raw) } catch { return '/' }
+  if (!decoded.startsWith('/') || decoded.startsWith('/onboarding') || decoded.startsWith('/login')) return '/'
+  return decoded
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -68,32 +77,35 @@ export async function updateSession(request: NextRequest) {
 
   // User is logged in and on /login -> redirect to home (or next param)
   if (user && pathname === '/login') {
-    const next = request.nextUrl.searchParams.get('next') || '/'
+    const next = safeRedirect(request.nextUrl.searchParams.get('next'))
     const url = request.nextUrl.clone()
     url.pathname = next
-    url.searchParams.delete('next')
+    url.search = ''
     return NextResponse.redirect(url)
   }
 
-  // Onboarding gate: if user has no membership and is not platform admin, redirect to /onboarding
-  const onboardingAllowlist = [
-    '/onboarding',
+  // ----------------------------------------------------------------
+  // Onboarding gate
+  // Routes that never need a membership check:
+  const onboardingBypass = [
     '/set-password',
     '/platform',
-    '/login',
     '/auth',
     '/_next',
     '/api',
   ]
-  const needsOnboardingCheck = user && !onboardingAllowlist.some(path => pathname.startsWith(path))
+  const isOnboarding = pathname.startsWith('/onboarding')
+  const needsMembershipCheck =
+    user &&
+    !isOnboarding &&
+    !onboardingBypass.some(p => pathname.startsWith(p))
 
-  if (needsOnboardingCheck) {
+  if (needsMembershipCheck || (user && isOnboarding)) {
     try {
-      // Check if platform admin
+      // Check platform admin first (cheapest short-circuit)
       const { data: isAdmin } = await supabase.rpc('is_platform_admin')
-      
+
       if (!isAdmin) {
-        // Check if user has team membership
         const { data: membership } = await supabase
           .from('team_members')
           .select('id')
@@ -101,17 +113,32 @@ export async function updateSession(request: NextRequest) {
           .limit(1)
           .maybeSingle()
 
-        if (!membership) {
-          // No membership found -> redirect to onboarding
+        if (isOnboarding && membership) {
+          // User already has membership but landed on /onboarding -> send them home
+          const next = safeRedirect(request.nextUrl.searchParams.get('next'))
+          const url = request.nextUrl.clone()
+          url.pathname = next
+          url.search = ''
+          return NextResponse.redirect(url)
+        }
+
+        if (!isOnboarding && !membership) {
+          // No membership -> redirect to onboarding
           const url = request.nextUrl.clone()
           url.pathname = '/onboarding'
+          url.search = ''
           url.searchParams.set('next', pathname)
           return NextResponse.redirect(url)
         }
+      } else if (user && isOnboarding) {
+        // Platform admin on /onboarding -> send to /platform
+        const url = request.nextUrl.clone()
+        url.pathname = '/platform'
+        url.search = ''
+        return NextResponse.redirect(url)
       }
-    } catch (err) {
-      console.error('[v0] Onboarding gate error:', err)
-      // On error, let request through to avoid blocking legitimate users
+    } catch {
+      // On error let the request through; server actions have their own guards.
     }
   }
 
