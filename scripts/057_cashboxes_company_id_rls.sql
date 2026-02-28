@@ -16,16 +16,16 @@ ALTER TABLE public.cashboxes
 -- 2. Backfill: infer company_id from transactions.created_by -> team_members
 --    Step 1: via earliest transaction on each cashbox
 UPDATE public.cashboxes cb
-SET company_id = tm.company_id
+SET company_id = sub.company_id
 FROM (
   SELECT DISTINCT ON (t.cashbox_id)
     t.cashbox_id,
     tm.company_id
   FROM public.transactions t
   JOIN public.team_members tm ON tm.user_id = t.created_by
+  WHERE tm.company_id IS NOT NULL
   ORDER BY t.cashbox_id, t.created_at ASC
 ) sub
-JOIN public.team_members tm ON tm.company_id = sub.company_id
 WHERE cb.id = sub.cashbox_id
   AND cb.company_id IS NULL;
 
