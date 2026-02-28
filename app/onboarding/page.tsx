@@ -195,14 +195,21 @@ function OnboardingForm() {
     return msg
   }
 
-  /** Triggers the guaranteed redirect and starts the fallback timer */
-  const doRedirect = () => {
+  /** After activation: sign out, then redirect to /login with email prefilled */
+  const doPostActivationRedirect = async (activatedEmail: string) => {
     setInviteSuccess(true)
     setDidRedirect(true)
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+    } catch {
+      // ignore sign-out errors — redirect regardless
+    }
+    const loginUrl = `/login?email=${encodeURIComponent(activatedEmail)}&next=/`
     // Best-effort Next.js navigation
-    router.replace(redirectTarget)
+    router.replace(loginUrl)
     // Guaranteed hard navigation after a short paint delay
-    setTimeout(() => window.location.assign(redirectTarget), 200)
+    setTimeout(() => window.location.assign(loginUrl), 200)
     // Fallback: if still here after 2 s, show a manual button
     setTimeout(() => setShowFallbackButton(true), 2000)
   }
@@ -239,17 +246,17 @@ function OnboardingForm() {
           setInviteError(mapInviteError(result.error))
           return
         }
-        toast.success('Приглашение принято! Вы добавлены в команду.')
+        toast.success('Приглашение активировано. Теперь войдите по логину и паролю.')
       } else {
         const result = await acceptCompanyInvite(token, fullName)
         if (result.error) {
           setInviteError(mapInviteError(result.error))
           return
         }
-        toast.success('Приглашение активировано! Добро пожаловать.')
+        toast.success('Приглашение активировано. Теперь войдите по логину и паролю.')
       }
 
-      doRedirect()
+      await doPostActivationRedirect(email)
     } catch (err) {
       setInviteError('Произошла ошибка при активации приглашения')
       console.error('[v0] Accept invite error:', err)
@@ -426,9 +433,9 @@ function OnboardingForm() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                onClick={() => window.location.assign(redirectTarget)}
+                onClick={() => window.location.assign(`/login?email=${encodeURIComponent(email)}&next=/`)}
               >
-                Перейти на главную
+                Перейти на страницу входа
               </Button>
             )}
           </form>
