@@ -124,6 +124,7 @@ export function TeamManager() {
   const [users, setUsers] = useState<UserWithRoles[]>([])
   const [activeCompanyId, setActiveCompanyId] = useState<string | null>(null)
   const [activeCompanyName, setActiveCompanyName] = useState<string | null>(null)
+  const [isOwner, setIsOwner] = useState(false)
   
   // Диалоги
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
@@ -166,13 +167,14 @@ export function TeamManager() {
       if (currentUserEarly) {
         const { data: membership } = await supabase
           .from('team_members')
-          .select('company_id, companies(name)')
+          .select('company_id, member_role, companies(name)')
           .eq('user_id', currentUserEarly.id)
           .limit(1)
           .single()
         
         if (membership) {
           companyId = membership.company_id
+          setIsOwner(membership.member_role === 'owner')
           const comp = membership.companies
           if (comp && !Array.isArray(comp)) {
             companyName = (comp as { name: string }).name
@@ -187,6 +189,7 @@ export function TeamManager() {
       
       if (!companyId) {
         // Нет компании — показываем пустое состояние
+        setIsOwner(false)
         setEmployees([])
         setRoles([])
         setUsers([])
@@ -889,10 +892,12 @@ export function TeamManager() {
               <Briefcase className="h-4 w-4" />
               Должности
             </TabsTrigger>
-            <TabsTrigger value="invite_links" className="flex items-center gap-2">
-              <Link2 className="h-4 w-4" />
-              Ссылки-приглашения
-            </TabsTrigger>
+            {isOwner && (
+              <TabsTrigger value="invite_links" className="flex items-center gap-2">
+                <Link2 className="h-4 w-4" />
+                Ссылки-приглашения
+              </TabsTrigger>
+            )}
           </TabsList>
           
           <div className="flex items-center gap-2">
@@ -907,7 +912,7 @@ export function TeamManager() {
                 <AddBonusDialog />
               </>
             )}
-            {activeTab === 'invite_links' && (
+            {activeTab === 'invite_links' && isOwner && (
               <Button
                 size="sm"
                 onClick={handleCreateInviteLink}
@@ -1100,7 +1105,7 @@ export function TeamManager() {
         </TabsContent>
 
         {/* ===== Ссылки-приглашения ===== */}
-        <TabsContent value="invite_links">
+        {isOwner && <TabsContent value="invite_links">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Ссылки-приглашения</CardTitle>
@@ -1205,7 +1210,7 @@ export function TeamManager() {
               )}
             </CardContent>
           </Card>
-        </TabsContent>
+        </TabsContent>}
       </Tabs>
       
       {/* Диалог редактирования сотрудника - единый центр управления */}
