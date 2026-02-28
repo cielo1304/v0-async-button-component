@@ -16,7 +16,7 @@ export async function getMyMembership(): Promise<{
   error?: string
 }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase
       .from('team_members')
@@ -45,7 +45,7 @@ export async function acceptCompanyInvite(
   fullName: string
 ): Promise<{ companyId?: string; error?: string }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_company_invite', {
       p_token: token,
@@ -91,10 +91,14 @@ export async function acceptEmployeeInviteLink(
     return { error: 'Failed to accept invite link' }
   }
 }
+/**
+ * Accept an employee invite and link to existing employee record
+ */
+export async function acceptEmployeeInvite(
   token: string
 ): Promise<{ employeeId?: string; error?: string }> {
   try {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+    const { supabase } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase.rpc('accept_employee_invite', {
       p_token: token,

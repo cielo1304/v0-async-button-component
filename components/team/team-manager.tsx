@@ -547,7 +547,7 @@ export function TeamManager() {
       }
       if (result.token) {
         const base = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin
-        const link = `${base}/onboarding?type=invite_link&token=${result.token}`
+        const link = `${base}/onboarding?type=employee&token=${result.token}`
         await navigator.clipboard.writeText(link)
         toast.success('Ссылка создана и скопирована в буфер обмена', {
           description: link,
@@ -1098,6 +1098,114 @@ export function TeamManager() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ===== Ссылки-приглашения ===== */}
+        <TabsContent value="invite_links">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Ссылки-приглашения</CardTitle>
+              <CardDescription>
+                Создайте одноразовую ссылку. Любой, кто перейдёт по ней и войдёт в систему, станет сотрудником компании.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {inviteLinks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+                  <Link2 className="h-8 w-8 text-muted-foreground/40" />
+                  <p className="text-sm text-muted-foreground">Активных ссылок нет</p>
+                  <Button
+                    size="sm"
+                    onClick={handleCreateInviteLink}
+                    disabled={isCreatingInviteLink}
+                  >
+                    {isCreatingInviteLink ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Plus className="h-4 w-4 mr-2" />
+                    )}
+                    Создать ссылку
+                  </Button>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ссылка</TableHead>
+                      <TableHead>Статус</TableHead>
+                      <TableHead>Создана</TableHead>
+                      <TableHead>Истекает</TableHead>
+                      <TableHead className="w-24"></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {inviteLinks.map((link) => {
+                      const inviteUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/onboarding?type=employee&token=${link.token}`
+                      const isExpired = new Date(link.expires_at) < new Date()
+                      return (
+                        <TableRow key={link.id}>
+                          <TableCell>
+                            <code className="block max-w-xs truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                              {inviteUrl}
+                            </code>
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant="outline"
+                              className={
+                                link.status === 'accepted'
+                                  ? 'border-green-500/50 text-green-500'
+                                  : isExpired
+                                  ? 'border-destructive/50 text-destructive'
+                                  : 'border-primary/50 text-primary'
+                              }
+                            >
+                              {link.status === 'accepted'
+                                ? 'Использована'
+                                : isExpired
+                                ? 'Истекла'
+                                : 'Активна'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(link.created_at).toLocaleDateString('ru-RU')}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {new Date(link.expires_at).toLocaleDateString('ru-RU')}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(inviteUrl)
+                                  toast.success('Ссылка скопирована!')
+                                }}
+                                title="Скопировать ссылку"
+                              >
+                                <Link2 className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={() => setDeletingInviteLinkId(link.id)}
+                                title="Удалить ссылку"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
       
       {/* Диалог редактирования сотрудника - единый центр управления */}
@@ -1477,6 +1585,29 @@ export function TeamManager() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeletingInvite ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Удалить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Подтверждение удаления invite link */}
+      <AlertDialog open={!!deletingInviteLinkId} onOpenChange={(open) => { if (!open) setDeletingInviteLinkId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить ссылку-приглашение?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ссылка станет недействительной. Это действие необратимо.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeletingInviteLink}>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteInviteLink}
+              disabled={isDeletingInviteLink}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isDeletingInviteLink ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Удалить
             </AlertDialogAction>
           </AlertDialogFooter>
