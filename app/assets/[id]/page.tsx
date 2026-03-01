@@ -197,7 +197,7 @@ export default function AssetDetailPage() {
         base_currency: valForm.base_currency,
         fx_rate: valForm.fx_rate ? Number(valForm.fx_rate) : null,
         source_note: valForm.source_note || null,
-        created_by_employee_id: godmodeActorId || valForm.created_by_employee_id || null,
+        created_by_employee_id: valForm.created_by_employee_id || null,
       })
       toast.success('Оценка добавлена')
       setIsValuationOpen(false)
@@ -218,7 +218,7 @@ export default function AssetDetailPage() {
         asset_id: id,
         from_location_id: lastMove?.to_location_id || null,
         to_location_id: moveForm.to_location_id,
-        moved_by_employee_id: godmodeActorId || moveForm.moved_by_employee_id || null,
+        moved_by_employee_id: moveForm.moved_by_employee_id || null,
         note: moveForm.note || null,
       })
       toast.success('Перемещение записано')
@@ -234,7 +234,7 @@ export default function AssetDetailPage() {
     try {
       await updateAsset(id, { 
         status: newStatus as AssetStatus,
-        actor_employee_id: godmodeActorId || null,
+        actor_employee_id: null,
       })
       toast.success('Статус обновлён')
       setIsEditStatusOpen(false)
@@ -257,7 +257,7 @@ export default function AssetDetailPage() {
         base_currency: saleForm.base_currency,
         fx_rate: saleForm.fx_rate ? Number(saleForm.fx_rate) : null,
         cashbox_id: saleForm.cashbox_id || null,
-        created_by_employee_id: godmodeActorId || null,
+        created_by_employee_id: null,
         note: saleForm.note || null,
       })
       if (!result.success) {
@@ -762,7 +762,6 @@ export default function AssetDetailPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Оценить актив</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Сумма оценки</Label>
@@ -831,7 +830,6 @@ export default function AssetDetailPage() {
         <DialogContent>
           <DialogHeader><DialogTitle>Переместить актив</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="space-y-2">
               <Label>Куда</Label>
               <Select value={moveForm.to_location_id} onValueChange={(v) => setMoveForm({ ...moveForm, to_location_id: v })}>
@@ -892,7 +890,6 @@ export default function AssetDetailPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Записать продажу</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Сумма продажи</Label>
