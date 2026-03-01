@@ -518,6 +518,7 @@ export async function setPositionDefaultRoles(position: string, roleIds: string[
 }
 
 export async function deletePositionDefaultRoles(position: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
@@ -543,6 +544,7 @@ export async function createEmployeeInviteLink(): Promise<{
   id?: string
   error?: string
 }> {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   const { data: membership } = await supabase
@@ -579,6 +581,7 @@ export async function createEmployeeInviteLink(): Promise<{
 export async function deleteEmployeeInviteLink(
   linkId: string
 ): Promise<{ success: boolean; error?: string }> {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   const { data: membership } = await supabase
@@ -667,6 +670,7 @@ export async function inviteEmployeeByEmail(
   employeeId: string,
   email: string
 ): Promise<{ success: boolean; error?: string }> {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   if (!email) {
@@ -750,6 +754,7 @@ export async function inviteEmployeeByEmail(
 export async function deleteEmployeeInvite(
   token: string
 ): Promise<{ success: boolean; error?: string }> {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   // Caller must be a team member

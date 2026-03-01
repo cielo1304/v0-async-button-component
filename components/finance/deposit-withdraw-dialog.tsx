@@ -16,7 +16,6 @@ import { createClient } from '@/lib/supabase/client'
 import { depositWithdraw } from '@/app/actions/cashbox'
 import { toast } from 'sonner'
 import { Cashbox } from '@/lib/types/database'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 type Props = {
   type: 'DEPOSIT' | 'WITHDRAW'
@@ -33,7 +32,6 @@ export function DepositWithdrawDialog({ type, cashboxId, children, onSuccess }: 
   const [selectedCashboxId, setSelectedCashboxId] = useState<string>(cashboxId || '')
   const [amount, setAmount] = useState<number | null>(null)
   const [description, setDescription] = useState('')
-  const [godmodeActorId, setGodmodeActorId] = useState<string>('')
 
   const selectedCashbox = cashboxes.find(c => c.id === selectedCashboxId)
 
@@ -69,7 +67,6 @@ export function DepositWithdrawDialog({ type, cashboxId, children, onSuccess }: 
         amount,
         type,
         description,
-        actorEmployeeId: godmodeActorId || undefined,
       })
 
       if (result.success) {
@@ -160,11 +157,6 @@ export function DepositWithdrawDialog({ type, cashboxId, children, onSuccess }: 
               rows={2}
             />
           </div>
-
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
         </div>
         
         <div className="flex justify-end gap-3">
