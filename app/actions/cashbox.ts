@@ -216,6 +216,7 @@ export type CashboxExchangeInput = {
 }
 
 export async function cashboxExchange(input: CashboxExchangeInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   try {
     // Fix #4.2 C1: Use secure internal_exchange_post RPC instead of old cashbox_exchange
@@ -292,6 +293,7 @@ export async function cashboxExchange(input: CashboxExchangeInput) {
 // ─── Update cashbox sort order ───
 
 export async function updateCashboxSortOrder(cashboxId: string, sortOrder: number) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
@@ -325,6 +327,7 @@ export async function updateCashboxSortOrder(cashboxId: string, sortOrder: numbe
 // ─── Toggle exchange enabled flag ───
 
 export async function toggleExchangeEnabled(cashboxId: string, enabled: boolean) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
@@ -388,6 +391,7 @@ export type CreateCashboxInput = {
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
@@ -469,6 +473,7 @@ export type UpdateCashboxInput = {
 }
 
 export async function updateCashbox(input: UpdateCashboxInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -522,6 +527,7 @@ export type DeleteCashboxInput = {
 }
 
 export async function deleteCashbox(input: DeleteCashboxInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -577,6 +583,7 @@ export type UpdateCashboxSortOrdersInput = {
 }
 
 export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
