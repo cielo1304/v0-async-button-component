@@ -137,6 +137,7 @@ export async function recordAutoExpense(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -181,6 +182,7 @@ export async function createAutoDeal(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -231,6 +233,7 @@ export async function recordAutoPayment(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -285,6 +288,7 @@ export async function recordAutoPaymentV2(params: {
   note?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -345,6 +349,7 @@ export async function createAutoDealV2(params: {
   // Actor
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -542,6 +547,7 @@ export async function updateAutoClientContact(params: {
   organization?: string
   email?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
 
