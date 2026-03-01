@@ -83,7 +83,6 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
         toCashboxId,
         amount,
         note: description || undefined,
-        createdBy: godmodeActorId || undefined,
       })
 
       if (result.success) {
@@ -163,11 +162,6 @@ export function TransferDialog({ fromCashbox, onSuccess }: TransferDialogProps) 
               className="bg-secondary border-border text-foreground"
             />
           </div>
-
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
         </div>
 
         <div className="flex justify-end gap-2">

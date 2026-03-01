@@ -27,7 +27,6 @@ import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { Loader2, Wrench } from 'lucide-react'
 import { recordAutoExpenseV2 } from '@/app/actions/auto'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const EXPENSE_TYPES = [
   { value: 'REPAIR', label: 'Ремонт' },
@@ -63,7 +62,6 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
   const [ownerShare, setOwnerShare] = useState('')
   const [cashboxId, setCashboxId] = useState('')
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0])
-  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
 
   const router = useRouter()
   const supabase = createClient()
@@ -110,7 +108,6 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
         description,
         paidBy: paidBy as 'COMPANY' | 'OWNER' | 'SHARED',
         ownerShare: ownerShareNum,
-        actorEmployeeId: actorEmployeeId || undefined,
         expenseDate: expenseDate || undefined,
       })
 
@@ -126,7 +123,6 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
       setAmount('')
       setDescription('')
       setOwnerShare('')
-      setActorEmployeeId('')
     } catch (error) {
       console.error('[v0] Error adding expense:', error)
       toast.error(error instanceof Error ? error.message : 'Ошибка при добавлении расхода')
@@ -258,11 +254,6 @@ export function AddExpenseDialog({ carId, carName }: AddExpenseDialogProps) {
               </Select>
             </div>
           )}
-
-          <GodModeActorSelector
-            value={actorEmployeeId}
-            onChange={setActorEmployeeId}
-          />
 
           <div className="flex justify-end gap-2 pt-4">
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>

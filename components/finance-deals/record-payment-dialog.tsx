@@ -24,7 +24,6 @@ import {
 import { recordFinancePayment } from '@/app/actions/finance-deals'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { AsyncButton } from '@/components/ui/async-button'
 import type { Currency } from '@/lib/types/database'
 
@@ -52,7 +51,6 @@ export function RecordPaymentDialog({
   const [amount, setAmount] = useState('')
   const [cashboxId, setCashboxId] = useState<string>()
   const [note, setNote] = useState('')
-  const [godmodeActorId, setGodmodeActorId] = useState<string>()
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -95,7 +93,6 @@ export function RecordPaymentDialog({
         currency: dealCurrency,
         cashbox_id: cashboxId,
         note: note || undefined,
-        godmode_actor_employee_id: godmodeActorId,
       })
 
       if (!result.success) {
@@ -112,7 +109,6 @@ export function RecordPaymentDialog({
       setAmount('')
       setCashboxId(undefined)
       setNote('')
-      setGodmodeActorId(undefined)
 
       // Close dialog and refresh
       onOpenChange(false)
@@ -200,13 +196,6 @@ export function RecordPaymentDialog({
               rows={3}
             />
           </div>
-
-          {/* God Mode Actor Selector */}
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-            disabled={loading}
-          />
         </div>
 
         <DialogFooter>

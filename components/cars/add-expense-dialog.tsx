@@ -14,7 +14,6 @@ import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Car, Cashbox, Currency } from '@/lib/types/database'
 import { recordAutoExpenseV2 } from '@/app/actions/auto'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const EXPENSE_CATEGORIES = [
   { value: 'REPAIR', label: 'Ремонт' },
@@ -41,7 +40,6 @@ export function AddExpenseDialog() {
   const [amount, setAmount] = useState<number | null>(null)
   const [currency, setCurrency] = useState<Currency>('RUB')
   const [description, setDescription] = useState('')
-  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
 
   const selectedCashbox = cashboxes.find(c => c.id === selectedCashboxId)
 
@@ -86,7 +84,6 @@ export function AddExpenseDialog() {
         description: description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label,
         paidBy: 'COMPANY',
         ownerShare: 0,
-        actorEmployeeId: actorEmployeeId || undefined,
       })
 
       if (!result.success) {
@@ -112,7 +109,6 @@ export function AddExpenseDialog() {
     setAmount(null)
     setCurrency('RUB')
     setDescription('')
-    setActorEmployeeId('')
   }
 
   return (
@@ -224,11 +220,6 @@ export function AddExpenseDialog() {
               rows={2}
             />
           </div>
-
-          <GodModeActorSelector
-            value={actorEmployeeId}
-            onChange={setActorEmployeeId}
-          />
         </div>
         
         <div className="flex justify-end gap-3">

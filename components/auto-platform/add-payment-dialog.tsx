@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { AsyncButton } from '@/components/ui/async-button'
 import { MoneyInput } from '@/components/ui/money-input'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { CreditCard } from 'lucide-react'
@@ -32,7 +31,6 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
   const [amount, setAmount] = useState<number | null>(null)
   const [cashboxId, setCashboxId] = useState('')
   const [note, setNote] = useState('')
-  const [actorEmployeeId, setActorEmployeeId] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -73,7 +71,6 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
         currency,
         schedulePaymentId: selectedPaymentId || undefined,
         note: note || undefined,
-        actorEmployeeId: actorEmployeeId || undefined,
       })
 
       if (!result.success) {
@@ -185,12 +182,6 @@ export function AddPaymentDialog({ dealId, currency, onSuccess }: AddPaymentDial
               rows={2}
             />
           </div>
-
-          {/* God Mode */}
-          <GodModeActorSelector
-            value={actorEmployeeId}
-            onChange={setActorEmployeeId}
-          />
         </div>
 
         <div className="flex justify-end gap-2">

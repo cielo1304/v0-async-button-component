@@ -42,7 +42,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { updateCashbox, deleteCashbox } from '@/app/actions/cashbox'
 
 const CASHBOX_TYPES = [
@@ -76,7 +75,6 @@ export function EditCashboxDialog({
   const [isHidden, setIsHidden] = useState(cashbox.is_hidden)
   const [isArchived, setIsArchived] = useState(cashbox.is_archived)
   const [isExchangeEnabled, setIsExchangeEnabled] = useState((cashbox as any).is_exchange_enabled || false)
-  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (open) {
@@ -90,7 +88,6 @@ export function EditCashboxDialog({
       setIsHidden(cashbox.is_hidden)
       setIsArchived(cashbox.is_archived)
       setIsExchangeEnabled((cashbox as any).is_exchange_enabled || false)
-      setGodmodeActorId(undefined)
     }
   }, [open, cashbox])
 
@@ -124,7 +121,6 @@ export function EditCashboxDialog({
           is_archived: isArchived,
           is_exchange_enabled: isExchangeEnabled,
         },
-        actorEmployeeId: godmodeActorId,
       })
 
       if (!result.success) {
@@ -147,7 +143,6 @@ export function EditCashboxDialog({
     try {
       const result = await deleteCashbox({
         id: cashbox.id,
-        actorEmployeeId: godmodeActorId,
       })
 
       if (!result.success) {
@@ -401,12 +396,6 @@ export function EditCashboxDialog({
               </div>
             </div>
           </div>
-
-          {/* God Mode Actor Selector */}
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
 
           <div className="flex justify-end gap-3">
             <Button variant="outline" onClick={() => onOpenChange(false)}>

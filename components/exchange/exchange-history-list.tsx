@@ -80,7 +80,6 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
   const [settleComment, setSettleComment] = useState('')
   const [isSettling, setIsSettling] = useState(false)
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
-  const [actorEmployeeId, setActorEmployeeId] = useState('')
   
   // Фильтры
   const [searchQuery, setSearchQuery] = useState('')
@@ -153,9 +152,6 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
         supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
       ])
       if (cbRes.data) setCashboxes(cbRes.data)
-      if (empRes.data && empRes.data.length > 0) {
-        setActorEmployeeId(prev => prev || empRes.data[0].id)
-      }
     }
     loadSettleData()
   }, [supabase])
@@ -237,7 +233,7 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
     if (!confirm('Отменить эту операцию? Резервы будут освобождены, обязательства компенсированы.')) return
     
-    const result = await cancelExchange(operation.id, actorEmployeeId, 'Отменено оператором')
+    const result = await cancelExchange(operation.id, undefined, 'Отменено оператором')
     if (result.success) {
       toast.success(`Операция ${result.operationNumber} отменена`)
       loadOperations()

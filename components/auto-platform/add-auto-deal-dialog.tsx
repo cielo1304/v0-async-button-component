@@ -16,7 +16,6 @@ import { toast } from 'sonner'
 import { FilePlus, Car, Calculator, Calendar, Percent } from 'lucide-react'
 import { Car as CarType, Cashbox } from '@/lib/types/database'
 import { createAutoDealV2 } from '@/app/actions/auto'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
 
 const DEAL_TYPES = [
@@ -74,7 +73,6 @@ export function AddAutoDealDialog() {
   const [paymentCashboxId, setPaymentCashboxId] = useState('')
 
   const [notes, setNotes] = useState('')
-  const [actorEmployeeId, setActorEmployeeId] = useState<string | null>(null)
 
   // Загрузка справочников
   useEffect(() => {
@@ -197,7 +195,6 @@ export function AddAutoDealDialog() {
         installmentStartDate: dealType === 'INSTALLMENT' ? new Date().toISOString().split('T')[0] : undefined,
         initialPayment: initialPayment || undefined,
         cashboxId: paymentCashboxId || undefined,
-        actorEmployeeId: actorEmployeeId || undefined,
       })
 
       if (!result.success) {
@@ -527,12 +524,6 @@ export function AddAutoDealDialog() {
   </div>
   </div>
 
-  {/* God Mode */}
-  <GodModeActorSelector
-    value={actorEmployeeId}
-    onChange={setActorEmployeeId}
-  />
-  
   <div className="flex justify-end gap-2">
   <Button variant="outline" onClick={() => setOpen(false)}>Отмена</Button>
   <AsyncButton onClick={handleSubmit} isLoading={isLoading}>
