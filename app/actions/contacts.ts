@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { getCompanyId } from '@/lib/tenant/get-company-id'
+import { assertNotReadOnly } from '@/lib/view-as'
 import { revalidatePath } from 'next/cache'
 
 // ================================================
@@ -102,6 +103,7 @@ export interface CreateContactPayload {
 }
 
 export async function createContact(payload: CreateContactPayload) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   const companyId = await getCompanyId(supabase, user.id)
@@ -181,6 +183,7 @@ export interface UpdateContactPayload {
 }
 
 export async function updateContact(payload: UpdateContactPayload) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   const { id, ...fields } = payload

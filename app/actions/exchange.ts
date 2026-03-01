@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { assertNotReadOnly } from '@/lib/view-as'
 import { z } from 'zod'
 
 const ExchangeSchema = z.object({
@@ -22,6 +23,7 @@ export type ExchangeInput = z.infer<typeof ExchangeSchema>
  * Will be removed in a future version.
  */
 export async function executeExchange(input: ExchangeInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
@@ -503,6 +505,7 @@ export type CreateExchangeDealInput = {
 }
 
 export async function createExchangeDeal(input: CreateExchangeDealInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
@@ -560,6 +563,7 @@ export async function createExchangeDeal(input: CreateExchangeDealInput) {
 // ─── Post Exchange Deal to Cashboxes ───
 
 export async function postExchangeDealToCashboxes(dealId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {

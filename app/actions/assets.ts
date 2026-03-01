@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
+import { assertNotReadOnly } from '@/lib/view-as'
 import type { AssetType, AssetStatus } from '@/lib/types/database'
 
 export async function getAssets(filters?: {
@@ -230,6 +231,7 @@ export async function createAsset(formData: {
   metadata?: Record<string, unknown>
   actor_employee_id?: string | null
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
@@ -276,6 +278,7 @@ export async function updateAsset(
     actor_employee_id?: string | null
   }
 ) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   // Get before state
@@ -320,6 +323,7 @@ export async function addAssetValuation(formData: {
   source_note?: string | null
   created_by_employee_id?: string | null
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
@@ -349,6 +353,7 @@ export async function addAssetMove(formData: {
   moved_by_employee_id?: string | null
   note?: string | null
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   const { data, error } = await supabase
@@ -392,6 +397,7 @@ export async function recordAssetSale(formData: {
   created_by_employee_id?: string | null
   note?: string | null
 }): Promise<{ success: boolean; error?: string }> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {

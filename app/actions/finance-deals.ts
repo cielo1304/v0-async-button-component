@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { assertNotReadOnly } from '@/lib/view-as'
 import type {
   CoreDeal, CoreDealStatus, FinanceDeal, FinanceScheduleType,
   FinanceLedgerEntry, FinanceLedgerEntryType, FinancePaymentScheduleItem,
@@ -68,6 +69,7 @@ export async function createFinanceDeal(params: {
   rate_percent: number
   schedule_type: FinanceScheduleType
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   // Создаём core_deal
@@ -135,6 +137,7 @@ export async function createFinanceDeal(params: {
 }
 
 export async function updateCoreDealStatus(id: string, status: CoreDealStatus, sub_status?: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { data: before } = await supabase.from('core_deals').select('status, sub_status').eq('id', id).single()
   const { error } = await supabase
@@ -179,6 +182,7 @@ export async function addLedgerEntry(params: {
   note?: string
   created_by_employee_id?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_ledger')
@@ -221,6 +225,7 @@ export async function addLedgerEntryWithCashbox(params: {
   cashbox_id?: string   // if set, also move money in/out of this cashbox
   created_by_employee_id?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   // If cashbox is linked, use the v2 RPC for atomicity
@@ -319,6 +324,7 @@ export async function addParticipant(params: {
   is_primary?: boolean
   note?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_participants')
@@ -335,6 +341,7 @@ export async function addParticipant(params: {
 }
 
 export async function removeParticipant(id: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_participants')
@@ -351,6 +358,7 @@ export async function linkCollateral(params: {
   asset_id: string
   note?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { data, error } = await supabase
     .from('finance_collateral_links')
@@ -375,6 +383,7 @@ export async function linkCollateral(params: {
 }
 
 export async function updateCollateralStatus(id: string, status: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const update: Record<string, unknown> = { status }
   if (status !== 'active') {
@@ -397,6 +406,7 @@ export async function addPausePeriod(params: {
   reason?: string
   created_by_employee_id?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_pause_periods')
@@ -420,6 +430,7 @@ export async function getPaymentSchedule(financeDealId: string) {
 }
 
 export async function updatePaymentStatus(id: string, status: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   const { error } = await supabase
     .from('finance_payment_schedule')
@@ -445,6 +456,7 @@ export async function recordFinancePayment(params: {
   created_by?: string
   godmode_actor_employee_id?: string  // God mode: who is actually making this action
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   // God mode validation: if godmode is used, validate it's a valid employee

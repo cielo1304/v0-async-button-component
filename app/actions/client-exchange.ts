@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 // ==================== STEP 9: Categories from DB ====================
 
@@ -86,6 +87,7 @@ export interface ExchangeResult {
 // ==================== Submit Exchange ====================
 
 export async function submitExchange(input: SubmitExchangeInput): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -382,10 +384,19 @@ export async function setFollowup(
   operationId: string,
   followupAt: string,
   followupNote: string,
-  actorEmployeeId: string,
 ): Promise<ExchangeResult> {
-  const { supabase } = await createSupabaseAndRequireUser()
+  await assertNotReadOnly()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   try {
+    // Derive actorEmployeeId from session
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('employee_id')
+      .eq('user_id', user.id)
+      .single()
+    
+    const actorEmployeeId = teamMember?.employee_id || user.id
+    
     const { error } = await supabase
       .from('client_exchange_operations')
       .update({
@@ -413,16 +424,25 @@ export async function setFollowup(
 
 // ==================== Cancel Exchange ====================
 
-export async function cancelExchange(operationId: string, actorEmployeeId: string, reason?: string): Promise<ExchangeResult> {
-  const { supabase } = await createSupabaseAndRequireUser()
+export async function cancelExchange(operationId: string, _unused?: string, reason?: string): Promise<ExchangeResult> {
+  await assertNotReadOnly()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
     // STEP 9: Get categories from DB
     const categories = await getExchangeCategories()
 
-    // Get auth user for created_by (actorEmployeeId may not be auth.users id)
-    const { data: { user } } = await supabase.auth.getUser()
+    // Get auth user for created_by
     const authUserId = user?.id ?? null
+    
+    // Derive actorEmployeeId from session: find employee linked to current user
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('employee_id')
+      .eq('user_id', user.id)
+      .single()
+    
+    const actorEmployeeId = teamMember?.employee_id || user.id
     
     // 1. Get operation with details
     const { data: operation, error: fetchErr } = await supabase
@@ -540,12 +560,21 @@ export async function cancelExchange(operationId: string, actorEmployeeId: strin
 export async function setClientExchangeStatus(
   operationId: string,
   statusCode: string,
-  actorEmployeeId: string,
   note?: string,
 ): Promise<ExchangeResult> {
-  const { supabase } = await createSupabaseAndRequireUser()
+  await assertNotReadOnly()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
+    // Derive actorEmployeeId from session
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('employee_id')
+      .eq('user_id', user.id)
+      .single()
+    
+    const actorEmployeeId = teamMember?.employee_id || user.id
+    
     // 1. Fetch current operation
     const { data: operation, error: fetchErr } = await supabase
       .from('client_exchange_operations')
@@ -603,16 +632,23 @@ export async function settleClientExchangeIn(
   cashboxId: string,
   amount: number,
   currency: string,
-  actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
-  const { supabase } = await createSupabaseAndRequireUser()
+  await assertNotReadOnly()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
     const categories = await getExchangeCategories()
-
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    const authUserId = authUser?.id ?? null
+    const authUserId = user?.id ?? null
+    
+    // Derive actorEmployeeId from session
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('employee_id')
+      .eq('user_id', user.id)
+      .single()
+    
+    const actorEmployeeId = teamMember?.employee_id || user.id
 
     // 1. Fetch operation
     const { data: operation, error: fetchErr } = await supabase
@@ -714,16 +750,23 @@ export async function settleClientExchangeOut(
   cashboxId: string,
   amount: number,
   currency: string,
-  actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
-  const { supabase } = await createSupabaseAndRequireUser()
+  await assertNotReadOnly()
+  const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
     const categories = await getExchangeCategories()
-
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    const authUserId = authUser?.id ?? null
+    const authUserId = user?.id ?? null
+    
+    // Derive actorEmployeeId from session
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('employee_id')
+      .eq('user_id', user.id)
+      .single()
+    
+    const actorEmployeeId = teamMember?.employee_id || user.id
 
     // 1. Fetch operation
     const { data: operation, error: fetchErr } = await supabase

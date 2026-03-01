@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { getCompanyId } from '@/lib/tenant/get-company-id'
+import { assertNotReadOnly } from '@/lib/view-as'
 import { revalidatePath } from 'next/cache'
 import { writeAuditLog } from '@/lib/audit'
 import { updateContact } from '@/app/actions/contacts'
@@ -30,6 +31,7 @@ export async function recordAutoExpenseV2(params: {
   actorEmployeeId?: string
   expenseDate?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -91,6 +93,7 @@ export async function createAutoPurchase(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -134,6 +137,7 @@ export async function recordAutoExpense(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -178,6 +182,7 @@ export async function createAutoDeal(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -228,6 +233,7 @@ export async function recordAutoPayment(params: {
   description?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -282,6 +288,7 @@ export async function recordAutoPaymentV2(params: {
   note?: string
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -342,6 +349,7 @@ export async function createAutoDealV2(params: {
   // Actor
   actorEmployeeId?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
@@ -539,6 +547,7 @@ export async function updateAutoClientContact(params: {
   organization?: string
   email?: string
 }): Promise<AutoActionResult> {
+  await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
 

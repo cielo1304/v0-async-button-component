@@ -2,6 +2,13 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { adminSupabase } from '@/lib/supabase/admin'
+import { 
+  createViewAsSession, 
+  setViewAsCookie, 
+  clearViewAsCookie, 
+  getViewAsSession,
+  type ViewAsSession 
+} from '@/lib/view-as'
 
 /**
  * Check if the current user is a platform admin.
@@ -201,5 +208,177 @@ export async function inviteCompanyOwnerByEmail(
   } catch (err) {
     console.error('[v0] inviteCompanyOwnerByEmail error:', err)
     return { error: 'Failed to send invite' }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// View-As Mode (Platform Admin)
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Company {
+  id: string
+  name: string
+}
+
+interface EmployeeWithUser {
+  id: string
+  full_name: string
+  position: string | null
+  user_id: string // team_members.user_id (auth.users.id)
+}
+
+/**
+ * List all companies (platform admin only)
+ */
+export async function listAllCompanies(): Promise<{ companies?: Company[]; error?: string }> {
+  try {
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError || !isAdmin) {
+      return { error: 'Недостаточно прав' }
+    }
+
+    // Use admin client to bypass RLS
+    const { data, error } = await adminSupabase
+      .from('companies')
+      .select('id, name')
+      .order('name')
+
+    if (error) {
+      console.error('[v0] listAllCompanies error:', error)
+      return { error: error.message }
+    }
+
+    return { companies: data || [] }
+  } catch (err) {
+    console.error('[v0] listAllCompanies error:', err)
+    return { error: 'Failed to list companies' }
+  }
+}
+
+/**
+ * List employees of a company who have linked auth users (platform admin only)
+ */
+export async function listCompanyEmployees(companyId: string): Promise<{ employees?: EmployeeWithUser[]; error?: string }> {
+  try {
+    const { supabase } = await createSupabaseAndRequireUser()
+
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError || !isAdmin) {
+      return { error: 'Недостаточно прав' }
+    }
+
+    // Use admin client to bypass RLS
+    // Get team_members with linked user_id for this company
+    const { data, error } = await adminSupabase
+      .from('team_members')
+      .select('user_id, role, employees!inner(id, full_name, position)')
+      .eq('company_id', companyId)
+      .not('user_id', 'is', null)
+
+    if (error) {
+      console.error('[v0] listCompanyEmployees error:', error)
+      return { error: error.message }
+    }
+
+    // Transform the data
+    const employees: EmployeeWithUser[] = (data || []).map((tm: { user_id: string; employees: { id: string; full_name: string; position: string | null } }) => ({
+      id: tm.employees.id,
+      full_name: tm.employees.full_name,
+      position: tm.employees.position,
+      user_id: tm.user_id,
+    }))
+
+    return { employees }
+  } catch (err) {
+    console.error('[v0] listCompanyEmployees error:', err)
+    return { error: 'Failed to list employees' }
+  }
+}
+
+/**
+ * Start a view-as session (platform admin only)
+ */
+export async function startViewAsSession(
+  companyId: string,
+  employeeId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError || !isAdmin) {
+      return { success: false, error: 'Недостаточно прав' }
+    }
+
+    // Get company info
+    const { data: company, error: companyError } = await adminSupabase
+      .from('companies')
+      .select('id, name')
+      .eq('id', companyId)
+      .single()
+
+    if (companyError || !company) {
+      return { success: false, error: 'Компания не найдена' }
+    }
+
+    // Get employee and their auth user_id via team_members
+    const { data: teamMember, error: tmError } = await adminSupabase
+      .from('team_members')
+      .select('user_id, employees!inner(id, full_name)')
+      .eq('company_id', companyId)
+      .eq('employee_id', employeeId)
+      .not('user_id', 'is', null)
+      .single()
+
+    if (tmError || !teamMember) {
+      return { success: false, error: 'Сотрудник не найден или не имеет привязанного пользователя' }
+    }
+
+    const emp = teamMember.employees as { id: string; full_name: string }
+
+    // Create the view-as session token
+    const token = await createViewAsSession({
+      targetUserId: teamMember.user_id,
+      targetCompanyId: companyId,
+      targetEmployeeId: employeeId,
+      targetDisplayName: emp.full_name,
+      companyName: company.name,
+      viewerAdminUserId: user.id,
+    })
+
+    // Set the cookie
+    await setViewAsCookie(token)
+
+    return { success: true }
+  } catch (err) {
+    console.error('[v0] startViewAsSession error:', err)
+    return { success: false, error: 'Failed to start view-as session' }
+  }
+}
+
+/**
+ * End the current view-as session
+ */
+export async function endViewAsSession(): Promise<{ success: boolean }> {
+  try {
+    await clearViewAsCookie()
+    return { success: true }
+  } catch (err) {
+    console.error('[v0] endViewAsSession error:', err)
+    return { success: false }
+  }
+}
+
+/**
+ * Get current view-as session info (for display)
+ */
+export async function getViewAsSessionInfo(): Promise<{ session: ViewAsSession | null }> {
+  try {
+    const session = await getViewAsSession()
+    return { session }
+  } catch {
+    return { session: null }
   }
 }

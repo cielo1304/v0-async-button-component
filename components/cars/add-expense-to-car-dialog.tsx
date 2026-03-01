@@ -27,7 +27,6 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, Wrench, Package, DollarSign } from 'lucide-react'
 import { toast } from 'sonner'
 import { recordAutoExpense, recordAutoExpenseV2 } from '@/app/actions/auto'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 interface AddExpenseToCarDialogProps {
   carId: string
@@ -77,9 +76,6 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
   const [stockItemId, setStockItemId] = useState('')
   const [stockQuantity, setStockQuantity] = useState(1)
   const [stockDescription, setStockDescription] = useState('')
-  
-  // God Mode
-  const [actorEmployeeId, setActorEmployeeId] = useState<string>('')
   
   // Data
   const [cashboxes, setCashboxes] = useState<Cashbox[]>([])
@@ -143,7 +139,6 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
           description: description || EXPENSE_CATEGORIES.find(c => c.value === category)?.label,
           paidBy: 'COMPANY',
           ownerShare: 0,
-          actorEmployeeId: actorEmployeeId || undefined,
         })
 
         if (!result.success) {
@@ -157,7 +152,7 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
             car_id: carId,
             event_type: 'EXPENSE',
             description: `${EXPENSE_CATEGORIES.find(c => c.value === category)?.label}: ${description || ''} - ${amount.toLocaleString('ru-RU')} ${cashbox.currency}`,
-            created_by: actorEmployeeId || '00000000-0000-0000-0000-000000000000',
+            created_by: '00000000-0000-0000-0000-000000000000',
           })
 
         toast.success('Расход добавлен')
@@ -269,7 +264,6 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
       setStockItemId('')
       setStockQuantity(1)
       setStockDescription('')
-      setActorEmployeeId('')
       setOpen(false)
       
       onSuccess?.()
@@ -409,11 +403,6 @@ export function AddExpenseToCarDialog({ carId, carName, onSuccess }: AddExpenseT
             </div>
           </TabsContent>
         </Tabs>
-
-        <GodModeActorSelector
-          value={actorEmployeeId}
-          onChange={setActorEmployeeId}
-        />
 
         <div className="flex justify-end gap-2 pt-4">
           <Button variant="outline" onClick={() => setOpen(false)} className="border-border">

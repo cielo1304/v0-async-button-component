@@ -24,7 +24,6 @@ import { Card } from '@/components/ui/card'
 import { cashboxExchange } from '@/app/actions/cashbox'
 import { refreshCurrencyRates, getExchangeRate } from '@/app/actions/currency-rates'
 import { toast } from 'sonner'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 const DEFAULT_RATES_TO_USD: Record<string, number> = {
   RUB: 0.0136,
@@ -48,7 +47,6 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
   const [rate, setRate] = useState<number | null>(1.0)
   const [receivedAmount, setReceivedAmount] = useState<number | null>(null)
   const [description, setDescription] = useState('')
-  const [godmodeActorId, setGodmodeActorId] = useState<string>('')
   const [isLoading, setIsLoading] = useState(false)
   const [isLoadingRate, setIsLoadingRate] = useState(false)
   const supabase = useMemo(() => createClient(), [])
@@ -154,7 +152,6 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
         toAmount: receivedAmount || sentAmount * rate,
         rate,
         note: description || undefined,
-        createdBy: godmodeActorId || undefined,
       })
 
       if (result.success) {
@@ -179,7 +176,6 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
     setReceivedAmount(null)
     setRate(1.0)
     setDescription('')
-    setGodmodeActorId('')
   }
 
   const fromBox = cashboxes.find(b => b.id === fromBoxId)
@@ -314,11 +310,6 @@ export function ExchangeDialog({ children, onSuccess }: ExchangeDialogProps) {
               className="bg-secondary border-border"
             />
           </div>
-
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
 
           <AsyncButton
             onClick={handleSubmit}

@@ -19,7 +19,6 @@ import { Cashbox } from '@/lib/types/database'
 import { toast } from 'sonner'
 import { TrendingUp, TrendingDown } from 'lucide-react'
 import { depositWithdraw } from '@/app/actions/cashbox'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 
 interface CashboxOperationDialogProps {
   cashbox: Cashbox
@@ -32,7 +31,6 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
   const [amount, setAmount] = useState<number | null>(null)
   const [description, setDescription] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [godmodeActorId, setGodmodeActorId] = useState<string>('')
 
   const isDeposit = type === 'DEPOSIT'
   const title = isDeposit ? 'Внести средства' : 'Вывести средства'
@@ -58,7 +56,6 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
         amount,
         type,
         description: description || undefined,
-        actorEmployeeId: godmodeActorId || undefined,
       })
 
       if (!result.success) {
@@ -70,7 +67,6 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
       setOpen(false)
       setAmount(null)
       setDescription('')
-      setGodmodeActorId('')
       onSuccess?.()
     } catch {
       toast.error('Ошибка при выполнении операции')
@@ -126,12 +122,6 @@ export function CashboxOperationDialog({ cashbox, type, onSuccess }: CashboxOper
               className="bg-secondary border-border text-foreground"
             />
           </div>
-
-          {/* God Mode Actor Selector */}
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
         </div>
 
         <div className="flex justify-end gap-2">

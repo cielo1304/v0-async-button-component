@@ -47,7 +47,6 @@ import { ru } from 'date-fns/locale'
 import { Textarea } from '@/components/ui/textarea'
 import { canViewByVisibility } from '@/lib/access'
 import { VisibilityBadge } from '@/components/shared/visibility-toggle'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { ContactPicker } from '@/components/contacts/contact-picker'
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -108,7 +107,6 @@ export default function AssetsPage() {
   })
   const [employees, setEmployees] = useState<{ id: string; full_name: string }[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
   const loadData = useCallback(async () => {
     setIsLoading(true)
@@ -149,7 +147,6 @@ export default function AssetsPage() {
         owner_contact_id: form.owner_contact_id || null,
         responsible_employee_id: form.responsible_employee_id || null,
         notes: form.notes || null,
-        actor_employee_id: godmodeActorId || null,
       })
       toast.success('Имущество создано')
       setIsCreateOpen(false)
@@ -327,7 +324,6 @@ export default function AssetsPage() {
             <DialogTitle>Добавить имущество</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <GodModeActorSelector onChange={setGodmodeActorId} />
             <div className="space-y-2">
               <Label>Тип</Label>
               <Select value={form.asset_type} onValueChange={(v) => setForm({ ...form, asset_type: v })}>

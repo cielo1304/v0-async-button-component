@@ -13,7 +13,6 @@ import { Plus, Eye, EyeOff, Archive, ShieldAlert } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Switch } from '@/components/ui/switch'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { createCashbox } from '@/app/actions/cashbox'
 
 const CASHBOX_TYPES = [
@@ -45,7 +44,6 @@ export function AddCashboxDialog({ onSuccess }: AddCashboxDialogProps) {
   const [isHidden, setIsHidden] = useState(false)
   const [isArchived, setIsArchived] = useState(false)
   const [isExchangeEnabled, setIsExchangeEnabled] = useState(false)
-  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     if (open) {
@@ -83,7 +81,6 @@ export function AddCashboxDialog({ onSuccess }: AddCashboxDialogProps) {
         is_hidden: isHidden,
         is_archived: isArchived,
         is_exchange_enabled: isExchangeEnabled,
-        actorEmployeeId: godmodeActorId,
       })
 
       if (!result.success) {
@@ -114,7 +111,6 @@ export function AddCashboxDialog({ onSuccess }: AddCashboxDialogProps) {
     setIsHidden(false)
     setIsArchived(false)
     setIsExchangeEnabled(false)
-    setGodmodeActorId(undefined)
   }
 
   return (
@@ -309,12 +305,6 @@ export function AddCashboxDialog({ onSuccess }: AddCashboxDialogProps) {
               </div>
             </div>
           </div>
-
-          {/* God Mode Actor Selector */}
-          <GodModeActorSelector
-            value={godmodeActorId}
-            onChange={setGodmodeActorId}
-          />
         </div>
         
         <div className="flex justify-end gap-3">

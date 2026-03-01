@@ -1,9 +1,11 @@
 import { put } from '@vercel/blob'
 import { type NextRequest, NextResponse } from 'next/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 export async function POST(request: NextRequest) {
   try {
+    await assertNotReadOnly()
     await createSupabaseAndRequireUser()
     const formData = await request.formData()
     const file = formData.get('file') as File
