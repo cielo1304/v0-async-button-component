@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createCompanyInvite, listCompanyInvites, isPlatformAdmin, deleteCompanyInvite } from '@/app/actions/platform'
+import { 
+  createCompanyInvite, 
+  listCompanyInvites, 
+  isPlatformAdmin, 
+  deleteCompanyInvite,
+  listAllCompanies,
+  listCompanyEmployees,
+  startViewAsSession,
+} from '@/app/actions/platform'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,7 +19,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Trash2 } from 'lucide-react'
+import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Trash2, Eye, Building2, Users } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +30,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface Invite {
   id: string
@@ -31,6 +46,18 @@ interface Invite {
   expires_at: string
   used_at: string | null
   created_at: string
+}
+
+interface Company {
+  id: string
+  name: string
+}
+
+interface EmployeeWithUser {
+  id: string
+  full_name: string
+  position: string | null
+  user_id: string
 }
 
 export default function PlatformPage() {
@@ -48,9 +75,29 @@ export default function PlatformPage() {
   const [deletingToken, setDeletingToken] = useState<string | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
 
+  // View-as state
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [employees, setEmployees] = useState<EmployeeWithUser[]>([])
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('')
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('')
+  const [loadingCompanies, setLoadingCompanies] = useState(false)
+  const [loadingEmployees, setLoadingEmployees] = useState(false)
+  const [startingViewAs, setStartingViewAs] = useState(false)
+
   useEffect(() => {
     checkAdminAndLoadInvites()
+    loadCompanies()
   }, [])
+
+  // Load employees when company changes
+  useEffect(() => {
+    if (selectedCompanyId) {
+      loadEmployees(selectedCompanyId)
+    } else {
+      setEmployees([])
+      setSelectedEmployeeId('')
+    }
+  }, [selectedCompanyId])
 
   const checkAdminAndLoadInvites = async () => {
     setLoading(true)
@@ -74,6 +121,62 @@ export default function PlatformPage() {
       setError('Failed to load data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadCompanies = async () => {
+    setLoadingCompanies(true)
+    try {
+      const result = await listAllCompanies()
+      if (result.companies) {
+        setCompanies(result.companies)
+      }
+    } catch (err) {
+      console.error('[v0] Failed to load companies:', err)
+    } finally {
+      setLoadingCompanies(false)
+    }
+  }
+
+  const loadEmployees = async (companyId: string) => {
+    setLoadingEmployees(true)
+    setSelectedEmployeeId('')
+    try {
+      const result = await listCompanyEmployees(companyId)
+      if (result.employees) {
+        setEmployees(result.employees)
+      } else {
+        setEmployees([])
+      }
+    } catch (err) {
+      console.error('[v0] Failed to load employees:', err)
+      setEmployees([])
+    } finally {
+      setLoadingEmployees(false)
+    }
+  }
+
+  const handleStartViewAs = async () => {
+    if (!selectedCompanyId || !selectedEmployeeId) {
+      toast.error('Выберите компанию и сотрудника')
+      return
+    }
+
+    setStartingViewAs(true)
+    try {
+      const result = await startViewAsSession(selectedCompanyId, selectedEmployeeId)
+      if (result.success) {
+        toast.success('Режим просмотра активирован')
+        // Navigate to home page in view-as mode
+        router.push('/')
+      } else {
+        toast.error(result.error || 'Ошибка активации режима просмотра')
+      }
+    } catch (err) {
+      console.error('[v0] startViewAsSession error:', err)
+      toast.error('Ошибка активации режима просмотра')
+    } finally {
+      setStartingViewAs(false)
     }
   }
 
@@ -167,6 +270,119 @@ export default function PlatformPage() {
           Управление приглашениями компаний
         </p>
       </div>
+
+      {/* View-As Section */}
+      <Card className="mb-8">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            Просмотр компаний
+          </CardTitle>
+          <CardDescription>
+            Просмотр приложения от имени сотрудника (только чтение)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 md:grid-cols-3">
+            {/* Company Select */}
+            <div className="space-y-2">
+              <Label htmlFor="view-company" className="flex items-center gap-1.5">
+                <Building2 className="h-3.5 w-3.5" />
+                Компания
+              </Label>
+              <Select
+                value={selectedCompanyId}
+                onValueChange={setSelectedCompanyId}
+                disabled={loadingCompanies}
+              >
+                <SelectTrigger id="view-company">
+                  <SelectValue placeholder={loadingCompanies ? 'Загрузка...' : 'Выберите компанию'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((company) => (
+                    <SelectItem key={company.id} value={company.id}>
+                      {company.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Employee Select */}
+            <div className="space-y-2">
+              <Label htmlFor="view-employee" className="flex items-center gap-1.5">
+                <Users className="h-3.5 w-3.5" />
+                Сотрудник
+              </Label>
+              <Select
+                value={selectedEmployeeId}
+                onValueChange={setSelectedEmployeeId}
+                disabled={!selectedCompanyId || loadingEmployees}
+              >
+                <SelectTrigger id="view-employee">
+                  <SelectValue 
+                    placeholder={
+                      !selectedCompanyId 
+                        ? 'Сначала выберите компанию' 
+                        : loadingEmployees 
+                          ? 'Загрузка...' 
+                          : employees.length === 0 
+                            ? 'Нет сотрудников' 
+                            : 'Выберите сотрудника'
+                    } 
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      <div className="flex flex-col">
+                        <span>{emp.full_name}</span>
+                        {emp.position && (
+                          <span className="text-xs text-muted-foreground">{emp.position}</span>
+                        )}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-end gap-2">
+              <Button
+                onClick={handleStartViewAs}
+                disabled={!selectedCompanyId || !selectedEmployeeId || startingViewAs}
+                className="flex-1"
+              >
+                {startingViewAs ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Открытие...
+                  </>
+                ) : (
+                  <>
+                    <Eye className="mr-2 h-4 w-4" />
+                    Открыть просмотр
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {selectedCompanyId && selectedEmployeeId && (
+            <Alert className="mt-4 border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950">
+              <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <AlertDescription className="text-amber-800 dark:text-amber-200">
+                В режиме просмотра все изменения запрещены. Вы увидите приложение так, как его видит выбранный сотрудник.
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      <Separator className="my-6" />
+
+      <h2 className="text-xl font-semibold mb-4">Управление приглашениями</h2>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Create Invite Form (token + link) */}

@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 export type DepositWithdrawInput = {
   cashboxId: string
@@ -13,6 +14,7 @@ export type DepositWithdrawInput = {
 }
 
 export async function depositWithdraw(input: DepositWithdrawInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -79,6 +81,7 @@ export type CashboxOperationV2Input = {
 }
 
 export async function cashboxOperationV2(input: CashboxOperationV2Input) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { data, error } = await supabase.rpc('cashbox_operation_v2', {
@@ -147,6 +150,7 @@ export type CashboxTransferInput = {
 }
 
 export async function cashboxTransfer(input: CashboxTransferInput) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { data, error } = await supabase.rpc('cashbox_transfer', {
