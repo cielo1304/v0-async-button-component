@@ -67,7 +67,6 @@ import {
   addAssetMove,
   recordAssetSale,
 } from '@/app/actions/assets'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { FileAttachments } from '@/components/files/file-attachments'
 import type { AssetStatus } from '@/lib/types/database'
 
@@ -141,9 +140,6 @@ export default function AssetDetailPage() {
     cashbox_id: '',
     note: '',
   })
-
-  // God-mode actor (shared across dialogs)
-  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
 
   // Edit status form
   const [newStatus, setNewStatus] = useState('')

@@ -244,7 +244,7 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
 
   // Change status via server action
   const changeStatus = async (operation: ClientExchangeOperation, newStatus: string) => {
-    const result = await setClientExchangeStatus(operation.id, newStatus, actorEmployeeId)
+    const result = await setClientExchangeStatus(operation.id, newStatus)
     if (result.success) {
       toast.success(`Статус изменен на ${STATUS_LABELS[newStatus]?.label || newStatus}`)
       loadOperations()
@@ -276,7 +276,6 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
         settleCashboxId,
         amount,
         settleCurrency,
-        actorEmployeeId,
         settleComment || undefined,
       )
       if (result.success) {

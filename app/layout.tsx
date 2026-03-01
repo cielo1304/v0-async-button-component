@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { Inter, JetBrains_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from 'sonner'
+import { ViewAsBanner } from '@/components/platform/view-as-banner'
 import './globals.css'
 
 const inter = Inter({ 
@@ -47,6 +48,7 @@ export default function RootLayout({
     <html lang="ru" className="dark" suppressHydrationWarning>
       <head />
       <body className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+        <ViewAsBanner />
         {children}
         <Analytics />
         <Toaster
