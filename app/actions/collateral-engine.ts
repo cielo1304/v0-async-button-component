@@ -3,6 +3,7 @@
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 // ─── evaluateCollateral ─────────────────────────────────────
 // Snapshot valuation + LTV at moment of pledge or re-evaluation
@@ -12,6 +13,7 @@ export async function evaluateCollateral(params: {
   principalOutstanding: number
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {

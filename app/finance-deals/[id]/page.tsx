@@ -32,7 +32,6 @@ import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
 import { RecordPaymentDialog } from '@/components/finance-deals/record-payment-dialog'
-import { GodModeActorSelector } from '@/components/finance/god-mode-actor-selector'
 import { ContactPicker } from '@/components/contacts/contact-picker'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
@@ -110,7 +109,6 @@ export default function FinanceDealDetailPage() {
   const [participantForm, setParticipantForm] = useState({ contact_id: '', employee_id: '', participant_role: 'borrower', note: '' })
   const [collateralForm, setCollateralForm] = useState({ asset_id: '', note: '' })
   const [pauseForm, setPauseForm] = useState({ start_date: new Date().toISOString().slice(0, 10), end_date: '', reason: '' })
-  const [godmodeActorId, setGodmodeActorId] = useState<string | undefined>(undefined)
   
   // Payment dialog
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false)
@@ -200,13 +198,12 @@ export default function FinanceDealDetailPage() {
         currency: dealCurrency,
         note: ledgerForm.note || undefined,
         cashbox_id: ledgerForm.cashbox_id || undefined,
-        created_by_employee_id: godmodeActorId,
+        created_by_employee_id: undefined,
       })
       if (!result.success) throw new Error('Failed')
       toast.success('Запись добавлена' + (ledgerForm.cashbox_id ? ' + касса обновлена' : ''))
       setIsLedgerOpen(false)
       setLedgerForm({ entry_type: 'principal_repayment', amount: '', note: '', cashbox_id: '' })
-      setGodmodeActorId(undefined)
       loadDeal()
     } catch { toast.error('Ошибка добавления записи') }
   }
@@ -850,10 +847,6 @@ export default function FinanceDealDetailPage() {
   </Select>
   <p className="text-xs text-muted-foreground">Показаны только кассы с валютой {dealCurrency}. Деньги будут списаны/зачислены атомарно.</p>
   </div>
-  <GodModeActorSelector
-    value={godmodeActorId}
-    onChange={setGodmodeActorId}
-  />
             <div className="space-y-2">
               <Label>Примечание</Label>
               <Textarea value={ledgerForm.note} onChange={e => setLedgerForm(f => ({ ...f, note: e.target.value }))} />
