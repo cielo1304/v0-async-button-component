@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { adminSupabase } from '@/lib/supabase/admin'
+import { assertNotReadOnly } from '@/lib/view-as'
 import { revalidatePath } from 'next/cache'
 import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
@@ -18,6 +19,7 @@ export async function createEmployee(data: {
   hired_at?: string
   notes?: string
 }) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
   // Get current user's company_id from team_members
@@ -72,6 +74,7 @@ export async function updateEmployee(
     is_active?: boolean
   }
 ) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   const { data: employee, error } = await supabase
@@ -114,6 +117,7 @@ export async function listEmployees() {
 }
 
 export async function deactivateEmployee(employeeId: string) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
   // Verify employee belongs to user's company
@@ -164,6 +168,7 @@ export async function setEmployeeModuleAccess(
   module: BusinessModule,
   level: ModuleAccessLevel
 ) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   // 1. Получаем текущие данные сотрудника
@@ -253,6 +258,7 @@ export async function setEmployeeModuleVisibility(
   module: BusinessModule,
   scope: VisibilityScope
 ) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   const { data: employee, error: fetchError } = await supabase
@@ -284,6 +290,7 @@ export async function setEmployeeModuleVisibility(
 // ================================================
 
 export async function addEmployeeRole(employeeId: string, roleId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
@@ -304,6 +311,7 @@ export async function addEmployeeRole(employeeId: string, roleId: string) {
 }
 
 export async function removeEmployeeRole(employeeId: string, roleId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   const { error } = await supabase
@@ -322,6 +330,7 @@ export async function removeEmployeeRole(employeeId: string, roleId: string) {
  * Добавляет недостающие роли, не удаляя существующие
  */
 export async function applyPositionDefaultRoles(employeeId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   // Получаем должность сотрудника
@@ -376,6 +385,7 @@ export async function applyPositionDefaultRoles(employeeId: string) {
 // ================================================
 
 export async function createEmployeeInvite(employeeId: string, email: string) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
   if (!email) {
@@ -450,6 +460,7 @@ export async function createEmployeeInvite(employeeId: string, email: string) {
  * Вызывает SQL функцию sync_employee_roles_to_user_roles
  */
 export async function syncEmployeeRoles(employeeId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   // Проверяем что у сотрудника есть auth_user_id
@@ -480,6 +491,7 @@ export async function syncEmployeeRoles(employeeId: string) {
 // ================================================
 
 export async function setPositionDefaultRoles(position: string, roleIds: string[]) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   // Удаляем старые записи

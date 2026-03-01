@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
+import { assertNotReadOnly } from '@/lib/view-as'
 import { randomUUID } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -53,6 +54,7 @@ export async function createUploadForEntityFile(params: {
   signed_upload_url?: string
   error?: string
 }> {
+  await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
     const companyId = await getCompanyIdForUser(supabase, user.id)
@@ -133,6 +135,7 @@ export async function commitUploadedEntityFile(params: {
   mime_type: string
   size_bytes: number
 }): Promise<{ success: boolean; error?: string }> {
+  await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
     const companyId = await getCompanyIdForUser(supabase, user.id)
@@ -306,6 +309,7 @@ export async function deleteEntityFile(file_id: string): Promise<{
   success: boolean
   error?: string
 }> {
+  await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
 

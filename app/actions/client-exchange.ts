@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 // ==================== STEP 9: Categories from DB ====================
 
@@ -86,6 +87,7 @@ export interface ExchangeResult {
 // ==================== Submit Exchange ====================
 
 export async function submitExchange(input: SubmitExchangeInput): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -384,6 +386,7 @@ export async function setFollowup(
   followupNote: string,
   actorEmployeeId: string,
 ): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   try {
     const { error } = await supabase
@@ -414,6 +417,7 @@ export async function setFollowup(
 // ==================== Cancel Exchange ====================
 
 export async function cancelExchange(operationId: string, actorEmployeeId: string, reason?: string): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -543,6 +547,7 @@ export async function setClientExchangeStatus(
   actorEmployeeId: string,
   note?: string,
 ): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -606,6 +611,7 @@ export async function settleClientExchangeIn(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -717,6 +723,7 @@ export async function settleClientExchangeOut(
   actorEmployeeId: string,
   comment?: string,
 ): Promise<ExchangeResult> {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
