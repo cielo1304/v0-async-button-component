@@ -4,6 +4,7 @@ import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { generateSchedule, computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { writeAuditLog } from '@/lib/audit'
 import { revalidatePath } from 'next/cache'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 // ────────────────────────────────────────────────
 // 0. MANDATORY: Generate initial schedule (called after deal creation)
@@ -14,6 +15,7 @@ import { revalidatePath } from 'next/cache'
  * This ensures every deal has a schedule from day one (Variant A requirement).
  */
 export async function generateInitialSchedule(financeDealId: string, coreDealId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -80,6 +82,7 @@ export async function generateInitialSchedule(financeDealId: string, coreDealId:
 // ────────────────────────────────────────────────
 
 export async function regenerateSchedule(financeDealId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -162,6 +165,7 @@ export async function pauseDeal(params: {
   reason?: string
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -224,6 +228,7 @@ export async function resumeDeal(params: {
   pauseId: string
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -272,6 +277,7 @@ export async function deletePause(params: {
   financeDealId: string
   pauseId: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
