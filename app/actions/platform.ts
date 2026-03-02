@@ -259,6 +259,7 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
 
 /**
  * List employees of a company who have linked auth users (platform admin only)
+ * Uses service role to bypass RLS since platform admin is not a team member.
  */
 export async function listCompanyEmployees(companyId: string): Promise<{ employees?: EmployeeWithUser[]; error?: string }> {
   try {
@@ -270,25 +271,51 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
     }
 
     // Use admin client to bypass RLS
-    // Get team_members with linked user_id for this company
-    const { data, error } = await adminSupabase
+    // First get all employees for this company
+    const { data: employeesData, error: empError } = await adminSupabase
+      .from('employees')
+      .select('id, full_name, position, is_active')
+      .eq('company_id', companyId)
+      .order('full_name')
+
+    if (empError) {
+      console.error('[v0] listCompanyEmployees employees error:', empError)
+      return { error: empError.message }
+    }
+
+    if (!employeesData || employeesData.length === 0) {
+      return { employees: [] }
+    }
+
+    // Get team_members to find which employees have linked user_id
+    const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
-      .select('user_id, role, employees!inner(id, full_name, position)')
+      .select('employee_id, user_id')
       .eq('company_id', companyId)
       .not('user_id', 'is', null)
 
-    if (error) {
-      console.error('[v0] listCompanyEmployees error:', error)
-      return { error: error.message }
+    if (tmError) {
+      console.error('[v0] listCompanyEmployees team_members error:', tmError)
+      return { error: tmError.message }
     }
 
-    // Transform the data
-    const employees: EmployeeWithUser[] = (data || []).map((tm: { user_id: string; employees: { id: string; full_name: string; position: string | null } }) => ({
-      id: tm.employees.id,
-      full_name: tm.employees.full_name,
-      position: tm.employees.position,
-      user_id: tm.user_id,
-    }))
+    // Create a map of employee_id -> user_id
+    const userIdMap = new Map<string, string>()
+    for (const tm of teamMembersData || []) {
+      if (tm.employee_id && tm.user_id) {
+        userIdMap.set(tm.employee_id, tm.user_id)
+      }
+    }
+
+    // Filter employees who have a linked user_id
+    const employees: EmployeeWithUser[] = employeesData
+      .filter((emp) => userIdMap.has(emp.id))
+      .map((emp) => ({
+        id: emp.id,
+        full_name: emp.full_name,
+        position: emp.position,
+        user_id: userIdMap.get(emp.id)!,
+      }))
 
     return { employees }
   } catch (err) {

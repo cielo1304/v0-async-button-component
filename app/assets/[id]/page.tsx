@@ -262,7 +262,9 @@ export default function AssetDetailPage() {
         note: saleForm.note || null,
       })
       if (!result.success) {
-        toast.error(result.error || 'Ошибка записи продажи')
+        toast.error('Ошибка записи продажи', {
+          description: result.error || 'Неизвестная ошибка',
+        })
         return
       }
       toast.success('Продажа записана')
