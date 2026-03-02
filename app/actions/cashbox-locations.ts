@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { assertNotReadOnly } from '@/lib/view-as'
 import type { CashboxLocation } from '@/lib/types/database'
 
 // ─── Fetch all cashbox locations ───
@@ -30,6 +31,7 @@ export async function createCashboxLocation(input: {
   description?: string
   sort_order?: number
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -64,6 +66,7 @@ export async function updateCashboxLocation(
     is_active?: boolean
   }
 ) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -91,6 +94,7 @@ export async function updateCashboxLocation(
 // ─── Delete cashbox location ───
 
 export async function deleteCashboxLocation(locationId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {

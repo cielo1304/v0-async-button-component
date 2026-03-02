@@ -138,6 +138,7 @@ export default function AssetDetailPage() {
     base_currency: 'USD',
     fx_rate: '',
     cashbox_id: '',
+    created_by_employee_id: '',
     note: '',
   })
 
@@ -257,7 +258,7 @@ export default function AssetDetailPage() {
         base_currency: saleForm.base_currency,
         fx_rate: saleForm.fx_rate ? Number(saleForm.fx_rate) : null,
         cashbox_id: saleForm.cashbox_id || null,
-        created_by_employee_id: null,
+        created_by_employee_id: saleForm.created_by_employee_id || null,
         note: saleForm.note || null,
       })
       if (!result.success) {
@@ -266,7 +267,7 @@ export default function AssetDetailPage() {
       }
       toast.success('Продажа записана')
       setIsSaleOpen(false)
-      setSaleForm({ sale_amount: '', sale_currency: 'RUB', base_amount: '', base_currency: 'USD', fx_rate: '', cashbox_id: '', note: '' })
+      setSaleForm({ sale_amount: '', sale_currency: 'RUB', base_amount: '', base_currency: 'USD', fx_rate: '', cashbox_id: '', created_by_employee_id: '', note: '' })
       loadData()
     } catch { toast.error('Ошибка записи продажи') } finally { setIsSubmitting(false) }
   }
@@ -938,6 +939,16 @@ export default function AssetDetailPage() {
                   {cashboxes.map((cb) => (
                     <SelectItem key={cb.id} value={cb.id}>{cb.name} ({cb.currency}, {Number(cb.balance).toLocaleString()})</SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Кто продал</Label>
+              <Select value={saleForm.created_by_employee_id || '__none__'} onValueChange={(v) => setSaleForm({ ...saleForm, created_by_employee_id: v === '__none__' ? '' : v })}>
+                <SelectTrigger><SelectValue placeholder="Сотрудник" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Не указан</SelectItem>
+                  {employees.map((e) => (<SelectItem key={e.id} value={e.id}>{e.full_name}</SelectItem>))}
                 </SelectContent>
               </Select>
             </div>

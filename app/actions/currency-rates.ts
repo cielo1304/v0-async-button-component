@@ -2,6 +2,7 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { revalidatePath } from 'next/cache'
+import { assertNotReadOnly } from '@/lib/view-as'
 
 // Базовые валюты системы
 const SUPPORTED_CURRENCIES = ['USD', 'RUB', 'EUR', 'USDT'] as const
@@ -281,6 +282,7 @@ export async function getSystemCurrencyRates() {
 }
 
 export async function updateSystemRate(code: string, rate_to_rub: number, rate_to_usd: number) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   const companyId = await getActiveCompanyId(supabase, user.id)
@@ -350,6 +352,7 @@ export async function updateSystemRate(code: string, rate_to_rub: number, rate_t
 }
 
 export async function refreshSystemRates() {
+  await assertNotReadOnly()
   const apiResult = await fetchExternalRates()
 
   if (!apiResult.success || !apiResult.rates) {
