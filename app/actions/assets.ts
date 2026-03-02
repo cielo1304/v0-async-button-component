@@ -470,7 +470,24 @@ export async function recordAssetSale(formData: {
 
     return { success: true }
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error recording asset sale'
+    // Extract detailed error info from Supabase/PostgREST errors
+    let message = 'Неизвестная ошибка при записи продажи'
+    if (err && typeof err === 'object') {
+      const e = err as { message?: string; details?: string; hint?: string; code?: string }
+      const parts: string[] = []
+      if (e.message) parts.push(e.message)
+      if (e.details) parts.push(`Details: ${e.details}`)
+      if (e.hint) parts.push(`Hint: ${e.hint}`)
+      if (e.code) parts.push(`Code: ${e.code}`)
+      if (parts.length > 0) {
+        message = parts.join(' | ')
+      }
+    } else if (err instanceof Error) {
+      message = err.message
+    } else if (typeof err === 'string') {
+      message = err
+    }
+    console.error('[v0] recordAssetSale error:', err)
     return { success: false, error: message }
   }
 }
