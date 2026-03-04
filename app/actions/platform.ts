@@ -310,12 +310,17 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       }
     }
 
-    // Filter out platform_viewer members (by role in team_members, since is_platform_viewer column may not exist)
+    // Filter out platform viewer employees:
+    // - By member_role = 'platform_viewer' in team_members
+    // - By name pattern 'Просмотр (админ платформы)' (for when is_platform_viewer column doesn't exist)
     const employees: EmployeeWithUser[] = employeesData
       .filter((emp) => {
         const tm = teamMemberMap.get(emp.id)
         // Exclude employees with platform_viewer role
-        return tm?.member_role !== 'platform_viewer'
+        if (tm?.member_role === 'platform_viewer') return false
+        // Also exclude by name pattern (fallback when column doesn't exist)
+        if (emp.full_name === 'Просмотр (админ платформы)') return false
+        return true
       })
       .map((emp) => {
         const tm = teamMemberMap.get(emp.id)
@@ -349,6 +354,9 @@ interface MembershipResult {
  * 
  * If membership already exists (platform admin is already a member of the company),
  * we don't create anything and return { created: false }.
+ * 
+ * IMPORTANT: We use member_role='employee' (an allowed value) instead of 'platform_viewer'
+ * to avoid CHECK constraint violations. The view-as mode is tracked via cookies, not DB role.
  */
 async function ensurePlatformViewerMembership(
   platformAdminUserId: string,
@@ -356,12 +364,13 @@ async function ensurePlatformViewerMembership(
   companyId: string
 ): Promise<MembershipResult> {
   // Check if platform admin already has membership in this company
+  // Use .maybeSingle() to avoid 406 error when no rows
   const { data: existingMembership } = await adminSupabase
     .from('team_members')
     .select('id')
     .eq('company_id', companyId)
     .eq('user_id', platformAdminUserId)
-    .single()
+    .maybeSingle()
 
   if (existingMembership) {
     // Already a member, no need to create anything
@@ -369,13 +378,32 @@ async function ensurePlatformViewerMembership(
   }
 
   // Check if we already have a platform viewer employee for this admin in this company
-  const { data: existingViewerEmployee } = await adminSupabase
+  // Try with is_platform_viewer first, fallback without if column doesn't exist
+  let existingViewerEmployee: { id: string } | null = null
+  
+  // First try with is_platform_viewer column
+  const { data: viewerWithFlag, error: viewerFlagError } = await adminSupabase
     .from('employees')
     .select('id')
     .eq('company_id', companyId)
     .eq('auth_user_id', platformAdminUserId)
     .eq('is_platform_viewer', true)
-    .single()
+    .maybeSingle()
+
+  if (!viewerFlagError && viewerWithFlag) {
+    existingViewerEmployee = viewerWithFlag
+  } else if (viewerFlagError?.message?.includes('is_platform_viewer')) {
+    // Column doesn't exist - try finding by email pattern instead
+    const { data: viewerByEmail } = await adminSupabase
+      .from('employees')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('auth_user_id', platformAdminUserId)
+      .ilike('full_name', '%Просмотр (админ платформы)%')
+      .maybeSingle()
+    
+    existingViewerEmployee = viewerByEmail
+  }
 
   let viewerEmployeeId: string
 
@@ -384,18 +412,45 @@ async function ensurePlatformViewerMembership(
     viewerEmployeeId = existingViewerEmployee.id
   } else {
     // Create a new platform viewer employee
-    const { data: newEmployee, error: empError } = await adminSupabase
+    // Try with is_platform_viewer column first, fallback without if column doesn't exist
+    let newEmployee: { id: string } | null = null
+    let empError: Error | null = null
+
+    const employeeData = {
+      company_id: companyId,
+      full_name: 'Просмотр (админ платформы)',
+      email: platformAdminEmail,
+      auth_user_id: platformAdminUserId,
+      is_active: true,
+      is_platform_viewer: true,
+    }
+
+    const { data: empWithFlag, error: flagError } = await adminSupabase
       .from('employees')
-      .insert({
-        company_id: companyId,
-        full_name: 'Просмотр (админ платформы)',
-        email: platformAdminEmail,
-        auth_user_id: platformAdminUserId,
-        is_active: true,
-        is_platform_viewer: true,
-      })
+      .insert(employeeData)
       .select('id')
       .single()
+
+    if (flagError?.message?.includes('is_platform_viewer')) {
+      // Column doesn't exist - insert without it
+      const { data: empNoFlag, error: noFlagError } = await adminSupabase
+        .from('employees')
+        .insert({
+          company_id: companyId,
+          full_name: 'Просмотр (админ платформы)',
+          email: platformAdminEmail,
+          auth_user_id: platformAdminUserId,
+          is_active: true,
+        })
+        .select('id')
+        .single()
+      
+      newEmployee = empNoFlag
+      empError = noFlagError as Error | null
+    } else {
+      newEmployee = empWithFlag
+      empError = flagError as Error | null
+    }
 
     if (empError || !newEmployee) {
       console.error('[v0] Failed to create viewer employee:', empError)
@@ -405,14 +460,15 @@ async function ensurePlatformViewerMembership(
     viewerEmployeeId = newEmployee.id
   }
 
-  // Create team_members row with platform_viewer role
+  // Create team_members row with 'employee' role (NOT 'platform_viewer' - that violates CHECK constraint)
+  // The view-as mode is tracked via cookies, not via member_role
   const { data: newTeamMember, error: tmError } = await adminSupabase
     .from('team_members')
     .insert({
       company_id: companyId,
       user_id: platformAdminUserId,
       employee_id: viewerEmployeeId,
-      member_role: 'platform_viewer',
+      member_role: 'employee', // Use allowed role value, view-as tracked via cookie
     })
     .select('id')
     .single()
@@ -528,15 +584,28 @@ export async function endViewAsSession(): Promise<{ success: boolean }> {
         }
       }
 
-      // Clean up the temporary viewer employee (only if is_platform_viewer = true)
+      // Clean up the temporary viewer employee
+      // Try with is_platform_viewer filter first, then fallback by name pattern
       if (session.createdViewerEmployeeId) {
+        // First try with is_platform_viewer = true (safer)
         const { error: empDeleteError } = await adminSupabase
           .from('employees')
           .delete()
           .eq('id', session.createdViewerEmployeeId)
-          .eq('is_platform_viewer', true) // Safety: only delete platform viewer employees
+          .eq('is_platform_viewer', true)
 
-        if (empDeleteError) {
+        if (empDeleteError?.message?.includes('is_platform_viewer')) {
+          // Column doesn't exist - delete by ID + name pattern match for safety
+          const { error: fallbackError } = await adminSupabase
+            .from('employees')
+            .delete()
+            .eq('id', session.createdViewerEmployeeId)
+            .eq('full_name', 'Просмотр (админ платформы)')
+
+          if (fallbackError) {
+            console.error('[v0] Failed to delete temp viewer employee (fallback):', fallbackError)
+          }
+        } else if (empDeleteError) {
           console.error('[v0] Failed to delete temp viewer employee:', empDeleteError)
         }
       }
