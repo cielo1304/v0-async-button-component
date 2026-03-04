@@ -24,18 +24,17 @@ function getSecret(): Uint8Array {
 }
 
 export interface ViewAsSession {
-  targetUserId: string        // auth.users.id of the employee being viewed (can be null -> use viewer's id)
-  targetCompanyId: string     // company.id
-  targetEmployeeId: string    // employees.id being viewed (for UI display)
-  targetDisplayName: string   // Display name of the employee
+  targetUserId: string        // auth.users.id of the platform admin (we use their auth session)
+  targetCompanyId: string     // company.id being viewed
+  targetEmployeeId: string    // employees.id we are "acting as" for permission checks
+  targetDisplayName: string   // Display name of the employee we are viewing as
   companyName: string         // Company name for UI display
-  viewerAdminUserId: string   // auth.users.id of the platform admin
+  viewerAdminUserId: string   // auth.users.id of the platform admin (same as targetUserId)
   mode: 'readonly_view_as'
   exp: number                 // Expiry timestamp
   // Membership tracking for cleanup
   createdMembership?: boolean          // True if we created a temp team_members row
   createdTeamMemberId?: string         // ID of created team_members row (for cleanup)
-  createdViewerEmployeeId?: string     // ID of created viewer employee row (for cleanup)
 }
 
 /**
