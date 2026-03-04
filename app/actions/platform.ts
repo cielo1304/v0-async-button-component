@@ -263,34 +263,35 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
  * For view-as, we list all employees regardless of whether they have linked auth users.
  * Uses service role to bypass RLS since platform admin is not a team member.
  */
-export async function listCompanyEmployees(companyId: string): Promise<{ employees?: EmployeeWithUser[]; error?: string }> {
+export async function listCompanyEmployees(companyId: string): Promise<{ ok: boolean; employees?: EmployeeWithUser[]; error?: string }> {
   try {
     const { supabase } = await createSupabaseAndRequireUser()
 
     const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
     if (adminError || !isAdmin) {
-      return { error: 'Недостаточно прав' }
+      return { ok: false, error: 'Недостаточно прав' }
     }
 
     // Use admin client to bypass RLS
-    // Get all active employees for this company (exclude platform viewer temp employees)
+    // Query employees WITHOUT is_platform_viewer first (column may not exist if migration not applied)
+    // We'll filter out platform viewer employees by checking the column if it exists
     const { data: employeesData, error: empError } = await adminSupabase
       .from('employees')
-      .select('id, full_name, position, is_active, is_platform_viewer')
+      .select('id, full_name, position, is_active, email, auth_user_id')
       .eq('company_id', companyId)
       .eq('is_active', true)
       .order('full_name')
 
     if (empError) {
       console.error('[v0] listCompanyEmployees employees error:', empError)
-      return { error: empError.message }
+      return { ok: false, error: `Ошибка загрузки сотрудников: ${empError.message}` }
     }
 
     if (!employeesData || employeesData.length === 0) {
-      return { employees: [] }
+      return { ok: true, employees: [] }
     }
 
-    // Get team_members to find role info (optional)
+    // Get team_members to find role info and user_id
     const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
       .select('employee_id, user_id, member_role')
@@ -309,25 +310,28 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
       }
     }
 
-    // Return ALL employees (not just those with linked users)
-    // Filter out platform viewer temp employees
+    // Filter out platform_viewer members (by role in team_members, since is_platform_viewer column may not exist)
     const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => !emp.is_platform_viewer)
+      .filter((emp) => {
+        const tm = teamMemberMap.get(emp.id)
+        // Exclude employees with platform_viewer role
+        return tm?.member_role !== 'platform_viewer'
+      })
       .map((emp) => {
         const tm = teamMemberMap.get(emp.id)
         return {
           id: emp.id,
           full_name: emp.full_name,
           position: emp.position,
-          user_id: tm?.user_id ?? '', // May be empty for employees without auth
+          user_id: tm?.user_id ?? emp.auth_user_id ?? '',
           member_role: tm?.member_role ?? undefined,
         }
       })
 
-    return { employees }
+    return { ok: true, employees }
   } catch (err) {
     console.error('[v0] listCompanyEmployees error:', err)
-    return { error: 'Failed to list employees' }
+    return { ok: false, error: 'Ошибка загрузки списка сотрудников' }
   }
 }
 
