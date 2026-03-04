@@ -53,11 +53,11 @@ export function ViewAsBanner() {
     <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 shadow-md">
       <div className="container mx-auto px-4 py-2 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Eye className="h-5 w-5" />
-          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-            <span className="font-semibold">Режим просмотра (только чтение)</span>
-            <span className="text-sm opacity-80">
-              Компания: {session.companyName} • Пользователь: {session.targetDisplayName}
+          <Eye className="h-5 w-5 shrink-0" />
+          <div className="flex flex-col sm:flex-row sm:items-center sm:gap-1.5 min-w-0">
+            <span className="font-semibold whitespace-nowrap">Режим просмотра:</span>
+            <span className="text-sm truncate">
+              {session.companyName} · {session.targetDisplayName}. Изменения запрещены.
             </span>
           </div>
         </div>
@@ -66,7 +66,7 @@ export function ViewAsBanner() {
           size="sm"
           onClick={handleExit}
           disabled={isExiting}
-          className="bg-amber-600 border-amber-700 hover:bg-amber-700 text-amber-50"
+          className="bg-amber-600 border-amber-700 hover:bg-amber-700 text-amber-50 shrink-0"
         >
           {isExiting ? (
             'Выход...'

@@ -58,6 +58,7 @@ interface EmployeeWithUser {
   full_name: string
   position: string | null
   user_id: string
+  member_role?: string
 }
 
 export default function PlatformPage() {
@@ -157,8 +158,12 @@ export default function PlatformPage() {
   }
 
   const handleStartViewAs = async () => {
-    if (!selectedCompanyId || !selectedEmployeeId) {
-      toast.error('Выберите компанию и сотрудника')
+    if (!selectedCompanyId) {
+      toast.error('Выберите компанию')
+      return
+    }
+    if (!selectedEmployeeId) {
+      toast.error('Выберите сотрудника')
       return
     }
 
@@ -170,7 +175,16 @@ export default function PlatformPage() {
         // Navigate to home page in view-as mode
         router.push('/')
       } else {
-        toast.error(result.error || 'Ошибка активации режима просмотра')
+        // Typed error codes for better Russian messages
+        const errorMessages: Record<string, string> = {
+          not_platform_admin: 'Недостаточно прав.',
+          no_company: 'Компания не найдена.',
+          no_employee: 'Сотрудник не найден.',
+          no_linked_user: 'У сотрудника нет привязанного пользователя (auth).',
+          unknown: 'Ошибка активации режима просмотра.',
+        }
+        const message = result.errorCode ? errorMessages[result.errorCode] : result.error
+        toast.error(message || 'Ошибка активации режима просмотра')
       }
     } catch (err) {
       console.error('[v0] startViewAsSession error:', err)
@@ -333,16 +347,25 @@ export default function PlatformPage() {
                   />
                 </SelectTrigger>
                 <SelectContent>
-                  {employees.map((emp) => (
-                    <SelectItem key={emp.id} value={emp.id}>
-                      <div className="flex flex-col">
-                        <span>{emp.full_name}</span>
-                        {emp.position && (
-                          <span className="text-xs text-muted-foreground">{emp.position}</span>
-                        )}
-                      </div>
-                    </SelectItem>
-                  ))}
+                  {employees.map((emp) => {
+                    // Translate member_role to Russian
+                    const roleLabels: Record<string, string> = {
+                      owner: 'Владелец',
+                      admin: 'Админ',
+                      member: 'Сотрудник',
+                    }
+                    const roleLabel = emp.member_role ? roleLabels[emp.member_role] ?? emp.member_role : null
+                    return (
+                      <SelectItem key={emp.id} value={emp.id}>
+                        <div className="flex flex-col">
+                          <span>{emp.full_name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {[roleLabel, emp.position].filter(Boolean).join(' · ') || 'Нет роли'}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
                 </SelectContent>
               </Select>
             </div>

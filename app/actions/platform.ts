@@ -221,10 +221,11 @@ interface Company {
 }
 
 interface EmployeeWithUser {
-  id: string
+  id: string            // employees.id
   full_name: string
   position: string | null
-  user_id: string // team_members.user_id (auth.users.id)
+  user_id: string       // team_members.user_id (auth.users.id)
+  member_role?: string  // team_members.member_role
 }
 
 /**
@@ -290,7 +291,7 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
     // Get team_members to find which employees have linked user_id
     const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
-      .select('employee_id, user_id')
+      .select('employee_id, user_id, member_role')
       .eq('company_id', companyId)
       .not('user_id', 'is', null)
 
@@ -299,23 +300,27 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
       return { error: tmError.message }
     }
 
-    // Create a map of employee_id -> user_id
-    const userIdMap = new Map<string, string>()
+    // Create a map of employee_id -> { user_id, member_role }
+    const teamMemberMap = new Map<string, { user_id: string; member_role: string | null }>()
     for (const tm of teamMembersData || []) {
       if (tm.employee_id && tm.user_id) {
-        userIdMap.set(tm.employee_id, tm.user_id)
+        teamMemberMap.set(tm.employee_id, { user_id: tm.user_id, member_role: tm.member_role })
       }
     }
 
     // Filter employees who have a linked user_id
     const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => userIdMap.has(emp.id))
-      .map((emp) => ({
-        id: emp.id,
-        full_name: emp.full_name,
-        position: emp.position,
-        user_id: userIdMap.get(emp.id)!,
-      }))
+      .filter((emp) => teamMemberMap.has(emp.id))
+      .map((emp) => {
+        const tm = teamMemberMap.get(emp.id)!
+        return {
+          id: emp.id,
+          full_name: emp.full_name,
+          position: emp.position,
+          user_id: tm.user_id,
+          member_role: tm.member_role ?? undefined,
+        }
+      })
 
     return { employees }
   } catch (err) {
@@ -326,17 +331,18 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
 
 /**
  * Start a view-as session (platform admin only)
+ * Returns typed error codes for better UI handling.
  */
 export async function startViewAsSession(
   companyId: string,
   employeeId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; errorCode?: 'not_platform_admin' | 'no_company' | 'no_employee' | 'no_linked_user' | 'unknown' }> {
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
     if (adminError || !isAdmin) {
-      return { success: false, error: 'Недостаточно прав' }
+      return { success: false, error: 'Недостаточно прав', errorCode: 'not_platform_admin' }
     }
 
     // Get company info
@@ -347,30 +353,53 @@ export async function startViewAsSession(
       .single()
 
     if (companyError || !company) {
-      return { success: false, error: 'Компания не найдена' }
+      return { success: false, error: 'Компания не найдена', errorCode: 'no_company' }
     }
 
-    // Get employee and their auth user_id via team_members
-    const { data: teamMember, error: tmError } = await adminSupabase
+    // Get employee info directly from employees table
+    const { data: employee, error: empError } = await adminSupabase
+      .from('employees')
+      .select('id, full_name, auth_user_id')
+      .eq('id', employeeId)
+      .eq('company_id', companyId)
+      .single()
+
+    if (empError || !employee) {
+      return { success: false, error: 'Сотрудник не найден', errorCode: 'no_employee' }
+    }
+
+    // Try to get user_id from team_members first (preferred)
+    let targetUserId: string | null = null
+
+    const { data: teamMember } = await adminSupabase
       .from('team_members')
-      .select('user_id, employees!inner(id, full_name)')
+      .select('user_id')
       .eq('company_id', companyId)
       .eq('employee_id', employeeId)
       .not('user_id', 'is', null)
       .single()
 
-    if (tmError || !teamMember) {
-      return { success: false, error: 'Сотрудник не найден или не имеет привязанного пользователя' }
+    if (teamMember?.user_id) {
+      targetUserId = teamMember.user_id
+    } else if (employee.auth_user_id) {
+      // Fallback to employees.auth_user_id
+      targetUserId = employee.auth_user_id
     }
 
-    const emp = teamMember.employees as { id: string; full_name: string }
+    if (!targetUserId) {
+      return { 
+        success: false, 
+        error: 'У сотрудника нет привязанного пользователя (auth).', 
+        errorCode: 'no_linked_user' 
+      }
+    }
 
     // Create the view-as session token
     const token = await createViewAsSession({
-      targetUserId: teamMember.user_id,
+      targetUserId,
       targetCompanyId: companyId,
       targetEmployeeId: employeeId,
-      targetDisplayName: emp.full_name,
+      targetDisplayName: employee.full_name,
       companyName: company.name,
       viewerAdminUserId: user.id,
     })
@@ -381,7 +410,7 @@ export async function startViewAsSession(
     return { success: true }
   } catch (err) {
     console.error('[v0] startViewAsSession error:', err)
-    return { success: false, error: 'Failed to start view-as session' }
+    return { success: false, error: 'Ошибка запуска режима просмотра', errorCode: 'unknown' }
   }
 }
 
