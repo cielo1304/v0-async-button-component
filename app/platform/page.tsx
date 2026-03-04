@@ -57,7 +57,7 @@ interface EmployeeWithUser {
   id: string
   full_name: string
   position: string | null
-  user_id: string
+  user_id: string // May be empty for employees without auth user
   member_role?: string
 }
 
@@ -182,7 +182,7 @@ export default function PlatformPage() {
           not_platform_admin: 'Недостаточно прав.',
           no_company: 'Компания не найдена.',
           no_employee: 'Сотрудник не найден.',
-          no_linked_user: 'У сотрудника нет привязанного пользователя (auth).',
+          membership_error: 'Ошибка создания временного доступа.',
           unknown: 'Ошибка активации режима просмотра.',
         }
         const message = result.errorCode ? errorMessages[result.errorCode] : result.error

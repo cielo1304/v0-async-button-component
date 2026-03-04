@@ -1,7 +1,6 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Eye, X } from 'lucide-react'
 import { endViewAsSession, getViewAsSessionInfo } from '@/app/actions/platform'
@@ -18,7 +17,6 @@ interface ViewAsSession {
 }
 
 export function ViewAsBanner() {
-  const router = useRouter()
   const [session, setSession] = useState<ViewAsSession | null>(null)
   const [isExiting, setIsExiting] = useState(false)
 
@@ -40,8 +38,9 @@ export function ViewAsBanner() {
     setIsExiting(true)
     try {
       await endViewAsSession()
-      router.push('/platform')
-      router.refresh()
+      // Use hard navigation to ensure middleware/SSR re-reads cleared cookie
+      // and cleans up any server-side state
+      window.location.assign('/platform')
     } catch {
       setIsExiting(false)
     }
