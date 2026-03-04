@@ -95,7 +95,7 @@ async function getStats() {
       safeCount(supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK')),
       safeCount(supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT'])),
       safeCount(supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true)),
-      safeCount(supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true)),
+      safeCount(supabase.from('employees').select('id', { count: 'exact', head: true }).eq('is_active', true).eq('is_system', false)),
       safeCount(supabase.from('contacts').select('id', { count: 'exact', head: true })),
       safeCount(supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE'])),
       safeCount(supabase.from('assets').select('id', { count: 'exact', head: true })),

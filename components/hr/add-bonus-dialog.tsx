@@ -35,10 +35,12 @@ export function AddBonusDialog() {
   useEffect(() => {
     async function loadEmployees() {
       const supabase = createClient()
+      // Exclude system employees (is_system = true)
       const { data } = await supabase
         .from('employees')
         .select('*')
         .eq('is_active', true)
+        .eq('is_system', false)
         .order('full_name')
       setEmployees(data || [])
     }

@@ -50,10 +50,12 @@ export function GodModeActorSelector({
   useEffect(() => {
     async function loadEmployees() {
       const supabase = createClient()
+      // Exclude system employees (is_system = true)
       const { data, error } = await supabase
         .from('employees')
         .select('id, full_name, position')
         .eq('is_active', true)
+        .eq('is_system', false)
         .order('full_name')
 
       if (error) {

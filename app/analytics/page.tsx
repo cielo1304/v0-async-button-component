@@ -423,7 +423,7 @@ export default function AnalyticsPage() {
         supabase.from('cars').select('*'),
         supabase.from('deals').select('*'),
         supabase.from('stock_items').select('*').eq('is_active', true),
-        supabase.from('employees').select('*').eq('is_active', true),
+        supabase.from('employees').select('*').eq('is_active', true).eq('is_system', false),
         supabase.from('auto_clients').select('*'),
         supabase.from('auto_deals').select('*'),
       ])

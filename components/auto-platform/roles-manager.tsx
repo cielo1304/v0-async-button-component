@@ -68,7 +68,8 @@ export function RolesManager() {
           auto_roles (*),
           employees:user_id (id, name, position)
         `),
-        supabase.from('employees').select('id, name, position').eq('is_active', true),
+        // Exclude system employees (is_system = true)
+        supabase.from('employees').select('id, name, position').eq('is_active', true).eq('is_system', false),
       ])
 
       setRoles(rolesRes.data || [])

@@ -198,10 +198,12 @@ export function TeamManager() {
       }
       
       // Загрузка сотрудников только текущей компании
+      // Exclude system employees (is_system = true) - they are for platform viewer only
       const { data: employeesData } = await supabase
         .from('employees')
         .select('*')
         .eq('company_id', companyId)
+        .eq('is_system', false)
         .order('full_name')
       
       // Загрузка ролей

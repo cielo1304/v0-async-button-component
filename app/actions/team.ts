@@ -104,11 +104,12 @@ export async function listEmployees() {
     throw new Error('You must be a member of a company')
   }
   
-  // List employees for this company only
+  // List employees for this company only (exclude system employees)
   const { data: employees, error } = await supabase
     .from('employees')
     .select('*')
     .eq('company_id', membership.company_id)
+    .eq('is_system', false)
     .order('created_at', { ascending: false })
   
   if (error) throw new Error(error.message)
