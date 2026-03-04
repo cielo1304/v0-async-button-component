@@ -169,7 +169,8 @@ export default function FinanceDealDetailPage() {
 
   const loadRefs = useCallback(async () => {
     const [e, a] = await Promise.all([
-      supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
+      // Exclude system employees (is_system = true)
+      supabase.from('employees').select('id, full_name').eq('is_active', true).eq('is_system', false).order('full_name'),
       supabase.from('assets').select('id, title, asset_type, status').order('created_at', { ascending: false }),
     ])
     setEmployees((e.data || []) as Employee[])

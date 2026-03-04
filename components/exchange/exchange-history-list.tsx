@@ -149,7 +149,8 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     async function loadSettleData() {
       const [cbRes, empRes] = await Promise.all([
         supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
-        supabase.from('employees').select('id, full_name').eq('is_active', true).order('full_name'),
+        // Exclude system employees (is_system = true)
+        supabase.from('employees').select('id, full_name').eq('is_active', true).eq('is_system', false).order('full_name'),
       ])
       if (cbRes.data) setCashboxes(cbRes.data)
     }

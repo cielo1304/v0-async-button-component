@@ -335,7 +335,7 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       .eq('company_id', companyId)
       .eq('is_active', true)
       .not('auth_user_id', 'is', null)
-      .or('is_system.is.null,is_system.eq.false') // Exclude system employees
+      .eq('is_system', false) // Exclude system employees
       .order('full_name')
 
     if (empError) {

@@ -55,7 +55,7 @@ export function GodModeActorSelector({
         .from('employees')
         .select('id, full_name, position')
         .eq('is_active', true)
-        .or('is_system.is.null,is_system.eq.false')
+        .eq('is_system', false)
         .order('full_name')
 
       if (error) {

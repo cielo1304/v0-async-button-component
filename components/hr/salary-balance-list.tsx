@@ -19,10 +19,12 @@ export function SalaryBalanceList() {
   useEffect(() => {
     async function loadEmployees() {
       try {
+        // Exclude system employees (is_system = true)
         const { data, error } = await supabase
           .from('employees')
           .select('*')
           .eq('is_active', true)
+          .eq('is_system', false)
           .order('full_name')
 
         if (error) throw error

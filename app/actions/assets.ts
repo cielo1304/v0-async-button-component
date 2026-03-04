@@ -201,10 +201,12 @@ export async function getAssetLocations() {
 
 export async function getEmployeesList() {
   const { supabase } = await createSupabaseAndRequireUser()
+  // Exclude system employees (is_system = true)
   const { data, error } = await supabase
     .from('employees')
     .select('id, full_name')
     .eq('is_active', true)
+    .eq('is_system', false)
     .order('full_name')
   if (error) throw new Error(error.message)
   return data || []

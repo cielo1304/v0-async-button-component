@@ -212,10 +212,12 @@ export default function ExchangePage() {
           .from('exchange_settings')
           .select('*')
           .single(),
+        // Exclude system employees (is_system = true)
         supabase
           .from('employees')
           .select('id, full_name')
           .eq('is_active', true)
+          .eq('is_system', false)
           .order('full_name'),
         supabase
           .from('contacts')

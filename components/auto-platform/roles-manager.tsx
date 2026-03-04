@@ -69,7 +69,7 @@ export function RolesManager() {
           employees:user_id (id, name, position)
         `),
         // Exclude system employees (is_system = true)
-        supabase.from('employees').select('id, name, position').eq('is_active', true).or('is_system.is.null,is_system.eq.false'),
+        supabase.from('employees').select('id, name, position').eq('is_active', true).eq('is_system', false),
       ])
 
       setRoles(rolesRes.data || [])

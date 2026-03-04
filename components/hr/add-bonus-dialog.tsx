@@ -40,7 +40,7 @@ export function AddBonusDialog() {
         .from('employees')
         .select('*')
         .eq('is_active', true)
-        .or('is_system.is.null,is_system.eq.false')
+        .eq('is_system', false)
         .order('full_name')
       setEmployees(data || [])
     }

@@ -203,7 +203,7 @@ export function TeamManager() {
         .from('employees')
         .select('*')
         .eq('company_id', companyId)
-        .or('is_system.is.null,is_system.eq.false')
+        .eq('is_system', false)
         .order('full_name')
       
       // Загрузка ролей
