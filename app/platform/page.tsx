@@ -171,9 +171,11 @@ export default function PlatformPage() {
     try {
       const result = await startViewAsSession(selectedCompanyId, selectedEmployeeId)
       if (result.success) {
-        toast.success('Режим просмотра активирован')
-        // Navigate to home page in view-as mode
-        router.push('/')
+        toast.success('Просмотр активирован')
+        // Use hard navigation so middleware sees the new cookie immediately
+        // Don't reset startingViewAs - keep spinner while navigating
+        window.location.assign('/')
+        return
       } else {
         // Typed error codes for better Russian messages
         const errorMessages: Record<string, string> = {
@@ -185,11 +187,11 @@ export default function PlatformPage() {
         }
         const message = result.errorCode ? errorMessages[result.errorCode] : result.error
         toast.error(message || 'Ошибка активации режима просмотра')
+        setStartingViewAs(false)
       }
     } catch (err) {
       console.error('[v0] startViewAsSession error:', err)
       toast.error('Ошибка активации режима просмотра')
-    } finally {
       setStartingViewAs(false)
     }
   }
