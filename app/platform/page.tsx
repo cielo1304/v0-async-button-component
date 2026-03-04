@@ -144,13 +144,21 @@ export default function PlatformPage() {
     setSelectedEmployeeId('')
     try {
       const result = await listCompanyEmployees(companyId)
-      if (result.employees) {
-        setEmployees(result.employees)
-      } else {
+      if (!result.ok) {
+        // Show error toast if loading failed
+        toast.error('Не удалось загрузить сотрудников', {
+          description: result.error || 'Неизвестная ошибка',
+        })
         setEmployees([])
+        return
       }
+      // Success - set employees (may be empty array if company has no employees)
+      setEmployees(result.employees ?? [])
     } catch (err) {
       console.error('[v0] Failed to load employees:', err)
+      toast.error('Не удалось загрузить сотрудников', {
+        description: 'Ошибка сети или сервера',
+      })
       setEmployees([])
     } finally {
       setLoadingEmployees(false)
