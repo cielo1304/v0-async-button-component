@@ -259,7 +259,8 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
 }
 
 /**
- * List employees of a company who have linked auth users (platform admin only)
+ * List ALL employees of a company (platform admin only)
+ * For view-as, we list all employees regardless of whether they have linked auth users.
  * Uses service role to bypass RLS since platform admin is not a team member.
  */
 export async function listCompanyEmployees(companyId: string): Promise<{ employees?: EmployeeWithUser[]; error?: string }> {
@@ -272,11 +273,12 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
     }
 
     // Use admin client to bypass RLS
-    // First get all employees for this company
+    // Get all active employees for this company (exclude platform viewer temp employees)
     const { data: employeesData, error: empError } = await adminSupabase
       .from('employees')
-      .select('id, full_name, position, is_active')
+      .select('id, full_name, position, is_active, is_platform_viewer')
       .eq('company_id', companyId)
+      .eq('is_active', true)
       .order('full_name')
 
     if (empError) {
@@ -288,37 +290,37 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
       return { employees: [] }
     }
 
-    // Get team_members to find which employees have linked user_id
+    // Get team_members to find role info (optional)
     const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
       .select('employee_id, user_id, member_role')
       .eq('company_id', companyId)
-      .not('user_id', 'is', null)
 
     if (tmError) {
       console.error('[v0] listCompanyEmployees team_members error:', tmError)
-      return { error: tmError.message }
+      // Non-fatal, continue without role info
     }
 
     // Create a map of employee_id -> { user_id, member_role }
-    const teamMemberMap = new Map<string, { user_id: string; member_role: string | null }>()
+    const teamMemberMap = new Map<string, { user_id: string | null; member_role: string | null }>()
     for (const tm of teamMembersData || []) {
-      if (tm.employee_id && tm.user_id) {
+      if (tm.employee_id) {
         teamMemberMap.set(tm.employee_id, { user_id: tm.user_id, member_role: tm.member_role })
       }
     }
 
-    // Filter employees who have a linked user_id
+    // Return ALL employees (not just those with linked users)
+    // Filter out platform viewer temp employees
     const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => teamMemberMap.has(emp.id))
+      .filter((emp) => !emp.is_platform_viewer)
       .map((emp) => {
-        const tm = teamMemberMap.get(emp.id)!
+        const tm = teamMemberMap.get(emp.id)
         return {
           id: emp.id,
           full_name: emp.full_name,
           position: emp.position,
-          user_id: tm.user_id,
-          member_role: tm.member_role ?? undefined,
+          user_id: tm?.user_id ?? '', // May be empty for employees without auth
+          member_role: tm?.member_role ?? undefined,
         }
       })
 
@@ -329,14 +331,110 @@ export async function listCompanyEmployees(companyId: string): Promise<{ employe
   }
 }
 
+interface MembershipResult {
+  created: boolean
+  companyId: string
+  viewerEmployeeId?: string
+  teamMemberId?: string
+  error?: string
+}
+
+/**
+ * Ensure platform admin has a temporary team_members row for the selected company.
+ * This allows RLS policies to grant read access.
+ * 
+ * If membership already exists (platform admin is already a member of the company),
+ * we don't create anything and return { created: false }.
+ */
+async function ensurePlatformViewerMembership(
+  platformAdminUserId: string,
+  platformAdminEmail: string,
+  companyId: string
+): Promise<MembershipResult> {
+  // Check if platform admin already has membership in this company
+  const { data: existingMembership } = await adminSupabase
+    .from('team_members')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('user_id', platformAdminUserId)
+    .single()
+
+  if (existingMembership) {
+    // Already a member, no need to create anything
+    return { created: false, companyId }
+  }
+
+  // Check if we already have a platform viewer employee for this admin in this company
+  const { data: existingViewerEmployee } = await adminSupabase
+    .from('employees')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('auth_user_id', platformAdminUserId)
+    .eq('is_platform_viewer', true)
+    .single()
+
+  let viewerEmployeeId: string
+
+  if (existingViewerEmployee) {
+    // Reuse existing viewer employee
+    viewerEmployeeId = existingViewerEmployee.id
+  } else {
+    // Create a new platform viewer employee
+    const { data: newEmployee, error: empError } = await adminSupabase
+      .from('employees')
+      .insert({
+        company_id: companyId,
+        full_name: 'Просмотр (админ платформы)',
+        email: platformAdminEmail,
+        auth_user_id: platformAdminUserId,
+        is_active: true,
+        is_platform_viewer: true,
+      })
+      .select('id')
+      .single()
+
+    if (empError || !newEmployee) {
+      console.error('[v0] Failed to create viewer employee:', empError)
+      return { created: false, companyId, error: 'Ошибка создания временного сотрудника' }
+    }
+
+    viewerEmployeeId = newEmployee.id
+  }
+
+  // Create team_members row with platform_viewer role
+  const { data: newTeamMember, error: tmError } = await adminSupabase
+    .from('team_members')
+    .insert({
+      company_id: companyId,
+      user_id: platformAdminUserId,
+      employee_id: viewerEmployeeId,
+      member_role: 'platform_viewer',
+    })
+    .select('id')
+    .single()
+
+  if (tmError || !newTeamMember) {
+    console.error('[v0] Failed to create team_members row:', tmError)
+    return { created: false, companyId, error: 'Ошибка создания членства' }
+  }
+
+  return {
+    created: true,
+    companyId,
+    viewerEmployeeId,
+    teamMemberId: newTeamMember.id,
+  }
+}
+
 /**
  * Start a view-as session (platform admin only)
+ * Creates temporary membership for RLS access, then sets view-as cookie.
  * Returns typed error codes for better UI handling.
  */
 export async function startViewAsSession(
   companyId: string,
   employeeId: string
-): Promise<{ success: boolean; error?: string; errorCode?: 'not_platform_admin' | 'no_company' | 'no_employee' | 'no_linked_user' | 'unknown' }> {
+): Promise<{ success: boolean; error?: string; errorCode?: 'not_platform_admin' | 'no_company' | 'no_employee' | 'membership_error' | 'unknown' }> {
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
 
@@ -356,10 +454,10 @@ export async function startViewAsSession(
       return { success: false, error: 'Компания не найдена', errorCode: 'no_company' }
     }
 
-    // Get employee info directly from employees table
+    // Get employee info directly from employees table (allow any employee, not just those with auth)
     const { data: employee, error: empError } = await adminSupabase
       .from('employees')
-      .select('id, full_name, auth_user_id')
+      .select('id, full_name')
       .eq('id', employeeId)
       .eq('company_id', companyId)
       .single()
@@ -368,40 +466,30 @@ export async function startViewAsSession(
       return { success: false, error: 'Сотрудник не найден', errorCode: 'no_employee' }
     }
 
-    // Try to get user_id from team_members first (preferred)
-    let targetUserId: string | null = null
+    // Ensure platform admin has membership in this company for RLS access
+    const membershipResult = await ensurePlatformViewerMembership(
+      user.id,
+      user.email || 'platform-admin@mutka.local',
+      companyId
+    )
 
-    const { data: teamMember } = await adminSupabase
-      .from('team_members')
-      .select('user_id')
-      .eq('company_id', companyId)
-      .eq('employee_id', employeeId)
-      .not('user_id', 'is', null)
-      .single()
-
-    if (teamMember?.user_id) {
-      targetUserId = teamMember.user_id
-    } else if (employee.auth_user_id) {
-      // Fallback to employees.auth_user_id
-      targetUserId = employee.auth_user_id
-    }
-
-    if (!targetUserId) {
-      return { 
-        success: false, 
-        error: 'У сотрудника нет привязанного пользователя (auth).', 
-        errorCode: 'no_linked_user' 
-      }
+    if (membershipResult.error) {
+      return { success: false, error: membershipResult.error, errorCode: 'membership_error' }
     }
 
     // Create the view-as session token
+    // targetUserId is the platform admin's own ID (we use their auth session, not the viewed employee's)
     const token = await createViewAsSession({
-      targetUserId,
+      targetUserId: user.id,
       targetCompanyId: companyId,
       targetEmployeeId: employeeId,
       targetDisplayName: employee.full_name,
       companyName: company.name,
       viewerAdminUserId: user.id,
+      // Track membership for cleanup
+      createdMembership: membershipResult.created,
+      createdTeamMemberId: membershipResult.teamMemberId,
+      createdViewerEmployeeId: membershipResult.viewerEmployeeId,
     })
 
     // Set the cookie
@@ -416,9 +504,40 @@ export async function startViewAsSession(
 
 /**
  * End the current view-as session
+ * Cleans up temporary membership if it was created.
  */
 export async function endViewAsSession(): Promise<{ success: boolean }> {
   try {
+    // Get current session to check if we need to clean up membership
+    const session = await getViewAsSession()
+
+    if (session?.createdMembership) {
+      // Clean up the temporary team_members row
+      if (session.createdTeamMemberId) {
+        const { error: tmDeleteError } = await adminSupabase
+          .from('team_members')
+          .delete()
+          .eq('id', session.createdTeamMemberId)
+
+        if (tmDeleteError) {
+          console.error('[v0] Failed to delete temp team_members:', tmDeleteError)
+        }
+      }
+
+      // Clean up the temporary viewer employee (only if is_platform_viewer = true)
+      if (session.createdViewerEmployeeId) {
+        const { error: empDeleteError } = await adminSupabase
+          .from('employees')
+          .delete()
+          .eq('id', session.createdViewerEmployeeId)
+          .eq('is_platform_viewer', true) // Safety: only delete platform viewer employees
+
+        if (empDeleteError) {
+          console.error('[v0] Failed to delete temp viewer employee:', empDeleteError)
+        }
+      }
+    }
+
     await clearViewAsCookie()
     return { success: true }
   } catch (err) {
