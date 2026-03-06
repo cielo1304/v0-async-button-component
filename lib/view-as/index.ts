@@ -216,3 +216,29 @@ export async function assertNotReadOnly(): Promise<void> {
     throw error
   }
 }
+
+/**
+ * Get impersonation context for use in data fetching.
+ * 
+ * When in impersonation mode, data fetching should use service-role queries
+ * since the platform admin doesn't have RLS access to the target company.
+ * 
+ * @returns { isImpersonation: boolean, effectiveCompanyId?: string, effectiveEmployeeId?: string }
+ */
+export async function getImpersonationContext(): Promise<{
+  isImpersonation: boolean
+  realActorUserId?: string
+  effectiveCompanyId?: string
+  effectiveEmployeeId?: string
+}> {
+  const session = await getViewAsSession()
+  if (!session) {
+    return { isImpersonation: false }
+  }
+  return {
+    isImpersonation: true,
+    realActorUserId: session.realActorUserId,
+    effectiveCompanyId: session.effectiveCompanyId,
+    effectiveEmployeeId: session.effectiveEmployeeId,
+  }
+}
