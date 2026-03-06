@@ -13,6 +13,7 @@ import { Plus } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
 import { Employee } from '@/lib/types/database'
+import { filterOutSystemEmployees } from '@/lib/utils'
 
 const OPERATION_TYPES = [
   { value: 'ACCRUAL', label: 'Начисление зарплаты' },
@@ -42,7 +43,8 @@ export function AddBonusDialog() {
         .eq('is_active', true)
         .eq('is_system', false)
         .order('full_name')
-      setEmployees(data || [])
+      // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+      setEmployees(filterOutSystemEmployees(data || []))
     }
     if (open) loadEmployees()
   }, [open])

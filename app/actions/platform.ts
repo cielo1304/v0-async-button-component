@@ -312,10 +312,15 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
 }
 
 /**
- * List REAL employees of a company that have linked auth users (can log in).
- * For view-as, we only show employees with:
- * - auth_user_id IS NOT NULL (can log in)
- * - is_system = false (not a platform viewer / system employee)
+ * List ALL employees of a company for view-as dropdown.
+ * 
+ * Requirements:
+ * - Returns employees where company_id == companyId (does NOT require auth_user_id)
+ * - Excludes viewer/system employees:
+ *   - is_system == true (if column exists)
+ *   - full_name starts with 'Просмотр (админ платформы)'
+ * - Returns minimal fields: id, full_name, email, member_role (for "Владелец" label)
+ * 
  * Uses service role to bypass RLS since platform admin is not a team member.
  */
 export async function listCompanyEmployees(companyId: string): Promise<{ ok: boolean; employees?: EmployeeWithUser[]; error?: string }> {
@@ -328,14 +333,12 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
     }
 
     // Use admin client to bypass RLS
-    // Only select REAL employees: auth_user_id IS NOT NULL AND is_system = false
+    // Query ALL active employees (not just those with auth_user_id)
     const { data: employeesData, error: empError } = await adminSupabase
       .from('employees')
       .select('id, full_name, position, is_active, email, auth_user_id, is_system')
       .eq('company_id', companyId)
       .eq('is_active', true)
-      .not('auth_user_id', 'is', null)
-      .eq('is_system', false) // Exclude system employees
       .order('full_name')
 
     if (empError) {
@@ -347,7 +350,7 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       return { ok: true, employees: [] }
     }
 
-    // Get team_members to find role info
+    // Get team_members to find role info (for "Владелец" label)
     const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
       .select('employee_id, user_id, member_role')
@@ -366,9 +369,15 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       }
     }
 
-    // Map to EmployeeWithUser - filter out any system employees that might have slipped through
+    // Filter out viewer/system employees and map to EmployeeWithUser
     const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => !emp.is_system)
+      .filter((emp) => {
+        // Exclude if is_system == true
+        if (emp.is_system === true) return false
+        // Exclude if full_name starts with viewer employee prefix
+        if (emp.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) return false
+        return true
+      })
       .map((emp) => {
         const tm = teamMemberMap.get(emp.id)
         return {

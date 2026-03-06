@@ -6,6 +6,7 @@ import { DataTable } from '@/components/ui/data-table'
 import { Badge } from '@/components/ui/badge'
 import { Employee } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
+import { filterOutSystemEmployees } from '@/lib/utils'
 import { Loader2, ChevronRight } from 'lucide-react'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -28,7 +29,8 @@ export function SalaryBalanceList() {
           .order('full_name')
 
         if (error) throw error
-        setEmployees(data || [])
+        // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+        setEmployees(filterOutSystemEmployees(data || []))
       } catch {
         // Silent fail
       } finally {

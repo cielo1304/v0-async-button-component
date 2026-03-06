@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { filterOutSystemEmployees } from '@/lib/utils'
 import {
   Select,
   SelectContent,
@@ -64,7 +65,8 @@ export function GodModeActorSelector({
         return
       }
 
-      setEmployees(data || [])
+      // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+      setEmployees(filterOutSystemEmployees(data || []))
       setLoading(false)
     }
 

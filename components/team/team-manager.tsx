@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import { filterOutSystemEmployees } from '@/lib/utils'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -206,6 +207,9 @@ export function TeamManager() {
         .eq('is_system', false)
         .order('full_name')
       
+      // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+      const filteredEmployees = filterOutSystemEmployees(employeesData || [])
+      
       // Загрузка ролей
       const { data: rolesData } = await supabase
         .from('system_roles')
@@ -216,7 +220,8 @@ export function TeamManager() {
       const currentUser = currentUserEarly
       
       // ID сотрудников этой компании для фильтрации employee_roles
-      const employeeIds = (employeesData || []).map(e => e.id)
+      // Use filteredEmployees (UI-level safety filter applied)
+      const employeeIds = filteredEmployees.map(e => e.id)
       
       // Загрузка employee_roles только для сотрудников этой компании
       const { data: employeeRolesData } = employeeIds.length > 0
@@ -297,7 +302,8 @@ export function TeamManager() {
       })
       
       // Добавляем информацию о ролях к сотрудникам
-      const employeesWithRoles: EmployeeWithUser[] = (employeesData || []).map(emp => {
+      // Use filteredEmployees (UI-level safety filter applied)
+      const employeesWithRoles: EmployeeWithUser[] = filteredEmployees.map(emp => {
         const userInfo = emp.user_id ? usersMap.get(emp.user_id) : 
                         emp.auth_user_id ? usersMap.get(emp.auth_user_id) : null
         const empRoles = employeeRolesMap.get(emp.id) || []

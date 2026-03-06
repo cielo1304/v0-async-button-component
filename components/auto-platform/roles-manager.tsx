@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { createClient } from '@/lib/supabase/client'
+import { filterOutSystemEmployees } from '@/lib/utils'
 import { Loader2, Shield, UserPlus, X, Users } from 'lucide-react'
 import {
   Dialog,
@@ -74,7 +75,8 @@ export function RolesManager() {
 
       setRoles(rolesRes.data || [])
       setUserRoles(userRolesRes.data || [])
-      setEmployees(employeesRes.data || [])
+      // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+      setEmployees(filterOutSystemEmployees(employeesRes.data || []))
     } catch (error) {
       console.error('Error loading roles data:', error)
     } finally {
