@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { revalidatePath } from 'next/cache'
 import { assertNotReadOnly } from '@/lib/view-as'
 
@@ -237,23 +238,19 @@ export async function getAllRates(): Promise<Record<string, Record<string, numbe
 
 // ========== COMPANY_CURRENCY_RATES (per-company rates) ==========
 
-// Helper: get the active company_id for the current user
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function getActiveCompanyId(supabase: any, userId: string): Promise<string | null> {
-  const { data } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle()
-  return data?.company_id ?? null
-}
+// HARD SCOPE: Use centralized getCompanyId which respects View-As scope lock
+// This prevents A+B scope mixing when platform admin is in View-As mode
 
 export async function getSystemCurrencyRates() {
   const { supabase, user } = await createSupabaseAndRequireUser()
 
-  // Try per-company rates first (059 table)
-  const companyId = await getActiveCompanyId(supabase, user.id)
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  let companyId: string | null = null
+  try {
+    companyId = await getCompanyId(supabase, user.id)
+  } catch {
+    // User has no company, will fallback to global rates
+  }
   if (companyId) {
     const { data: companyRates } = await supabase
       .from('company_currency_rates')

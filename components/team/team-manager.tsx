@@ -71,6 +71,7 @@ import {
   createEmployeeInviteLink,
   deleteEmployeeInviteLink,
   listEmployeeInviteLinks,
+  getEffectiveTeamContext,
 } from '@/app/actions/team'
 
 // Типы
@@ -159,32 +160,13 @@ export function TeamManager() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Определяем активную компанию текущего пользователя
-      const { data: { user: currentUserEarly } } = await supabase.auth.getUser()
+      // HARD SCOPE: Use server action that respects View-As scope lock
+      // This prevents A+B scope mixing when platform admin is in View-As mode
+      const teamContext = await getEffectiveTeamContext()
       
-      let companyId: string | null = null
-      let companyName: string | null = null
-      
-      if (currentUserEarly) {
-        const { data: membership } = await supabase
-          .from('team_members')
-          .select('company_id, member_role, companies(name)')
-          .eq('user_id', currentUserEarly.id)
-          .limit(1)
-          .single()
-        
-        if (membership) {
-          companyId = membership.company_id
-          setIsOwner(membership.member_role === 'owner')
-          const comp = membership.companies
-          if (comp && !Array.isArray(comp)) {
-            companyName = (comp as { name: string }).name
-          } else if (Array.isArray(comp) && comp.length > 0) {
-            companyName = (comp[0] as { name: string }).name
-          }
-        }
-      }
-      
+      const companyId = teamContext.companyId
+      const companyName = teamContext.companyName
+      setIsOwner(teamContext.isOwner)
       setActiveCompanyId(companyId)
       setActiveCompanyName(companyName)
       

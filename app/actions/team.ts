@@ -9,6 +9,75 @@ import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope }
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
 
 // ================================================
+// Effective Team Context (for client components)
+// ================================================
+
+/**
+ * Get effective team context for client components.
+ * 
+ * HARD SCOPE LOCK: In View-As mode, returns the impersonated company context,
+ * NOT the operator's real company. This prevents A+B scope confusion in UI.
+ */
+export async function getEffectiveTeamContext(): Promise<{
+  companyId: string | null
+  companyName: string | null
+  isOwner: boolean
+  isImpersonation: boolean
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // Check for View-As scope lock first
+  const lockedScope = await getLockedCompanyScope()
+  if (lockedScope) {
+    // In View-As mode: get company name from session or DB
+    const { data: company } = await adminSupabase
+      .from('companies')
+      .select('name')
+      .eq('id', lockedScope)
+      .single()
+    
+    return {
+      companyId: lockedScope,
+      companyName: company?.name ?? null,
+      isOwner: false, // View-As is always read-only, not owner
+      isImpersonation: true,
+    }
+  }
+  
+  // Normal mode: look up via team_members
+  const { data: membership } = await supabase
+    .from('team_members')
+    .select('company_id, member_role, companies(name)')
+    .eq('user_id', user.id)
+    .limit(1)
+    .single()
+  
+  if (!membership) {
+    return {
+      companyId: null,
+      companyName: null,
+      isOwner: false,
+      isImpersonation: false,
+    }
+  }
+  
+  const comp = membership.companies
+  let companyName: string | null = null
+  if (comp && !Array.isArray(comp)) {
+    companyName = (comp as { name: string }).name
+  } else if (Array.isArray(comp) && comp.length > 0) {
+    companyName = (comp[0] as { name: string }).name
+  }
+  
+  return {
+    companyId: membership.company_id,
+    companyName,
+    isOwner: membership.member_role === 'owner',
+    isImpersonation: false,
+  }
+}
+
+// ================================================
 // Employee CRUD
 // ================================================
 

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 
@@ -395,20 +396,9 @@ export async function createCashbox(input: CreateCashboxInput) {
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
-    // Resolve company_id: prefer explicit override, then lookup from team_members
-    let companyId = input.company_id ?? null
-    if (!companyId) {
-      const { data: membership, error: memberError } = await supabase
-        .from('team_members')
-        .select('company_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .maybeSingle()
-      if (memberError || !membership?.company_id) {
-        return { success: false, error: `Не удалось определить компанию пользователя: ${memberError?.message || 'нет членства'}` }
-      }
-      companyId = membership.company_id
-    }
+    // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+    // This prevents A+B scope mixing when platform admin is in View-As mode
+    const companyId = await getCompanyId(supabase, user.id)
 
     const { data: newCashbox, error } = await supabase
       .from('cashboxes')
