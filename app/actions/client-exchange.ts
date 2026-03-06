@@ -652,7 +652,7 @@ export async function settleClientExchangeIn(
       .single()
 
     if (!cashboxData) return { success: false, error: 'Касса не найдена' }
-    const companyId = cashboxData.company_id
+    const cashboxCompanyId = cashboxData.company_id
 
     // 3. Execute cashbox_operation: positive amount = deposit (client pays us)
     const { error: rpcErr } = await supabase.rpc('cashbox_operation', {
@@ -669,7 +669,7 @@ export async function settleClientExchangeIn(
     // 4. Compensate counterparty ledger: was -amount (client owed us) -> add +amount to zero it out
     if (operation.contact_id) {
       await supabase.from('counterparty_ledger').insert({
-        company_id: companyId,
+        company_id: cashboxCompanyId,
         counterparty_id: operation.contact_id,
         asset_code: currency,
         delta: amount, // compensate the -amount from pending creation
@@ -765,7 +765,7 @@ export async function settleClientExchangeOut(
       .single()
 
     if (!cashboxData) return { success: false, error: 'Касса не найдена' }
-    const companyId = cashboxData.company_id
+    const cashboxCompanyId = cashboxData.company_id
 
     // Server-side available balance check accounting for OTHER operations' reservations
     const { data: activeReservations } = await supabase
@@ -819,7 +819,7 @@ export async function settleClientExchangeOut(
     // 5. Compensate counterparty ledger: was +amount (we owed client) -> add -amount to zero it out
     if (operation.contact_id) {
       await supabase.from('counterparty_ledger').insert({
-        company_id: companyId,
+        company_id: cashboxCompanyId,
         counterparty_id: operation.contact_id,
         asset_code: currency,
         delta: -amount, // compensate the +amount from pending creation
