@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { assertNotReadOnly } from '@/lib/view-as'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { z } from 'zod'
 
 const ExchangeSchema = z.object({
@@ -506,25 +507,11 @@ export type CreateExchangeDealInput = {
 
 export async function createExchangeDeal(input: CreateExchangeDealInput) {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   try {
-    // Get current user and company_id
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return { success: false, error: 'Пользователь не авторизован', dealId: null }
-    }
-
-    // Get company_id from team_members
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('company_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!teamMember) {
-      return { success: false, error: 'Пользователь не привязан к компании', dealId: null }
-    }
+    // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+    const companyId = await getCompanyId(supabase, user.id)
 
     // Transform legs to JSONB format for RPC
     const legsJsonb = input.legs.map(leg => ({
@@ -539,7 +526,7 @@ export async function createExchangeDeal(input: CreateExchangeDealInput) {
 
     // Call RPC function
     const { data: dealId, error } = await supabase.rpc('exchange_deal_create', {
-      p_company_id: teamMember.company_id,
+      p_company_id: companyId,
       p_created_by: user.id,
       p_deal_date: input.dealDate,
       p_status: input.status,
@@ -603,29 +590,16 @@ export type InternalExchangeInput = {
 }
 
 export async function internalExchangePost(input: InternalExchangeInput) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
   
   try {
-    // Get current user and company
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      return { success: false, error: 'Пользователь не авторизован', exchangeLogId: null }
-    }
-
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('company_id')
-      .eq('user_id', user.id)
-      .single()
-
-    if (!teamMember) {
-      return { success: false, error: 'Пользователь не привязан к компании', exchangeLogId: null }
-    }
+    // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+    const companyId = await getCompanyId(supabase, user.id)
 
     // Call RPC
     const { data: exchangeLogId, error } = await supabase.rpc('internal_exchange_post', {
       request_id: input.requestId,
-      p_company_id: teamMember.company_id,
+      p_company_id: companyId,
       from_cashbox_id: input.fromCashboxId,
       to_cashbox_id: input.toCashboxId,
       from_amount: input.fromAmount,

@@ -1,9 +1,13 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getLockedCompanyScope, getViewAsSession } from '@/lib/view-as'
 
 /**
- * Get the current user's team membership
+ * Get the current user's team membership.
+ * 
+ * HARD SCOPE LOCK: In View-As mode, returns synthetic membership data
+ * based on the impersonation session to prevent A+B scope mixing.
  */
 export async function getMyMembership(): Promise<{
   membership?: {
@@ -14,8 +18,27 @@ export async function getMyMembership(): Promise<{
     created_at: string
   } | null
   error?: string
+  isImpersonation?: boolean
 }> {
   try {
+    // Check for View-As scope lock first
+    const session = await getViewAsSession()
+    if (session?.effectiveCompanyId) {
+      // Return synthetic membership from impersonation session
+      // This prevents the caller from seeing operator's real membership
+      return {
+        membership: {
+          id: 'impersonation-synthetic',
+          user_id: session.realActorUserId,
+          company_id: session.effectiveCompanyId,
+          role: 'viewer', // View-As is always read-only viewer
+          created_at: new Date().toISOString(),
+        },
+        isImpersonation: true,
+      }
+    }
+
+    // Normal mode: look up via team_members
     const { supabase, user } = await createSupabaseAndRequireUser()
 
     const { data, error } = await supabase
@@ -30,7 +53,7 @@ export async function getMyMembership(): Promise<{
       return { error: error.message }
     }
 
-    return { membership: data }
+    return { membership: data, isImpersonation: false }
   } catch (err) {
     console.error('[v0] getMyMembership error:', err)
     return { error: 'Failed to get membership' }

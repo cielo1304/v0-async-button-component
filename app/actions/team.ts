@@ -2,7 +2,8 @@
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
 import { adminSupabase } from '@/lib/supabase/admin'
-import { assertNotReadOnly } from '@/lib/view-as'
+import { assertNotReadOnly, getLockedCompanyScope } from '@/lib/view-as'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { revalidatePath } from 'next/cache'
 import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
@@ -22,21 +23,13 @@ export async function createEmployee(data: {
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
-  // Get current user's company_id from team_members
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-  
-  if (!membership) {
-    throw new Error('You must be a member of a company to create employees')
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
   
   const { data: employee, error } = await supabase
     .from('employees')
     .insert({
-      company_id: membership.company_id,
+      company_id: companyId,
       full_name: data.full_name,
       position: data.position || null,
       phone: data.phone || null,
@@ -93,22 +86,14 @@ export async function updateEmployee(
 export async function listEmployees() {
   const { supabase, user } = await createSupabaseAndRequireUser()
   
-  // Get current user's company_id
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-  
-  if (!membership) {
-    throw new Error('You must be a member of a company')
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
   
   // List employees for this company only (exclude system employees)
   const { data: employees, error } = await supabase
     .from('employees')
     .select('*')
-    .eq('company_id', membership.company_id)
+    .eq('company_id', companyId)
     .eq('is_system', false)
     .order('created_at', { ascending: false })
   
@@ -121,16 +106,8 @@ export async function deactivateEmployee(employeeId: string) {
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
-  // Verify employee belongs to user's company
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-  
-  if (!membership) {
-    throw new Error('You must be a member of a company')
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
   
   const { data: employee } = await supabase
     .from('employees')
@@ -138,7 +115,7 @@ export async function deactivateEmployee(employeeId: string) {
     .eq('id', employeeId)
     .single()
   
-  if (!employee || employee.company_id !== membership.company_id) {
+  if (!employee || employee.company_id !== companyId) {
     throw new Error('Employee not found or access denied')
   }
   
@@ -393,16 +370,8 @@ export async function createEmployeeInvite(employeeId: string, email: string) {
     throw new Error('Email не указан')
   }
   
-  // Get current user's company_id
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-  
-  if (!membership) {
-    throw new Error('You must be a member of a company')
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
   
   // Verify employee belongs to same company
   const { data: employee } = await supabase
@@ -411,7 +380,7 @@ export async function createEmployeeInvite(employeeId: string, email: string) {
     .eq('id', employeeId)
     .single()
   
-  if (!employee || employee.company_id !== membership.company_id) {
+  if (!employee || employee.company_id !== companyId) {
     throw new Error('Employee not found or access denied')
   }
   
@@ -548,23 +517,24 @@ export async function createEmployeeInviteLink(): Promise<{
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+
+  // Check role permission (only owner can create invite links)
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id, member_role')
+    .select('member_role')
     .eq('user_id', user.id)
+    .eq('company_id', companyId)
     .single()
 
-  if (!membership) {
-    return { error: 'no_company' }
-  }
-
-  if (membership.member_role !== 'owner') {
+  if (!membership || membership.member_role !== 'owner') {
     return { error: 'forbidden' }
   }
 
   const { data, error } = await supabase
     .from('employee_invite_links')
-    .insert({ company_id: membership.company_id })
+    .insert({ company_id: companyId })
     .select('id, token')
     .single()
 
@@ -585,26 +555,27 @@ export async function deleteEmployeeInviteLink(
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+
+  // Check role permission (only owner can delete invite links)
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id, member_role')
+    .select('member_role')
     .eq('user_id', user.id)
+    .eq('company_id', companyId)
     .single()
 
-  if (!membership) {
-    return { success: false, error: 'no_company' }
-  }
-
-  if (membership.member_role !== 'owner') {
+  if (!membership || membership.member_role !== 'owner') {
     return { success: false, error: 'forbidden' }
   }
 
-  // RLS enforces company scoping, but double-check explicitly
+  // Hard scope lock ensures company_id is the effective scope
   const { error } = await supabase
     .from('employee_invite_links')
     .delete()
     .eq('id', linkId)
-    .eq('company_id', membership.company_id)
+    .eq('company_id', companyId)
 
   if (error) {
     return { success: false, error: error.message }
@@ -631,24 +602,25 @@ export async function listEmployeeInviteLinks(): Promise<{
 }> {
   const { supabase, user } = await createSupabaseAndRequireUser()
 
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+
+  // Check role permission (only owner can list invite links)
   const { data: membership } = await supabase
     .from('team_members')
-    .select('company_id, member_role')
+    .select('member_role')
     .eq('user_id', user.id)
+    .eq('company_id', companyId)
     .single()
 
-  if (!membership) {
-    return { error: 'no_company' }
-  }
-
-  if (membership.member_role !== 'owner') {
+  if (!membership || membership.member_role !== 'owner') {
     return { error: 'forbidden' }
   }
 
   const { data, error } = await supabase
     .from('employee_invite_links')
     .select('id, token, status, created_at, expires_at, accepted_at, accepted_by')
-    .eq('company_id', membership.company_id)
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -678,16 +650,8 @@ export async function inviteEmployeeByEmail(
     return { success: false, error: 'Email не указан' }
   }
 
-  // Verify caller's company membership
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!membership) {
-    return { success: false, error: 'Вы должны быть членом компании' }
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
 
   // Verify employee belongs to same company
   const { data: employee } = await supabase
@@ -696,7 +660,7 @@ export async function inviteEmployeeByEmail(
     .eq('id', employeeId)
     .single()
 
-  if (!employee || employee.company_id !== membership.company_id) {
+  if (!employee || employee.company_id !== companyId) {
     return { success: false, error: 'Сотрудник не найден или нет доступа' }
   }
 

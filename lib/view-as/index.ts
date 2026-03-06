@@ -242,3 +242,74 @@ export async function getImpersonationContext(): Promise<{
     effectiveEmployeeId: session.effectiveEmployeeId,
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HARD SCOPE GUARDS (A+B Prevention)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * HARD GUARD: Validate that a company_id matches the effective scope.
+ * 
+ * In impersonation mode, ONLY the effectiveCompanyId is allowed.
+ * Any other company_id is a scope violation.
+ * 
+ * @throws Error with code `scope_violation` if company_id doesn't match effective scope
+ */
+export async function assertCompanyScope(companyId: string): Promise<void> {
+  const session = await getViewAsSession()
+  if (!session) {
+    // Not in impersonation mode - no restriction
+    return
+  }
+  
+  if (companyId !== session.effectiveCompanyId) {
+    const error = new Error(
+      `Нарушение области действия: запрошена компания ${companyId}, ` +
+      `но режим просмотра ограничен компанией ${session.effectiveCompanyId}`
+    ) as Error & { code: string }
+    error.code = 'scope_violation'
+    throw error
+  }
+}
+
+/**
+ * HARD GUARD: Get the canonical effective company scope.
+ * 
+ * In impersonation mode, returns ONLY the effectiveCompanyId from session.
+ * In normal mode, returns null (caller must resolve via team_members).
+ * 
+ * This is the SINGLE SOURCE OF TRUTH for company scope during View-As.
+ */
+export async function getLockedCompanyScope(): Promise<string | null> {
+  const session = await getViewAsSession()
+  if (!session) {
+    return null
+  }
+  return session.effectiveCompanyId
+}
+
+/**
+ * HARD GUARD: Get effective scope info for UI display.
+ * 
+ * Returns the locked scope information when in impersonation mode.
+ * UI components should use this to display the correct company context.
+ */
+export async function getEffectiveScopeInfo(): Promise<{
+  isImpersonation: boolean
+  companyId?: string
+  companyName?: string
+  employeeId?: string
+  employeeName?: string
+} | null> {
+  const session = await getViewAsSession()
+  if (!session) {
+    return null
+  }
+  return {
+    isImpersonation: true,
+    companyId: session.effectiveCompanyId,
+    companyName: session.companyName,
+    employeeId: session.effectiveEmployeeId,
+    employeeName: session.effectiveDisplayName,
+  }
+}

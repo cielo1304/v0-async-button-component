@@ -7,8 +7,58 @@ import {
   setViewAsCookie, 
   clearViewAsCookie, 
   getViewAsSession,
+  getLockedCompanyScope,
   type ViewAsSession 
 } from '@/lib/view-as'
+
+/**
+ * Get the effective company name for display.
+ * 
+ * HARD SCOPE LOCK: In View-As mode, returns ONLY the impersonated company name,
+ * NOT the operator's real company. This prevents A+B scope confusion in UI.
+ */
+export async function getEffectiveCompanyName(): Promise<{
+  companyName: string | null
+  isImpersonation: boolean
+}> {
+  try {
+    // Check for View-As scope lock first
+    const session = await getViewAsSession()
+    if (session?.companyName) {
+      return {
+        companyName: session.companyName,
+        isImpersonation: true,
+      }
+    }
+
+    // Normal mode: look up company via team_members
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    const { data: member } = await supabase
+      .from('team_members')
+      .select('company_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+
+    if (!member?.company_id) {
+      return { companyName: null, isImpersonation: false }
+    }
+
+    const { data: company } = await supabase
+      .from('companies')
+      .select('name')
+      .eq('id', member.company_id)
+      .maybeSingle()
+
+    return {
+      companyName: company?.name ?? null,
+      isImpersonation: false,
+    }
+  } catch {
+    return { companyName: null, isImpersonation: false }
+  }
+}
 
 /**
  * Check if the current user is a platform admin.
