@@ -2,6 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
+import { getActingEmployeeId } from '@/lib/tenant/get-acting-employee-id'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 
@@ -388,14 +390,9 @@ export async function setFollowup(
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   try {
-    // Derive actorEmployeeId from session
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('employee_id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const actorEmployeeId = teamMember?.employee_id || user.id
+  // HARD SCOPE: Use getActingEmployeeId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+  const actorEmployeeId = await getActingEmployeeId(supabase, user.id, companyId) || user.id
     
     const { error } = await supabase
       .from('client_exchange_operations')
@@ -435,14 +432,9 @@ export async function cancelExchange(operationId: string, _unused?: string, reas
     // Get auth user for created_by
     const authUserId = user?.id ?? null
     
-    // Derive actorEmployeeId from session: find employee linked to current user
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('employee_id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const actorEmployeeId = teamMember?.employee_id || user.id
+  // HARD SCOPE: Use getActingEmployeeId which respects View-As scope lock
+  const companyIdForActor = await getCompanyId(supabase, user.id)
+  const actorEmployeeId = await getActingEmployeeId(supabase, user.id, companyIdForActor) || user.id
     
     // 1. Get operation with details
     const { data: operation, error: fetchErr } = await supabase
@@ -566,14 +558,9 @@ export async function setClientExchangeStatus(
   const { supabase, user } = await createSupabaseAndRequireUser()
 
   try {
-    // Derive actorEmployeeId from session
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('employee_id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const actorEmployeeId = teamMember?.employee_id || user.id
+  // HARD SCOPE: Use getActingEmployeeId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+  const actorEmployeeId = await getActingEmployeeId(supabase, user.id, companyId) || user.id
     
     // 1. Fetch current operation
     const { data: operation, error: fetchErr } = await supabase
@@ -641,14 +628,9 @@ export async function settleClientExchangeIn(
     const categories = await getExchangeCategories()
     const authUserId = user?.id ?? null
     
-    // Derive actorEmployeeId from session
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('employee_id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const actorEmployeeId = teamMember?.employee_id || user.id
+  // HARD SCOPE: Use getActingEmployeeId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+  const actorEmployeeId = await getActingEmployeeId(supabase, user.id, companyId) || user.id
 
     // 1. Fetch operation
     const { data: operation, error: fetchErr } = await supabase
@@ -759,14 +741,9 @@ export async function settleClientExchangeOut(
     const categories = await getExchangeCategories()
     const authUserId = user?.id ?? null
     
-    // Derive actorEmployeeId from session
-    const { data: teamMember } = await supabase
-      .from('team_members')
-      .select('employee_id')
-      .eq('user_id', user.id)
-      .single()
-    
-    const actorEmployeeId = teamMember?.employee_id || user.id
+  // HARD SCOPE: Use getActingEmployeeId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+  const actorEmployeeId = await getActingEmployeeId(supabase, user.id, companyId) || user.id
 
     // 1. Fetch operation
     const { data: operation, error: fetchErr } = await supabase

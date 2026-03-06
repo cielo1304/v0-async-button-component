@@ -791,16 +791,8 @@ export async function deleteEmployeeInvite(
   await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
 
-  // Caller must be a team member
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', user.id)
-    .single()
-
-  if (!membership) {
-    return { success: false, error: 'Нет доступа' }
-  }
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
 
   // Find the invite and verify it belongs to the same company
   const { data: invite } = await supabase
@@ -821,7 +813,7 @@ export async function deleteEmployeeInvite(
         ? (invite.employees[0] as { company_id: string }).company_id
         : null
 
-  if (!inviteCompanyId || inviteCompanyId !== membership.company_id) {
+  if (!inviteCompanyId || inviteCompanyId !== companyId) {
     return { success: false, error: 'Нет доступа к этому приглашению' }
   }
 
