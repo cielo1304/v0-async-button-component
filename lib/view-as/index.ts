@@ -32,9 +32,11 @@ export interface ViewAsSession {
   viewerAdminUserId: string   // auth.users.id of the platform admin (same as targetUserId)
   mode: 'readonly_view_as'
   exp: number                 // Expiry timestamp
+  readOnly?: boolean          // True if in read-only mode
   // Membership tracking for cleanup
   createdMembership?: boolean          // True if we created a temp team_members row
   createdTeamMemberId?: string         // ID of created team_members row (for cleanup)
+  createdViewerEmployeeId?: string     // ID of created viewer employee row (for cleanup)
 }
 
 /**

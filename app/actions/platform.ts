@@ -312,10 +312,15 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
 }
 
 /**
- * List REAL employees of a company that have linked auth users (can log in).
- * For view-as, we only show employees with:
- * - auth_user_id IS NOT NULL (can log in)
- * - is_system = false (not a platform viewer / system employee)
+ * List ALL employees of a company for view-as dropdown.
+ * 
+ * Requirements:
+ * - Returns employees where company_id == companyId (does NOT require auth_user_id)
+ * - Excludes viewer/system employees:
+ *   - is_system == true (if column exists)
+ *   - full_name starts with 'Просмотр (админ платформы)'
+ * - Returns minimal fields: id, full_name, email, member_role (for "Владелец" label)
+ * 
  * Uses service role to bypass RLS since platform admin is not a team member.
  */
 export async function listCompanyEmployees(companyId: string): Promise<{ ok: boolean; employees?: EmployeeWithUser[]; error?: string }> {
@@ -328,14 +333,12 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
     }
 
     // Use admin client to bypass RLS
-    // Only select REAL employees: auth_user_id IS NOT NULL AND is_system = false
+    // Query ALL active employees (not just those with auth_user_id)
     const { data: employeesData, error: empError } = await adminSupabase
       .from('employees')
       .select('id, full_name, position, is_active, email, auth_user_id, is_system')
       .eq('company_id', companyId)
       .eq('is_active', true)
-      .not('auth_user_id', 'is', null)
-      .eq('is_system', false) // Exclude system employees
       .order('full_name')
 
     if (empError) {
@@ -347,7 +350,7 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       return { ok: true, employees: [] }
     }
 
-    // Get team_members to find role info
+    // Get team_members to find role info (for "Владелец" label)
     const { data: teamMembersData, error: tmError } = await adminSupabase
       .from('team_members')
       .select('employee_id, user_id, member_role')
@@ -366,9 +369,15 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       }
     }
 
-    // Map to EmployeeWithUser - filter out any system employees that might have slipped through
+    // Filter out viewer/system employees and map to EmployeeWithUser
     const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => !emp.is_system)
+      .filter((emp) => {
+        // Exclude if is_system == true
+        if (emp.is_system === true) return false
+        // Exclude if full_name starts with viewer employee prefix
+        if (emp.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) return false
+        return true
+      })
       .map((emp) => {
         const tm = teamMemberMap.get(emp.id)
         return {
@@ -395,53 +404,143 @@ interface MembershipResult {
   error?: string
 }
 
+// Viewer employee name prefix for cleanup
+const VIEWER_EMPLOYEE_NAME = 'Просмотр (админ платформы)'
+
+/**
+ * Clean up old viewer artifacts for a platform admin user.
+ * Deletes team_members and employees rows from previous view-as sessions.
+ */
+async function cleanupOldViewerArtifacts(platformAdminUserId: string): Promise<void> {
+  try {
+    // Find all team_members rows for this user that are linked to viewer employees
+    const { data: teamMembers } = await adminSupabase
+      .from('team_members')
+      .select('id, employee_id')
+      .eq('user_id', platformAdminUserId)
+
+    if (!teamMembers || teamMembers.length === 0) return
+
+    // For each team_member, check if the linked employee is a viewer employee
+    for (const tm of teamMembers) {
+      if (!tm.employee_id) continue
+
+      // Check if employee is a viewer employee (by name prefix)
+      const { data: employee } = await adminSupabase
+        .from('employees')
+        .select('id, full_name')
+        .eq('id', tm.employee_id)
+        .maybeSingle()
+
+      if (employee && employee.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) {
+        // Delete team_member first (due to FK constraints)
+        await adminSupabase
+          .from('team_members')
+          .delete()
+          .eq('id', tm.id)
+
+        // Delete viewer employee
+        await adminSupabase
+          .from('employees')
+          .delete()
+          .eq('id', employee.id)
+      }
+    }
+  } catch (err) {
+    console.error('[v0] cleanupOldViewerArtifacts error:', err)
+    // Non-fatal, continue
+  }
+}
+
 /**
  * Find or create a SYSTEM viewer employee for the company.
  * System employees have:
- * - is_system = true
- * - auth_user_id = NULL (no UNIQUE constraint collision)
+ * - is_system = true (if column exists)
+ * - auth_user_id = NULL (critical to avoid UNIQUE constraint collision)
  * - full_name = 'Просмотр (админ платформы)'
+ * 
+ * Handles gracefully if is_system column doesn't exist.
  */
 async function getOrCreateSystemViewerEmployee(companyId: string): Promise<{ id: string } | null> {
-  // Find existing system employee
-  const { data: existing } = await adminSupabase
+  // Try to find existing system employee
+  // First try with is_system filter
+  let existing: { id: string } | null = null
+  
+  const { data: existingWithIsSystem, error: existingError } = await adminSupabase
     .from('employees')
     .select('id')
     .eq('company_id', companyId)
     .eq('is_system', true)
-    .eq('full_name', 'Просмотр (админ платформы)')
+    .eq('full_name', VIEWER_EMPLOYEE_NAME)
     .maybeSingle()
+
+  if (!existingError && existingWithIsSystem) {
+    existing = existingWithIsSystem
+  } else {
+    // Fallback: search by name prefix only (is_system column might not exist)
+    const { data: existingByName } = await adminSupabase
+      .from('employees')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('full_name', VIEWER_EMPLOYEE_NAME)
+      .is('auth_user_id', null) // Viewer employees have null auth_user_id
+      .maybeSingle()
+
+    if (existingByName) {
+      existing = existingByName
+    }
+  }
 
   if (existing) {
     return existing
   }
 
-  // Create a new system employee (no auth_user_id!)
-  const { data: newEmployee, error } = await adminSupabase
+  // Create a new system employee
+  // Try with is_system first, fallback without if column doesn't exist
+  const baseInsert = {
+    company_id: companyId,
+    full_name: VIEWER_EMPLOYEE_NAME,
+    is_active: true,
+    auth_user_id: null, // CRITICAL: no auth_user_id to avoid UNIQUE constraint
+  }
+
+  // Try with is_system = true
+  const { data: newEmployeeWithIsSystem, error: insertErrorWithIsSystem } = await adminSupabase
     .from('employees')
-    .insert({
-      company_id: companyId,
-      full_name: 'Просмотр (админ платформы)',
-      is_system: true,
-      is_active: true,
-      auth_user_id: null, // NO auth_user_id to avoid UNIQUE constraint
-    })
+    .insert({ ...baseInsert, is_system: true })
     .select('id')
     .single()
 
-  if (error) {
-    console.error('[v0] Failed to create system viewer employee:', error)
-    return null
+  if (!insertErrorWithIsSystem && newEmployeeWithIsSystem) {
+    return newEmployeeWithIsSystem
   }
 
-  return newEmployee
+  // If is_system column doesn't exist, retry without it
+  if (insertErrorWithIsSystem?.message?.includes('is_system')) {
+    const { data: newEmployee, error: insertError } = await adminSupabase
+      .from('employees')
+      .insert(baseInsert)
+      .select('id')
+      .single()
+
+    if (insertError) {
+      console.error('[v0] Failed to create system viewer employee (fallback):', insertError)
+      return null
+    }
+
+    return newEmployee
+  }
+
+  console.error('[v0] Failed to create system viewer employee:', insertErrorWithIsSystem)
+  return null
 }
 
 /**
  * Ensure platform admin has a team_members row for the selected company.
  * This allows RLS policies to grant read access.
  * 
- * If membership already exists, we don't create anything and return { created: false }.
+ * IMPORTANT: Before creating new access, we CLEAN UP any old viewer artifacts
+ * for this platform admin to prevent stale/incorrect access across companies.
  * 
  * We link employee_id to a SYSTEM viewer employee (is_system=true, auth_user_id=null).
  * This avoids UNIQUE constraint violations on auth_user_id.
@@ -450,33 +549,64 @@ async function ensurePlatformMembership(
   platformAdminUserId: string,
   companyId: string
 ): Promise<MembershipResult> {
-  // Check if platform admin already has membership in this company
-  // Use .maybeSingle() to avoid 406 error when no rows
+  // STEP 1: Clean up old viewer artifacts from previous sessions
+  // This prevents stale access to other companies
+  await cleanupOldViewerArtifacts(platformAdminUserId)
+
+  // STEP 2: Check if platform admin already has membership in this company
+  // (Could be a real membership, not from view-as)
   const { data: existingMembership } = await adminSupabase
     .from('team_members')
-    .select('id')
+    .select('id, employee_id')
     .eq('company_id', companyId)
     .eq('user_id', platformAdminUserId)
     .maybeSingle()
 
   if (existingMembership) {
-    // Already a member, no need to create anything
+    // Check if it's a viewer employee or a real membership
+    if (existingMembership.employee_id) {
+      const { data: empData } = await adminSupabase
+        .from('employees')
+        .select('full_name')
+        .eq('id', existingMembership.employee_id)
+        .maybeSingle()
+
+      if (empData?.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) {
+        // This is a viewer membership, return it
+        return { 
+          created: false, 
+          companyId, 
+          teamMemberId: existingMembership.id,
+          systemEmployeeId: existingMembership.employee_id,
+        }
+      }
+    }
+    // It's a real membership, use it (no viewer employee created)
     return { created: false, companyId, teamMemberId: existingMembership.id }
   }
 
-  // Get or create a system viewer employee for this company
+  // STEP 3: Get or create a system viewer employee for this company
   const systemEmployee = await getOrCreateSystemViewerEmployee(companyId)
 
-  // Pick a valid role from the constraint
+  if (!systemEmployee) {
+    return { 
+      created: false, 
+      companyId, 
+      error: 'Ошибка создания временного доступа: не удалось создать системного сотрудника' 
+    }
+  }
+
+  // STEP 4: Pick a valid role from the constraint
+  // Always use 'employee' as it's the safest and most likely to be allowed
   const safeRole = await pickSafestRole()
 
-  // Create team_members row with employee_id = systemEmployee.id (if required) or null
+  // STEP 5: Create team_members row
   const { data: newTeamMember, error: tmError } = await adminSupabase
     .from('team_members')
     .insert({
       company_id: companyId,
       user_id: platformAdminUserId,
-      employee_id: systemEmployee?.id || null,
+      employee_id: systemEmployee.id,
       member_role: safeRole,
     })
     .select('id')
@@ -484,14 +614,20 @@ async function ensurePlatformMembership(
 
   if (tmError || !newTeamMember) {
     console.error('[v0] Failed to create team_members row:', tmError)
-    return { created: false, companyId, error: `Ошибка создания временного доступа: ${tmError?.message || 'unknown'}` }
+    // Clean up the viewer employee we just created
+    await adminSupabase.from('employees').delete().eq('id', systemEmployee.id)
+    return { 
+      created: false, 
+      companyId, 
+      error: `Ошибка создания временного доступа: ${tmError?.message || 'unknown'}` 
+    }
   }
 
   return {
     created: true,
     companyId,
     teamMemberId: newTeamMember.id,
-    systemEmployeeId: systemEmployee?.id,
+    systemEmployeeId: systemEmployee.id,
   }
 }
 
@@ -554,9 +690,11 @@ export async function startViewAsSession(
       targetDisplayName: employee.full_name,
       companyName: company.name,
       viewerAdminUserId: user.id,
+      readOnly: true,
       // Track membership for cleanup
       createdMembership: membershipResult.created,
       createdTeamMemberId: membershipResult.teamMemberId,
+      createdViewerEmployeeId: membershipResult.systemEmployeeId,
     })
 
     // Set the cookie
@@ -571,22 +709,36 @@ export async function startViewAsSession(
 
 /**
  * End the current view-as session
- * Cleans up temporary team_members row if it was created.
+ * Cleans up temporary team_members row and viewer employee if created.
  */
 export async function endViewAsSession(): Promise<{ success: boolean }> {
   try {
     // Get current session to check if we need to clean up membership
     const session = await getViewAsSession()
 
-    if (session?.createdMembership && session.createdTeamMemberId) {
-      // Clean up the temporary team_members row
-      const { error: tmDeleteError } = await adminSupabase
-        .from('team_members')
-        .delete()
-        .eq('id', session.createdTeamMemberId)
+    if (session?.createdMembership) {
+      // Clean up the temporary team_members row first (FK constraint)
+      if (session.createdTeamMemberId) {
+        const { error: tmDeleteError } = await adminSupabase
+          .from('team_members')
+          .delete()
+          .eq('id', session.createdTeamMemberId)
 
-      if (tmDeleteError) {
-        console.error('[v0] Failed to delete temp team_members:', tmDeleteError)
+        if (tmDeleteError) {
+          console.error('[v0] Failed to delete temp team_members:', tmDeleteError)
+        }
+      }
+
+      // Clean up the viewer employee if created
+      if (session.createdViewerEmployeeId) {
+        const { error: empDeleteError } = await adminSupabase
+          .from('employees')
+          .delete()
+          .eq('id', session.createdViewerEmployeeId)
+
+        if (empDeleteError) {
+          console.error('[v0] Failed to delete viewer employee:', empDeleteError)
+        }
       }
     }
 
