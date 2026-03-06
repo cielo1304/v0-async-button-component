@@ -5,15 +5,24 @@ import { Button } from '@/components/ui/button'
 import { Eye, X } from 'lucide-react'
 import { endViewAsSession, getViewAsSessionInfo } from '@/app/actions/platform'
 
+/**
+ * Impersonation session shape (subset for UI display)
+ * 
+ * Supports both new and legacy field names for backward compatibility
+ */
 interface ViewAsSession {
-  targetUserId: string
-  targetCompanyId: string
-  targetEmployeeId: string
-  targetDisplayName: string
+  // New impersonation field names
+  effectiveCompanyId?: string
+  effectiveEmployeeId?: string
+  effectiveDisplayName?: string
   companyName: string
-  viewerAdminUserId: string
-  isReadOnly: true
-  createdAt: string
+  realActorUserId?: string
+  
+  // Legacy field names (for backward compatibility with old sessions)
+  targetCompanyId?: string
+  targetEmployeeId?: string
+  targetDisplayName?: string
+  viewerAdminUserId?: string
 }
 
 export function ViewAsBanner() {
@@ -48,6 +57,9 @@ export function ViewAsBanner() {
 
   if (!session) return null
 
+  // Support both new and legacy field names
+  const displayName = session.effectiveDisplayName || session.targetDisplayName
+
   return (
     <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500 text-amber-950 shadow-md">
       <div className="container mx-auto px-4 py-2 flex items-center justify-between">
@@ -56,7 +68,7 @@ export function ViewAsBanner() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:gap-1.5 min-w-0">
             <span className="font-semibold whitespace-nowrap">Режим просмотра:</span>
             <span className="text-sm truncate">
-              {session.companyName} · {session.targetDisplayName}. Изменения запрещены.
+              {session.companyName} · {displayName}. Изменения запрещены.
             </span>
           </div>
         </div>

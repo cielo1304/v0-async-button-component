@@ -4,36 +4,30 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { LogOut } from 'lucide-react'
+import { LogOut, Eye } from 'lucide-react'
+import { getEffectiveCompanyName } from '@/app/actions/platform'
 
+/**
+ * Company badge component with HARD SCOPE LOCK support.
+ * 
+ * In View-As mode, displays the impersonated company name (from session),
+ * NOT the operator's real company. This prevents A+B scope confusion.
+ */
 export function CompanyBadge() {
   const router = useRouter()
   const [companyName, setCompanyName] = useState<string | null>(null)
+  const [isImpersonation, setIsImpersonation] = useState(false)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       try {
-        const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        if (!user) return
-
-        const { data: member } = await supabase
-          .from('team_members')
-          .select('company_id')
-          .eq('user_id', user.id)
-          .limit(1)
-          .maybeSingle()
-
-        if (!member?.company_id) return
-
-        const { data: company } = await supabase
-          .from('companies')
-          .select('name')
-          .eq('id', member.company_id)
-          .maybeSingle()
-
-        setCompanyName(company?.name ?? null)
+        // Use server action that respects View-As scope lock
+        const result = await getEffectiveCompanyName()
+        if (result.companyName) {
+          setCompanyName(result.companyName)
+          setIsImpersonation(result.isImpersonation ?? false)
+        }
       } catch {
         // leave null
       } finally {
@@ -52,8 +46,9 @@ export function CompanyBadge() {
   return (
     <div className="flex items-center gap-3">
       <span className="text-sm text-muted-foreground font-mono">
+        {isImpersonation && <Eye className="inline h-3.5 w-3.5 mr-1 text-amber-500" />}
         {'Компания: '}
-        <span className="text-foreground font-medium">
+        <span className={`font-medium ${isImpersonation ? 'text-amber-600' : 'text-foreground'}`}>
           {loading ? '...' : (companyName ?? '—')}
         </span>
       </span>

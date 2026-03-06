@@ -1,10 +1,10 @@
 'use server'
 
 import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 import { randomUUID } from 'crypto'
-import type { SupabaseClient } from '@supabase/supabase-js'
 
 type EntityType = 'asset' | 'car'
 
@@ -14,25 +14,6 @@ function sanitizeFilename(filename: string): string {
     .replace(/[^a-zA-Z0-9._-]/g, '_')
     .replace(/_{2,}/g, '_')
     .substring(0, 200)
-}
-
-// Helper: get company_id for authenticated user
-async function getCompanyIdForUser(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<string> {
-  const { data, error } = await supabase
-    .from('team_members')
-    .select('company_id')
-    .eq('user_id', userId)
-    .limit(1)
-    .maybeSingle()
-
-  if (error || !data?.company_id) {
-    throw new Error('No team membership or company not selected')
-  }
-
-  return data.company_id
 }
 
 /**
@@ -57,7 +38,7 @@ export async function createUploadForEntityFile(params: {
   await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
-    const companyId = await getCompanyIdForUser(supabase, user.id)
+    const companyId = await getCompanyId(supabase, user.id)
 
     // Verify entity exists and belongs to same company
     if (params.entity_type === 'asset') {
@@ -138,7 +119,7 @@ export async function commitUploadedEntityFile(params: {
   await assertNotReadOnly()
   try {
     const { supabase, user } = await createSupabaseAndRequireUser()
-    const companyId = await getCompanyIdForUser(supabase, user.id)
+    const companyId = await getCompanyId(supabase, user.id)
 
     // Insert into files table
     const { error: fileError } = await supabase.from('files').insert({
