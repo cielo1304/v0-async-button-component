@@ -1,13 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getViewAsSession } from '@/lib/view-as'
+import { adminSupabase } from '@/lib/supabase/admin'
 
 /**
  * Resolves the "acting" employee_id for permission checks and UI context.
  * 
- * In view-as mode, returns the target employee from the view-as session
- * (the employee we are "viewing as").
+ * In impersonation mode (View-As), returns the effective employee from the session.
+ * The session contains all authorization info - no temporary membership artifacts needed.
  * 
- * Otherwise, looks up the employee by auth_user_id.
+ * In normal mode, looks up the employee by auth_user_id.
  *
  * @returns employee_id or null if not found
  */
@@ -16,11 +17,12 @@ export async function getActingEmployeeId(
   userId: string,
   companyId: string
 ): Promise<string | null> {
-  // Check for view-as mode first
+  // Check for impersonation mode first
   const viewAsSession = await getViewAsSession()
-  if (viewAsSession?.targetEmployeeId && viewAsSession.targetCompanyId === companyId) {
-    // In view-as mode, use the target employee we are "acting as"
-    return viewAsSession.targetEmployeeId
+  if (viewAsSession?.effectiveEmployeeId && viewAsSession.effectiveCompanyId === companyId) {
+    // In impersonation mode, use the effective employee from session
+    // No DB lookup needed - session contains all authorization info
+    return viewAsSession.effectiveEmployeeId
   }
 
   // Normal mode: look up employee by auth_user_id
@@ -42,17 +44,25 @@ export async function getActingEmployeeId(
 
 /**
  * Get full employee info for the "acting" employee.
- * Used for displaying who we are viewing as in the UI.
+ * 
+ * In impersonation mode, uses service-role to fetch employee info
+ * (since the platform admin doesn't have RLS access to the target company).
+ * 
+ * In normal mode, uses the user's supabase client.
  */
 export async function getActingEmployee(
   supabase: SupabaseClient,
   userId: string,
   companyId: string
 ): Promise<{ id: string; full_name: string; position: string | null } | null> {
+  const viewAsSession = await getViewAsSession()
   const employeeId = await getActingEmployeeId(supabase, userId, companyId)
   if (!employeeId) return null
 
-  const { data, error } = await supabase
+  // In impersonation mode, use service-role to bypass RLS
+  const client = viewAsSession ? adminSupabase : supabase
+
+  const { data, error } = await client
     .from('employees')
     .select('id, full_name, position')
     .eq('id', employeeId)

@@ -190,7 +190,6 @@ export default function PlatformPage() {
           not_platform_admin: 'Недостаточно прав.',
           no_company: 'Компания не найдена.',
           no_employee: 'Сотрудник не найден.',
-          membership_error: 'Ошибка создания временного доступа.',
           unknown: 'Ошибка активации режима просмотра.',
         }
         const message = result.errorCode ? errorMessages[result.errorCode] : result.error

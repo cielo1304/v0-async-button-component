@@ -1,8 +1,14 @@
 /**
- * Platform Admin "View-As" Session Management
+ * Platform Admin "View-As" Session Management (Auth-Based Impersonation)
  * 
  * Allows platform super-admins to view the app as any employee in read-only mode.
- * Uses signed cookies to store view-as session data.
+ * Uses signed cookies to store impersonation session data.
+ * 
+ * KEY DESIGN PRINCIPLES:
+ * - NO temporary membership artifacts (team_members, employees) are created
+ * - Authorization resolves from impersonation context via service-role queries
+ * - Real actor (platform admin) and effective actor (viewed employee) are both preserved
+ * - Session contains all info needed for authorization without DB artifacts
  */
 
 import { cookies } from 'next/headers'
@@ -23,32 +29,86 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret)
 }
 
+/**
+ * Impersonation Session Shape
+ * 
+ * Core identities:
+ * - realActorUserId: The authenticated platform admin who initiated impersonation
+ * - effectiveCompanyId: The company being viewed
+ * - effectiveEmployeeId: The employee identity being viewed as
+ * 
+ * No temporary artifacts are tracked - impersonation is purely session-based.
+ */
 export interface ViewAsSession {
-  targetUserId: string        // auth.users.id of the platform admin (we use their auth session)
-  targetCompanyId: string     // company.id being viewed
-  targetEmployeeId: string    // employees.id we are "acting as" for permission checks
-  targetDisplayName: string   // Display name of the employee we are viewing as
-  companyName: string         // Company name for UI display
-  viewerAdminUserId: string   // auth.users.id of the platform admin (same as targetUserId)
-  mode: 'readonly_view_as'
-  exp: number                 // Expiry timestamp
-  readOnly?: boolean          // True if in read-only mode
-  // Membership tracking for cleanup
-  createdMembership?: boolean          // True if we created a temp team_members row
-  createdTeamMemberId?: string         // ID of created team_members row (for cleanup)
-  createdViewerEmployeeId?: string     // ID of created viewer employee row (for cleanup)
+  // Core impersonation identities
+  realActorUserId: string       // auth.users.id of the platform admin (who performed the action)
+  effectiveCompanyId: string    // company.id being viewed
+  effectiveEmployeeId: string   // employees.id we are "acting as" for permission checks
+  
+  // Display info for UI
+  effectiveDisplayName: string  // Display name of the employee we are viewing as
+  companyName: string           // Company name for UI display
+  
+  // Session metadata
+  mode: 'impersonation'         // Identifies this as an impersonation session
+  readOnly: true                // Impersonation is always read-only
+  exp: number                   // Expiry timestamp
+  
+  // Guard fields for validation
+  platformAdminVerified: true   // Confirms user was verified as platform admin at session start
+  
+  // LEGACY FIELDS (for backward compatibility during transition only)
+  // These are kept to avoid breaking old sessions, but are NOT used in new flow
+  targetUserId?: string         // LEGACY: maps to realActorUserId
+  targetCompanyId?: string      // LEGACY: maps to effectiveCompanyId
+  targetEmployeeId?: string     // LEGACY: maps to effectiveEmployeeId
+  targetDisplayName?: string    // LEGACY: maps to effectiveDisplayName
+  viewerAdminUserId?: string    // LEGACY: maps to realActorUserId
+  createdMembership?: boolean   // LEGACY: cleanup flag (no longer used for new sessions)
+  createdTeamMemberId?: string  // LEGACY: cleanup ID (no longer used for new sessions)
+  createdViewerEmployeeId?: string // LEGACY: cleanup ID (no longer used for new sessions)
 }
 
 /**
- * Create a view-as session cookie
+ * Input for creating an impersonation session
  */
-export async function createViewAsSession(data: Omit<ViewAsSession, 'mode' | 'exp'>): Promise<string> {
+export interface CreateImpersonationSessionInput {
+  realActorUserId: string       // Platform admin who initiated
+  effectiveCompanyId: string    // Company being viewed
+  effectiveEmployeeId: string   // Employee being viewed as
+  effectiveDisplayName: string  // Employee display name
+  companyName: string           // Company name for UI
+}
+
+/**
+ * Create an impersonation session cookie
+ * 
+ * No temporary membership artifacts are created.
+ * The session contains all info needed for authorization resolution.
+ */
+export async function createViewAsSession(data: CreateImpersonationSessionInput): Promise<string> {
   const exp = Math.floor(Date.now() / 1000) + VIEW_AS_EXPIRY_SECONDS
   
   const payload: ViewAsSession = {
-    ...data,
-    mode: 'readonly_view_as',
+    // Core impersonation identities
+    realActorUserId: data.realActorUserId,
+    effectiveCompanyId: data.effectiveCompanyId,
+    effectiveEmployeeId: data.effectiveEmployeeId,
+    effectiveDisplayName: data.effectiveDisplayName,
+    companyName: data.companyName,
+    
+    // Session metadata
+    mode: 'impersonation',
+    readOnly: true,
     exp,
+    platformAdminVerified: true,
+    
+    // LEGACY compatibility fields (mapped from new fields)
+    targetUserId: data.realActorUserId,
+    targetCompanyId: data.effectiveCompanyId,
+    targetEmployeeId: data.effectiveEmployeeId,
+    targetDisplayName: data.effectiveDisplayName,
+    viewerAdminUserId: data.realActorUserId,
   }
 
   const token = await new SignJWT(payload as unknown as Record<string, unknown>)
@@ -60,8 +120,35 @@ export async function createViewAsSession(data: Omit<ViewAsSession, 'mode' | 'ex
 }
 
 /**
+ * Normalize a session to ensure both old and new field names work.
+ * This handles backward compatibility with old session tokens.
+ */
+function normalizeSession(session: ViewAsSession): ViewAsSession {
+  // If new fields are missing but legacy fields exist, populate new fields
+  if (!session.realActorUserId && session.viewerAdminUserId) {
+    session.realActorUserId = session.viewerAdminUserId
+  }
+  if (!session.effectiveCompanyId && session.targetCompanyId) {
+    session.effectiveCompanyId = session.targetCompanyId
+  }
+  if (!session.effectiveEmployeeId && session.targetEmployeeId) {
+    session.effectiveEmployeeId = session.targetEmployeeId
+  }
+  if (!session.effectiveDisplayName && session.targetDisplayName) {
+    session.effectiveDisplayName = session.targetDisplayName
+  }
+  
+  // Ensure readOnly is true for impersonation
+  session.readOnly = true
+  
+  return session
+}
+
+/**
  * Get current view-as session from cookies (server-side)
  * Returns null if no valid session exists
+ * 
+ * Handles both new 'impersonation' mode and legacy 'readonly_view_as' mode
  */
 export async function getViewAsSession(): Promise<ViewAsSession | null> {
   try {
@@ -73,11 +160,15 @@ export async function getViewAsSession(): Promise<ViewAsSession | null> {
     const { payload } = await jwtVerify(token, getSecret())
     const session = payload as unknown as ViewAsSession
 
-    // Verify mode and expiry
-    if (session.mode !== 'readonly_view_as') return null
+    // Verify mode - accept both new and legacy mode values
+    const validModes = ['impersonation', 'readonly_view_as']
+    if (!validModes.includes(session.mode)) return null
+    
+    // Verify expiry
     if (session.exp < Math.floor(Date.now() / 1000)) return null
 
-    return session
+    // Normalize to ensure both old and new field names are populated
+    return normalizeSession(session)
   } catch {
     return null
   }
