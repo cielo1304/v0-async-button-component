@@ -75,6 +75,7 @@ export async function replaceCollateral(params: {
   pledgedUnits?: number
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -163,6 +164,7 @@ export async function defaultWithSideEffects(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {
@@ -248,6 +250,7 @@ export async function releaseCollateral(params: {
   financeDealId: string
   actorEmployeeId?: string
 }) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
 
   try {

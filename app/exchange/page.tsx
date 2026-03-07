@@ -41,6 +41,7 @@ import { nanoid } from 'nanoid'
 import { submitExchange, setFollowup } from '@/app/actions/client-exchange'
 import type { ExchangeParticipant } from '@/app/actions/client-exchange'
 import { ContactPicker, type ContactPickerValue } from '@/components/contacts/contact-picker'
+import { getEmployeesForSelect } from '@/app/actions/team'
 
 // Тип для строки обмена (валюта + сумма + касса)
 interface ExchangeLine {
@@ -196,7 +197,9 @@ export default function ExchangePage() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [ratesResult, cashboxesResult, settingsResult, employeesResult, contactsResult] = await Promise.all([
+      // Use server action for employees (robust is_system handling)
+      // and parallel Supabase queries for other data
+      const [ratesResult, cashboxesResult, settingsResult, employeesData, contactsResult] = await Promise.all([
         supabase
           .from('exchange_rates')
           .select('*')
@@ -212,13 +215,8 @@ export default function ExchangePage() {
           .from('exchange_settings')
           .select('*')
           .single(),
-        // Exclude system employees (is_system = true)
-        supabase
-          .from('employees')
-          .select('id, full_name')
-          .eq('is_active', true)
-          .eq('is_system', false)
-          .order('full_name'),
+        // ROBUST: Use server action with is_system fallback handling
+        getEmployeesForSelect(),
         supabase
           .from('contacts')
           .select('id, display_name')
@@ -229,10 +227,10 @@ export default function ExchangePage() {
       if (ratesResult.data) setExchangeRates(ratesResult.data)
       if (cashboxesResult.data) setCashboxes(cashboxesResult.data)
       if (settingsResult.data) setSettings(settingsResult.data)
-      if (employeesResult.data) {
-        setEmployees(employeesResult.data)
-        if (!actorEmployeeId && employeesResult.data.length > 0) {
-          setActorEmployeeId(employeesResult.data[0].id)
+      if (employeesData) {
+        setEmployees(employeesData)
+        if (!actorEmployeeId && employeesData.length > 0) {
+          setActorEmployeeId(employeesData[0].id)
         }
       }
       if (contactsResult.data) setContacts(contactsResult.data)

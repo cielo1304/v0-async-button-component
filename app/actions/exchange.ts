@@ -590,6 +590,7 @@ export type InternalExchangeInput = {
 }
 
 export async function internalExchangePost(input: InternalExchangeInput) {
+  await assertNotReadOnly()
   const { supabase, user } = await createSupabaseAndRequireUser()
   
   try {
@@ -626,6 +627,7 @@ export async function internalExchangePost(input: InternalExchangeInput) {
 // ─── Apply Settlement to Exchange Leg ───
 
 export async function applySettlement(dealId: string, legId: string, transactionId: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {
@@ -652,6 +654,7 @@ export async function applySettlement(dealId: string, legId: string, transaction
 // ─── Set Exchange Deal Status ───
 
 export async function setExchangeStatus(dealId: string, statusCode: string) {
+  await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
   
   try {

@@ -244,6 +244,35 @@ export async function getImpersonationContext(): Promise<{
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// USER MODE DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * User mode types for access control:
+ * 
+ * - 'platform_admin_only': Platform admin not in View-As, no tenant membership
+ *   -> Should see ONLY platform admin UI, no tenant business modules
+ * 
+ * - 'view_as_readonly': Platform admin in active View-As session
+ *   -> Should see tenant business modules as the impersonated user (read-only)
+ * 
+ * - 'tenant_user': Normal tenant user with team_members membership
+ *   -> Standard tenant business experience
+ */
+export type UserMode = 'platform_admin_only' | 'view_as_readonly' | 'tenant_user'
+
+export interface UserModeContext {
+  mode: UserMode
+  isPlatformAdmin: boolean
+  isViewAs: boolean
+  hasTeamMembership: boolean
+  companyId: string | null
+  companyName: string | null
+  effectiveEmployeeId: string | null
+  effectiveEmployeeName: string | null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HARD SCOPE GUARDS (A+B Prevention)
 // ─────────────────────────────────────────────────────────────────────────────
 

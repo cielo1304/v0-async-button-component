@@ -20,16 +20,15 @@ export function SalaryBalanceList() {
   useEffect(() => {
     async function loadEmployees() {
       try {
-        // Exclude system employees (is_system = true)
+        // ROBUST: Fetch all active employees and filter client-side
         const { data, error } = await supabase
           .from('employees')
           .select('*')
           .eq('is_active', true)
-          .eq('is_system', false)
           .order('full_name')
 
         if (error) throw error
-        // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+        // UI-level safety filter (handles both is_system flag AND name-based fallback)
         setEmployees(filterOutSystemEmployees(data || []))
       } catch {
         // Silent fail

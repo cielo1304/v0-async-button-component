@@ -201,15 +201,32 @@ export async function getAssetLocations() {
 
 export async function getEmployeesList() {
   const { supabase } = await createSupabaseAndRequireUser()
-  // Exclude system employees (is_system = true)
-  const { data, error } = await supabase
+  // Exclude system employees with ROBUST fallback
+  // Try with is_system filter first, fallback to name-based filtering if column missing
+  let { data, error } = await supabase
     .from('employees')
-    .select('id, full_name')
+    .select('id, full_name, is_system')
     .eq('is_active', true)
     .eq('is_system', false)
     .order('full_name')
+  
+  // Handle missing is_system column gracefully
+  if (error && (error.message?.includes('is_system') || error.code === '42703')) {
+    const fallback = await supabase
+      .from('employees')
+      .select('id, full_name')
+      .eq('is_active', true)
+      .order('full_name')
+    if (fallback.error) throw new Error(fallback.error.message)
+    // Filter by name pattern for viewer employees
+    data = (fallback.data || []).filter(
+      emp => !emp.full_name?.startsWith('Просмотр (админ платформы)')
+    )
+    error = null
+  }
+  
   if (error) throw new Error(error.message)
-  return data || []
+  return (data || []).map(({ id, full_name }) => ({ id, full_name }))
 }
 
 export async function getContactsList(search?: string) {

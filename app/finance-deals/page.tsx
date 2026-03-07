@@ -19,6 +19,7 @@ import { canViewByVisibility } from '@/lib/access'
 import { VisibilityBadge } from '@/components/shared/visibility-toggle'
 import { createFinanceDeal } from '@/app/actions/finance-deals'
 import { ContactPicker } from '@/components/contacts/contact-picker'
+import { filterOutSystemEmployees } from '@/lib/tenant/employee-filter'
 
 const STATUS_MAP: Record<CoreDealStatus, { label: string; color: string }> = {
   NEW: { label: 'Новая', color: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -93,9 +94,10 @@ export default function FinanceDealsPage() {
   }, [supabase])
 
   const loadRefs = useCallback(async () => {
-    // Exclude system employees (is_system = true)
-    const { data } = await supabase.from('employees').select('id, full_name').eq('is_active', true).eq('is_system', false).order('full_name')
-    setEmployees((data || []) as Employee[])
+    // ROBUST: Query all active employees and filter out system employees client-side
+    // This handles missing is_system column gracefully
+    const { data } = await supabase.from('employees').select('id, full_name, is_system').eq('is_active', true).order('full_name')
+    setEmployees(filterOutSystemEmployees(data || []) as Employee[])
   }, [supabase])
 
   useEffect(() => { loadDeals(); loadRefs() }, [loadDeals, loadRefs])
