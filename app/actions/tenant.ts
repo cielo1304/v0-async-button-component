@@ -6,8 +6,20 @@ import { getLockedCompanyScope, getViewAsSession } from '@/lib/view-as'
 /**
  * Get the current user's team membership.
  * 
- * HARD SCOPE LOCK: In View-As mode, returns synthetic membership data
- * based on the impersonation session to prevent A+B scope mixing.
+ * COMPATIBILITY ADAPTER ONLY - NOT FOR AUTHORIZATION
+ * 
+ * In View-As mode, returns a SYNTHETIC membership object for UI compatibility.
+ * This synthetic object:
+ * - MUST NOT be used for authorization decisions
+ * - MUST NOT be used for company scope resolution (use getCompanyId() instead)
+ * - MUST NOT be used to determine if user is a real tenant member
+ * - Is ONLY for UI components that need membership-shaped data for display
+ * 
+ * Authorization and company scope MUST use:
+ * - getCompanyId() for company scope resolution
+ * - getActingEmployeeId() for employee resolution
+ * - getLockedCompanyScope() for raw View-As scope check
+ * - isPlatformAdmin() for admin status
  */
 export async function getMyMembership(): Promise<{
   membership?: {
@@ -18,23 +30,36 @@ export async function getMyMembership(): Promise<{
     created_at: string
   } | null
   error?: string
+  /** 
+   * TRUE if this is a synthetic membership from View-As session.
+   * Callers MUST check this flag and NOT use synthetic membership for auth decisions.
+   */
   isImpersonation?: boolean
+  /**
+   * Explicit warning that this membership is for UI compatibility only.
+   * Present only when isImpersonation is true.
+   */
+  _syntheticWarning?: string
 }> {
   try {
     // Check for View-As scope lock first
     const session = await getViewAsSession()
     if (session?.effectiveCompanyId) {
-      // Return synthetic membership from impersonation session
-      // This prevents the caller from seeing operator's real membership
+      // Return SYNTHETIC membership for UI COMPATIBILITY ONLY
+      // This is NOT a real membership and MUST NOT be used for:
+      // - Authorization decisions
+      // - Company scope resolution
+      // - Determining tenant membership status
       return {
         membership: {
-          id: 'impersonation-synthetic',
+          id: 'synthetic-impersonation-ui-only',
           user_id: session.realActorUserId,
           company_id: session.effectiveCompanyId,
           role: 'viewer', // View-As is always read-only viewer
           created_at: new Date().toISOString(),
         },
         isImpersonation: true,
+        _syntheticWarning: 'This membership is SYNTHETIC for UI compatibility only. Do NOT use for auth.',
       }
     }
 
@@ -49,13 +74,13 @@ export async function getMyMembership(): Promise<{
       .maybeSingle()
 
     if (error) {
-      console.error('[v0] getMyMembership error:', error)
+      console.error('[getMyMembership] DB error:', error)
       return { error: error.message }
     }
 
     return { membership: data, isImpersonation: false }
   } catch (err) {
-    console.error('[v0] getMyMembership error:', err)
+    console.error('[getMyMembership] error:', err)
     return { error: 'Failed to get membership' }
   }
 }

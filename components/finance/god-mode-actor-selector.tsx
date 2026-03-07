@@ -51,12 +51,12 @@ export function GodModeActorSelector({
   useEffect(() => {
     async function loadEmployees() {
       const supabase = createClient()
-      // Exclude system employees (is_system = true)
+      // ROBUST: Fetch all active employees and filter client-side
+      // This handles missing is_system column gracefully
       const { data, error } = await supabase
         .from('employees')
-        .select('id, full_name, position')
+        .select('id, full_name, position, is_system')
         .eq('is_active', true)
-        .eq('is_system', false)
         .order('full_name')
 
       if (error) {
@@ -65,7 +65,7 @@ export function GodModeActorSelector({
         return
       }
 
-      // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
+      // UI-level safety filter (handles both is_system flag AND name-based fallback)
       setEmployees(filterOutSystemEmployees(data || []))
       setLoading(false)
     }

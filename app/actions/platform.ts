@@ -313,11 +313,12 @@ export async function listAllCompanies(): Promise<{ companies?: Company[]; error
  * 
  * Requirements:
  * - Returns employees where company_id == companyId (does NOT require auth_user_id)
- * - Excludes viewer/system employees:
- *   - is_system == true (if column exists)
- *   - full_name starts with 'Просмотр (админ платформы)'
+ * - Excludes viewer/system employees using SAFE fallback logic:
+ *   - is_system == true (if column exists and is true)
+ *   - full_name starts with 'Просмотр (админ платформы)' (always checked as fallback)
  * - Returns minimal fields: id, full_name, email, member_role (for "Владелец" label)
  * 
+ * ROBUSTNESS: This function MUST NOT crash if is_system column is missing.
  * Uses service role to bypass RLS since platform admin is not a team member.
  */
 export async function listCompanyEmployees(companyId: string): Promise<{ ok: boolean; employees?: EmployeeWithUser[]; error?: string }> {
@@ -331,6 +332,7 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
 
     // Use admin client to bypass RLS
     // Query ALL active employees (not just those with auth_user_id)
+    // NOTE: We select is_system but handle gracefully if it doesn't exist
     const { data: employeesData, error: empError } = await adminSupabase
       .from('employees')
       .select('id, full_name, position, is_active, email, auth_user_id, is_system')
@@ -339,58 +341,98 @@ export async function listCompanyEmployees(companyId: string): Promise<{ ok: boo
       .order('full_name')
 
     if (empError) {
-      console.error('[v0] listCompanyEmployees employees error:', empError)
+      // Check if error is due to missing is_system column - retry without it
+      if (empError.message?.includes('is_system') || empError.code === '42703') {
+        console.warn('[listCompanyEmployees] is_system column missing, retrying without it')
+        const { data: fallbackData, error: fallbackError } = await adminSupabase
+          .from('employees')
+          .select('id, full_name, position, is_active, email, auth_user_id')
+          .eq('company_id', companyId)
+          .eq('is_active', true)
+          .order('full_name')
+
+        if (fallbackError) {
+          console.error('[listCompanyEmployees] fallback query error:', fallbackError)
+          return { ok: false, error: `Ошибка загрузки сотрудников: ${fallbackError.message}` }
+        }
+
+        // Mark all as having no is_system info
+        const dataWithoutIsSystem = (fallbackData || []).map(emp => ({ ...emp, is_system: undefined }))
+        return processEmployeeData(dataWithoutIsSystem, companyId)
+      }
+
+      console.error('[listCompanyEmployees] employees error:', empError)
       return { ok: false, error: `Ошибка загрузки сотрудников: ${empError.message}` }
     }
 
-    if (!employeesData || employeesData.length === 0) {
-      return { ok: true, employees: [] }
-    }
-
-    // Get team_members to find role info (for "Владелец" label)
-    const { data: teamMembersData, error: tmError } = await adminSupabase
-      .from('team_members')
-      .select('employee_id, user_id, member_role')
-      .eq('company_id', companyId)
-
-    if (tmError) {
-      console.error('[v0] listCompanyEmployees team_members error:', tmError)
-      // Non-fatal, continue without role info
-    }
-
-    // Create a map of employee_id -> { user_id, member_role }
-    const teamMemberMap = new Map<string, { user_id: string | null; member_role: string | null }>()
-    for (const tm of teamMembersData || []) {
-      if (tm.employee_id) {
-        teamMemberMap.set(tm.employee_id, { user_id: tm.user_id, member_role: tm.member_role })
-      }
-    }
-
-    // Filter out viewer/system employees and map to EmployeeWithUser
-    const employees: EmployeeWithUser[] = employeesData
-      .filter((emp) => {
-        // Exclude if is_system == true
-        if (emp.is_system === true) return false
-        // Exclude if full_name starts with viewer employee prefix
-        if (emp.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) return false
-        return true
-      })
-      .map((emp) => {
-        const tm = teamMemberMap.get(emp.id)
-        return {
-          id: emp.id,
-          full_name: emp.full_name,
-          position: emp.position,
-          user_id: tm?.user_id ?? emp.auth_user_id ?? '',
-          member_role: tm?.member_role ?? undefined,
-        }
-      })
-
-    return { ok: true, employees }
+    return processEmployeeData(employeesData || [], companyId)
   } catch (err) {
-    console.error('[v0] listCompanyEmployees error:', err)
+    console.error('[listCompanyEmployees] error:', err)
     return { ok: false, error: 'Ошибка загрузки списка сотрудников' }
   }
+}
+
+/**
+ * Helper: Process employee data and apply filtering.
+ * Separated for reuse in fallback path.
+ */
+async function processEmployeeData(
+  employeesData: Array<{
+    id: string
+    full_name: string
+    position: string | null
+    is_active: boolean
+    email: string | null
+    auth_user_id: string | null
+    is_system?: boolean | null | undefined
+  }>,
+  companyId: string
+): Promise<{ ok: boolean; employees?: EmployeeWithUser[]; error?: string }> {
+  if (employeesData.length === 0) {
+    return { ok: true, employees: [] }
+  }
+
+  // Get team_members to find role info (for "Владелец" label)
+  const { data: teamMembersData, error: tmError } = await adminSupabase
+    .from('team_members')
+    .select('employee_id, user_id, member_role')
+    .eq('company_id', companyId)
+
+  if (tmError) {
+    console.error('[listCompanyEmployees] team_members error:', tmError)
+    // Non-fatal, continue without role info
+  }
+
+  // Create a map of employee_id -> { user_id, member_role }
+  const teamMemberMap = new Map<string, { user_id: string | null; member_role: string | null }>()
+  for (const tm of teamMembersData || []) {
+    if (tm.employee_id) {
+      teamMemberMap.set(tm.employee_id, { user_id: tm.user_id, member_role: tm.member_role })
+    }
+  }
+
+  // Filter out viewer/system employees and map to EmployeeWithUser
+  // ROBUST: Works even if is_system column is missing (uses name-based fallback)
+  const employees: EmployeeWithUser[] = employeesData
+    .filter((emp) => {
+      // Exclude if is_system == true (safe check for undefined/null)
+      if (emp.is_system === true) return false
+      // Exclude if full_name starts with viewer employee prefix (ALWAYS checked as fallback)
+      if (emp.full_name?.startsWith(VIEWER_EMPLOYEE_NAME)) return false
+      return true
+    })
+    .map((emp) => {
+      const tm = teamMemberMap.get(emp.id)
+      return {
+        id: emp.id,
+        full_name: emp.full_name,
+        position: emp.position,
+        user_id: tm?.user_id ?? emp.auth_user_id ?? '',
+        member_role: tm?.member_role ?? undefined,
+      }
+    })
+
+  return { ok: true, employees }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -571,5 +613,105 @@ export async function getViewAsSessionInfo(): Promise<{ session: ViewAsSession |
     return { session }
   } catch {
     return { session: null }
+  }
+}
+
+/**
+ * Get the user mode context for routing/display decisions.
+ * 
+ * This determines what UI experience the user should see:
+ * - platform_admin_only: Only platform admin UI (no tenant modules)
+ * - view_as_readonly: Tenant UI as impersonated user (read-only)
+ * - tenant_user: Standard tenant user experience
+ */
+export async function getUserModeContext(): Promise<{
+  mode: 'platform_admin_only' | 'view_as_readonly' | 'tenant_user'
+  isPlatformAdmin: boolean
+  isViewAs: boolean
+  hasTeamMembership: boolean
+  companyId: string | null
+  companyName: string | null
+  effectiveEmployeeId: string | null
+  effectiveEmployeeName: string | null
+}> {
+  try {
+    const { supabase, user } = await createSupabaseAndRequireUser()
+
+    // Check View-As session first
+    const viewAsSession = await getViewAsSession()
+    const isViewAs = viewAsSession !== null
+
+    // Check platform admin status
+    const { data: isAdmin } = await supabase.rpc('is_platform_admin')
+    const isPlatformAdmin = !!isAdmin
+
+    // If in View-As mode, return view_as_readonly context
+    if (isViewAs && viewAsSession) {
+      return {
+        mode: 'view_as_readonly',
+        isPlatformAdmin,
+        isViewAs: true,
+        hasTeamMembership: true, // Synthetic - acting as an employee
+        companyId: viewAsSession.effectiveCompanyId,
+        companyName: viewAsSession.companyName,
+        effectiveEmployeeId: viewAsSession.effectiveEmployeeId,
+        effectiveEmployeeName: viewAsSession.effectiveDisplayName,
+      }
+    }
+
+    // Check for real team membership
+    const { data: teamMember } = await supabase
+      .from('team_members')
+      .select('company_id, employee_id, companies(name), employees(full_name)')
+      .eq('user_id', user.id)
+      .limit(1)
+      .maybeSingle()
+
+    const hasTeamMembership = !!teamMember?.company_id
+
+    // If platform admin without team membership and not in View-As: platform-only mode
+    if (isPlatformAdmin && !hasTeamMembership) {
+      return {
+        mode: 'platform_admin_only',
+        isPlatformAdmin: true,
+        isViewAs: false,
+        hasTeamMembership: false,
+        companyId: null,
+        companyName: null,
+        effectiveEmployeeId: null,
+        effectiveEmployeeName: null,
+      }
+    }
+
+    // Normal tenant user mode
+    const companyName = teamMember?.companies && !Array.isArray(teamMember.companies)
+      ? (teamMember.companies as { name: string }).name
+      : null
+    const employeeName = teamMember?.employees && !Array.isArray(teamMember.employees)
+      ? (teamMember.employees as { full_name: string }).full_name
+      : null
+
+    return {
+      mode: 'tenant_user',
+      isPlatformAdmin,
+      isViewAs: false,
+      hasTeamMembership,
+      companyId: teamMember?.company_id ?? null,
+      companyName,
+      effectiveEmployeeId: teamMember?.employee_id ?? null,
+      effectiveEmployeeName: employeeName,
+    }
+  } catch {
+    // Default to tenant user if something fails
+    return {
+      mode: 'tenant_user',
+      isPlatformAdmin: false,
+      isViewAs: false,
+      hasTeamMembership: false,
+      companyId: null,
+      companyName: null,
+      effectiveEmployeeId: null,
+      effectiveEmployeeName: null,
+    }
   }
 }

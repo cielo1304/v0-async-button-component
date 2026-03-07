@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { History, Search, Calendar, ArrowDown, ArrowUp, RefreshCw, XCircle, Check, Users, Bell, MoreHorizontal } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { filterOutSystemEmployees } from '@/lib/utils'
 import { toast } from 'sonner'
 import { ClientExchangeOperation, ClientExchangeDetail, Cashbox } from '@/lib/types/database'
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, subWeeks, subMonths } from 'date-fns'
@@ -144,14 +145,10 @@ export function ExchangeHistoryList({ refreshKey = 0 }: ExchangeHistoryListProps
     }
   }, [customDateRange])
   
-  // Load cashboxes and employees for settle dialogs (runs once)
+  // Load cashboxes for settle dialogs (runs once)
   useEffect(() => {
     async function loadSettleData() {
-      const [cbRes, empRes] = await Promise.all([
-        supabase.from('cashboxes').select('*').eq('is_archived', false).order('name'),
-        // Exclude system employees (is_system = true)
-        supabase.from('employees').select('id, full_name').eq('is_active', true).eq('is_system', false).order('full_name'),
-      ])
+      const cbRes = await supabase.from('cashboxes').select('*').eq('is_archived', false).order('name')
       if (cbRes.data) setCashboxes(cbRes.data)
     }
     loadSettleData()

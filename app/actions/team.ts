@@ -152,6 +152,47 @@ export async function updateEmployee(
   return employee
 }
 
+/**
+ * Get employees for dropdown/select UI components.
+ * 
+ * ROBUST: Handles missing is_system column gracefully with name-based fallback.
+ * Use this in client components instead of direct Supabase queries with .eq('is_system', false).
+ */
+export async function getEmployeesForSelect(): Promise<{ id: string; full_name: string }[]> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
+  const companyId = await getCompanyId(supabase, user.id)
+  
+  // Try with is_system filter first
+  let { data, error } = await supabase
+    .from('employees')
+    .select('id, full_name, is_system')
+    .eq('company_id', companyId)
+    .eq('is_active', true)
+    .eq('is_system', false)
+    .order('full_name')
+  
+  // Handle missing is_system column gracefully
+  if (error && (error.message?.includes('is_system') || error.code === '42703')) {
+    const fallback = await supabase
+      .from('employees')
+      .select('id, full_name')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('full_name')
+    if (fallback.error) throw new Error(fallback.error.message)
+    // Filter by name pattern for viewer employees
+    data = (fallback.data || []).filter(
+      emp => !emp.full_name?.startsWith('Просмотр (админ платформы)')
+    )
+    error = null
+  }
+  
+  if (error) throw new Error(error.message)
+  return (data || []).map(({ id, full_name }) => ({ id, full_name }))
+}
+
 export async function listEmployees() {
   const { supabase, user } = await createSupabaseAndRequireUser()
   
@@ -159,12 +200,28 @@ export async function listEmployees() {
   const companyId = await getCompanyId(supabase, user.id)
   
   // List employees for this company only (exclude system employees)
-  const { data: employees, error } = await supabase
+  // ROBUST: Handle missing is_system column gracefully
+  let { data: employees, error } = await supabase
     .from('employees')
     .select('*')
     .eq('company_id', companyId)
     .eq('is_system', false)
     .order('created_at', { ascending: false })
+  
+  // Handle missing is_system column gracefully
+  if (error && (error.message?.includes('is_system') || error.code === '42703')) {
+    const fallback = await supabase
+      .from('employees')
+      .select('*')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+    if (fallback.error) throw new Error(fallback.error.message)
+    // Filter by name pattern for viewer employees
+    employees = (fallback.data || []).filter(
+      emp => !emp.full_name?.startsWith('Просмотр (админ платформы)')
+    )
+    error = null
+  }
   
   if (error) throw new Error(error.message)
   

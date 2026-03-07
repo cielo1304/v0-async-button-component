@@ -24,6 +24,7 @@ import {
 import { TrendingUp, TrendingDown, DollarSign, Car, Package, Briefcase, Users, ArrowLeft, RefreshCw, Loader2, Calendar, Check, ChevronUp, ChevronDown } from 'lucide-react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { filterOutSystemEmployees } from '@/lib/tenant/employee-filter'
 import { format, subDays, startOfMonth, endOfMonth, subMonths, startOfWeek, endOfWeek, subWeeks, subYears, startOfDay, endOfDay, getMonth, getYear } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import {
@@ -423,7 +424,8 @@ export default function AnalyticsPage() {
         supabase.from('cars').select('*'),
         supabase.from('deals').select('*'),
         supabase.from('stock_items').select('*').eq('is_active', true),
-        supabase.from('employees').select('*').eq('is_active', true).eq('is_system', false),
+        // ROBUST: Remove is_system DB filter and handle client-side with filterOutSystemEmployees
+        supabase.from('employees').select('*').eq('is_active', true),
         supabase.from('auto_clients').select('*'),
         supabase.from('auto_deals').select('*'),
       ])
@@ -433,7 +435,7 @@ export default function AnalyticsPage() {
       const cars = carsRes.data || []
       const deals = dealsRes.data || []
       const stockItems = stockRes.data || []
-      const employees = employeesRes.data || []
+      const employees = filterOutSystemEmployees(employeesRes.data || [])
       const autoClients = autoClientsRes.data || []
       const autoDeals = autoDealsRes.data || []
 

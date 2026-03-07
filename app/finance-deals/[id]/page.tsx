@@ -28,6 +28,7 @@ import { computeBalances, totalPausedDays } from '@/lib/finance/math'
 import { regenerateSchedule, pauseDeal, resumeDeal, deletePause } from '@/app/actions/finance-engine'
 import { evaluateCollateral, replaceCollateral, releaseCollateral, defaultWithSideEffects } from '@/app/actions/collateral-engine'
 import { addLedgerEntryWithCashbox, getFinanceDealPnl } from '@/app/actions/finance-deals'
+import { getEmployeesForSelect } from '@/app/actions/team'
 import type { FinanceCollateralChain } from '@/lib/types/database'
 import { VisibilityToggle } from '@/components/shared/visibility-toggle'
 import { AudienceNotes } from '@/components/shared/audience-notes'
@@ -168,12 +169,12 @@ export default function FinanceDealDetailPage() {
   }, [supabase, dealId])
 
   const loadRefs = useCallback(async () => {
-    const [e, a] = await Promise.all([
-      // Exclude system employees (is_system = true)
-      supabase.from('employees').select('id, full_name').eq('is_active', true).eq('is_system', false).order('full_name'),
+    const [employeesData, a] = await Promise.all([
+      // ROBUST: Use server action with is_system fallback handling
+      getEmployeesForSelect(),
       supabase.from('assets').select('id, title, asset_type, status').order('created_at', { ascending: false }),
     ])
-    setEmployees((e.data || []) as Employee[])
+    setEmployees(employeesData as Employee[])
     setAssets((a.data || []) as Asset[])
   }, [supabase])
 
