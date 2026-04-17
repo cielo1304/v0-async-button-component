@@ -11,6 +11,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Loader2, MapPin, Wallet, Building, User, Truck, Lock, Globe, ChevronDown, ChevronRight, Settings, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { EditCashboxDialog } from './edit-cashbox-dialog'
+import { getCashboxes } from '@/app/actions/cashbox'
 
 const CASHBOX_TYPE_LABELS: Record<string, string> = {
   CASH: 'Наличные',
@@ -46,12 +47,13 @@ export function CashboxList() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [cashboxesRes, locationsRes] = await Promise.all([
-          supabase
-            .from('cashboxes')
-            .select('*')
-            .eq('is_archived', false)
-            .order('created_at', { ascending: false }),
+        // CANONICAL SCOPE: use the server action for cashboxes so View-As
+        // (cielo impersonating company B) gets rows via adminSupabase instead
+        // of being blocked by RLS on the browser client. cashbox_locations is
+        // a global reference table (no company_id, UNIQUE name) so it can keep
+        // using the browser client.
+        const [cashboxesResult, locationsRes] = await Promise.all([
+          getCashboxes(),
           supabase
             .from('cashbox_locations')
             .select('id, name')
@@ -59,8 +61,8 @@ export function CashboxList() {
             .order('sort_order')
         ])
 
-        if (cashboxesRes.error) throw cashboxesRes.error
-        setCashboxes(cashboxesRes.data || [])
+        if (!cashboxesResult.success) throw new Error(cashboxesResult.error || 'Ошибка загрузки касс')
+        setCashboxes((cashboxesResult.cashboxes || []) as CashboxWithLocation[])
         setLocations(locationsRes.data || [])
       } catch {
         // Silent fail

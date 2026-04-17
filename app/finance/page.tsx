@@ -389,45 +389,22 @@ export default function FinancePage() {
 
   const loadTotals = async (cashboxId: string) => {
     try {
-      // Start of today (00:00)
-      const startOfDay = new Date()
-      startOfDay.setHours(0, 0, 0, 0)
-
-      // Get today's transactions and current cashbox balance in parallel
-      const [transactionsResult, cashboxResult] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('amount, category')
-          .eq('cashbox_id', cashboxId)
-          .gte('created_at', startOfDay.toISOString()),
-        supabase
-          .from('cashboxes')
-          .select('balance')
-          .eq('id', cashboxId)
-          .single()
-      ])
-
-      const todayTransactions = transactionsResult.data
-      const currentBalance = cashboxResult.data ? Number(cashboxResult.data.balance) : 0
-
-      // Calculate income (DEPOSIT, TRANSFER_IN, EXCHANGE_IN - positive amounts)
-      // and expense (WITHDRAW, TRANSFER_OUT, EXCHANGE_OUT - negative amounts)
-      let income = 0
-      let expense = 0
-
-      todayTransactions?.forEach(t => {
-        const amount = Number(t.amount)
-        if (amount > 0) {
-          income += amount
-        } else {
-          expense += Math.abs(amount)
-        }
+      // CANONICAL SCOPE: go through the server action so View-As (cielo
+      // impersonating company B) uses adminSupabase + locked companyId and
+      // also re-verifies cashbox ownership on the server. Previously the
+      // browser client was used, which was silently blocked by RLS on both
+      // `transactions` and `cashboxes` for cielo and produced 0/0/0 totals.
+      const result = await getCashboxDailyTotals(cashboxId)
+      if (!result.success) {
+        console.error('Error loading totals:', result.error)
+        setTotals({ income: 0, expense: 0, startOfDay: 0 })
+        return
+      }
+      setTotals({
+        income: result.income,
+        expense: result.expense,
+        startOfDay: result.startOfDay,
       })
-
-      // Calculate balance at start of day: current balance - today's income + today's expense
-      const balanceAtStartOfDay = currentBalance - income + expense
-
-      setTotals({ income, expense, startOfDay: balanceAtStartOfDay })
     } catch (error) {
       console.error('Error loading totals:', error)
     }

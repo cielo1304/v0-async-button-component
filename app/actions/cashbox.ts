@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
-import { getCompanyId } from '@/lib/tenant/get-company-id'
+import { createSupabaseAndRequireUser, createTenantSupabase } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 
@@ -135,8 +134,29 @@ export async function getFinanceDealPnl(financeDealId: string) {
 // ─── Verified cashbox balances ───
 
 export async function getVerifiedBalances() {
-  const { supabase } = await createSupabaseAndRequireUser()
-  const { data } = await supabase.from('v_cashbox_verified_balance').select('*')
+  // CANONICAL SCOPE: in View-As mode, use adminSupabase + locked companyId,
+  // otherwise user-scoped supabase + team_members companyId. Previously this
+  // was unscoped (no company filter at all) AND used the user-scoped client
+  // in View-As — RLS on v_cashbox_verified_balance blocked rows for cielo,
+  // and in edge cases without RLS it could leak cross-company rows.
+  //
+  // The view does not expose company_id, so we scope by first collecting the
+  // cashbox IDs that belong to the current company, then filtering the view
+  // to exactly those IDs.
+  const { supabase, companyId } = await createTenantSupabase()
+
+  const { data: companyCashboxes } = await supabase
+    .from('cashboxes')
+    .select('id')
+    .eq('company_id', companyId)
+
+  const cashboxIds = (companyCashboxes || []).map(c => c.id)
+  if (cashboxIds.length === 0) return []
+
+  const { data } = await supabase
+    .from('v_cashbox_verified_balance')
+    .select('*')
+    .in('cashbox_id', cashboxIds)
   return data || []
 }
 
@@ -392,13 +412,14 @@ export type CreateCashboxInput = {
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
+  // View-As is read-only, so this guard also covers the impersonation case.
   await assertNotReadOnly()
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: createTenantSupabase returns the user-scoped client
+  // + team_members companyId in normal mode. View-As never reaches here
+  // because assertNotReadOnly() throws first.
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // HARD SCOPE: Use getCompanyId which respects View-As scope lock
-    // This prevents A+B scope mixing when platform admin is in View-As mode
-    const companyId = await getCompanyId(supabase, user.id)
 
     const { data: newCashbox, error } = await supabase
       .from('cashboxes')
@@ -611,8 +632,9 @@ export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInpu
 
 /**
  * Get all cashboxes for the current company.
- * CANONICAL COMPANY SCOPE: Uses getCompanyId for proper View-As support.
- * 
+ * CANONICAL COMPANY SCOPE: Uses createTenantSupabase (adminSupabase + locked
+ * companyId in View-As; user-scoped client + team_members companyId otherwise).
+ *
  * This action should be used by client components instead of direct Supabase queries
  * to ensure correct company scope in both normal and View-As modes.
  */
@@ -654,17 +676,20 @@ export async function getCashboxes(options?: { includeArchived?: boolean }): Pro
   }>
   error?: string
 }> {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: createTenantSupabase routes to adminSupabase + locked
+  // companyId in View-As mode (so cielo can read the impersonated company's
+  // cashboxes even without a team_members row), or to user-scoped supabase +
+  // team_members companyId in normal mode. Fixes false-empty cashbox lists
+  // caused by RLS blocking the user client in View-As.
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
-    const companyId = await getCompanyId(supabase, user.id)
-
     // Load active cashboxes
     const { data: activeCashboxes, error: activeError } = await supabase
       .from('cashboxes')
       .select('*')
-      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed,
+      // especially critical with adminSupabase (which bypasses RLS).
       .eq('company_id', companyId)
       .eq('is_archived', false)
       .order('sort_order', { ascending: true })
@@ -723,12 +748,12 @@ export async function getCashboxTransactions(
   }>
   error?: string
 }> {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: adminSupabase + locked companyId in View-As, user-scoped
+  // otherwise. Previously the user-scoped client was used in View-As, so RLS
+  // on `cashboxes` / `transactions` blocked reads for cielo.
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
-    const companyId = await getCompanyId(supabase, user.id)
-
     // First verify the cashbox belongs to the current company
     const { data: cashbox, error: cashboxError } = await supabase
       .from('cashboxes')
@@ -784,12 +809,13 @@ export async function getCashboxDailyTotals(cashboxId: string): Promise<{
   startOfDay: number
   error?: string
 }> {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: adminSupabase + locked companyId in View-As, user-scoped
+  // otherwise. This replaces the old user-client + getCompanyId flow that
+  // produced 0/0/0 totals for cielo in View-As because RLS blocked both the
+  // cashbox read and the transactions read.
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
-    const companyId = await getCompanyId(supabase, user.id)
-
     // First verify the cashbox belongs to the current company
     const { data: cashbox, error: cashboxError } = await supabase
       .from('cashboxes')
