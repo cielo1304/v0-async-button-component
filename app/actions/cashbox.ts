@@ -606,3 +606,245 @@ export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInpu
     return { success: false, error: err.message || 'Ошибка обновления порядка касс' }
   }
 }
+
+// ─── Fetch Cashboxes (company-scoped) ───
+
+/**
+ * Get all cashboxes for the current company.
+ * CANONICAL COMPANY SCOPE: Uses getCompanyId for proper View-As support.
+ * 
+ * This action should be used by client components instead of direct Supabase queries
+ * to ensure correct company scope in both normal and View-As modes.
+ */
+export async function getCashboxes(options?: { includeArchived?: boolean }): Promise<{
+  success: boolean
+  cashboxes: Array<{
+    id: string
+    name: string
+    type: string
+    currency: string
+    balance: number
+    initial_balance: number
+    location: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    is_hidden: boolean
+    is_archived: boolean
+    is_exchange_enabled: boolean
+    sort_order: number
+    created_at: string
+    updated_at: string
+  }>
+  archivedCashboxes?: Array<{
+    id: string
+    name: string
+    type: string
+    currency: string
+    balance: number
+    initial_balance: number
+    location: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    is_hidden: boolean
+    is_archived: boolean
+    is_exchange_enabled: boolean
+    sort_order: number
+    created_at: string
+    updated_at: string
+  }>
+  error?: string
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  try {
+    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
+    const companyId = await getCompanyId(supabase, user.id)
+
+    // Load active cashboxes
+    const { data: activeCashboxes, error: activeError } = await supabase
+      .from('cashboxes')
+      .select('*')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
+      .eq('is_archived', false)
+      .order('sort_order', { ascending: true })
+      .order('name')
+
+    if (activeError) {
+      return { success: false, cashboxes: [], error: activeError.message }
+    }
+
+    // Optionally load archived cashboxes
+    let archivedCashboxes: typeof activeCashboxes = []
+    if (options?.includeArchived) {
+      const { data: archivedData, error: archivedError } = await supabase
+        .from('cashboxes')
+        .select('*')
+        // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+        .eq('company_id', companyId)
+        .eq('is_archived', true)
+        .order('name')
+
+      if (!archivedError) {
+        archivedCashboxes = archivedData || []
+      }
+    }
+
+    return {
+      success: true,
+      cashboxes: activeCashboxes || [],
+      archivedCashboxes,
+    }
+  } catch (err: any) {
+    return { success: false, cashboxes: [], error: err.message || 'Ошибка загрузки касс' }
+  }
+}
+
+/**
+ * Get transactions for a specific cashbox within the current company.
+ * CANONICAL COMPANY SCOPE: Validates cashbox belongs to current company.
+ */
+export async function getCashboxTransactions(
+  cashboxId: string,
+  options?: { startDate?: string; endDate?: string; limit?: number }
+): Promise<{
+  success: boolean
+  transactions: Array<{
+    id: string
+    cashbox_id: string
+    amount: number
+    balance_after: number
+    category: string
+    description: string | null
+    reference_id: string | null
+    deal_id: string | null
+    created_by: string
+    created_at: string
+  }>
+  error?: string
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  try {
+    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
+    const companyId = await getCompanyId(supabase, user.id)
+
+    // First verify the cashbox belongs to the current company
+    const { data: cashbox, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('id, company_id')
+      .eq('id', cashboxId)
+      .single()
+
+    if (cashboxError || !cashbox) {
+      return { success: false, transactions: [], error: 'Касса не найдена' }
+    }
+
+    if (cashbox.company_id !== companyId) {
+      return { success: false, transactions: [], error: 'Доступ запрещен' }
+    }
+
+    // Build query
+    let query = supabase
+      .from('transactions')
+      .select('*')
+      .eq('cashbox_id', cashboxId)
+      .order('created_at', { ascending: false })
+
+    if (options?.startDate) {
+      query = query.gte('created_at', options.startDate)
+    }
+    if (options?.endDate) {
+      query = query.lte('created_at', options.endDate)
+    }
+    if (options?.limit) {
+      query = query.limit(options.limit)
+    }
+
+    const { data: transactions, error: txError } = await query
+
+    if (txError) {
+      return { success: false, transactions: [], error: txError.message }
+    }
+
+    return { success: true, transactions: transactions || [] }
+  } catch (err: any) {
+    return { success: false, transactions: [], error: err.message || 'Ошибка загрузки транзакций' }
+  }
+}
+
+/**
+ * Get daily totals for a cashbox (income, expense, start-of-day balance).
+ * CANONICAL COMPANY SCOPE: Validates cashbox belongs to current company.
+ */
+export async function getCashboxDailyTotals(cashboxId: string): Promise<{
+  success: boolean
+  income: number
+  expense: number
+  startOfDay: number
+  error?: string
+}> {
+  const { supabase, user } = await createSupabaseAndRequireUser()
+
+  try {
+    // CANONICAL COMPANY SCOPE: Use getCompanyId which respects View-As scope lock
+    const companyId = await getCompanyId(supabase, user.id)
+
+    // First verify the cashbox belongs to the current company
+    const { data: cashbox, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('id, company_id, balance')
+      .eq('id', cashboxId)
+      .single()
+
+    if (cashboxError || !cashbox) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: 'Касса не найдена' }
+    }
+
+    if (cashbox.company_id !== companyId) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: 'Доступ запрещен' }
+    }
+
+    // Start of today (00:00)
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+
+    // Get today's transactions
+    const { data: todayTransactions, error: txError } = await supabase
+      .from('transactions')
+      .select('amount, category')
+      .eq('cashbox_id', cashboxId)
+      .gte('created_at', startOfDay.toISOString())
+
+    if (txError) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: txError.message }
+    }
+
+    const currentBalance = Number(cashbox.balance)
+
+    // Calculate income and expense
+    let income = 0
+    let expense = 0
+
+    todayTransactions?.forEach(t => {
+      const amount = Number(t.amount)
+      if (amount > 0) {
+        income += amount
+      } else {
+        expense += Math.abs(amount)
+      }
+    })
+
+    // Calculate balance at start of day
+    const balanceAtStartOfDay = currentBalance - income + expense
+
+    return {
+      success: true,
+      income,
+      expense,
+      startOfDay: balanceAtStartOfDay,
+    }
+  } catch (err: any) {
+    return { success: false, income: 0, expense: 0, startOfDay: 0, error: err.message || 'Ошибка загрузки итогов' }
+  }
+}

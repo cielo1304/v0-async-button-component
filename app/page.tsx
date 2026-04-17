@@ -79,6 +79,25 @@ async function checkPlatformAdmin(): Promise<boolean> {
 
 async function getStats() {
   const supabase = await createClient()
+  
+  // Import dynamically to avoid circular dependencies
+  const { getCompanyId } = await import('@/lib/tenant/get-company-id')
+  const { data: userData } = await supabase.auth.getUser()
+  
+  // Get company ID for scoped queries - use empty default if not authenticated
+  let companyId: string | null = null
+  if (userData?.user) {
+    try {
+      companyId = await getCompanyId(supabase, userData.user.id)
+    } catch {
+      // User has no company - stats will return 0
+    }
+  }
+  
+  // If no company, return zeros (platform-only users shouldn't see this page anyway)
+  if (!companyId) {
+    return { cashboxCount: 0, carsInStock: 0, activeDeals: 0, stockItems: 0, employeesCount: 0, contactsCount: 0, finDealsCount: 0, assetsCount: 0 }
+  }
 
   const safeCount = async (query: Promise<{ count: number | null; error: unknown }>): Promise<number> => {
     try {
@@ -94,9 +113,11 @@ async function getStats() {
   const getEmployeesCount = async (): Promise<number> => {
     try {
       // Try with is_system filter first
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
       const result = await supabase
         .from('employees')
         .select('id', { count: 'exact', head: true })
+        .eq('company_id', companyId)
         .eq('is_active', true)
         .eq('is_system', false)
       
@@ -105,6 +126,7 @@ async function getStats() {
         const fallback = await supabase
           .from('employees')
           .select('id', { count: 'exact', head: true })
+          .eq('company_id', companyId)
           .eq('is_active', true)
         return fallback.count || 0
       }
@@ -115,16 +137,18 @@ async function getStats() {
     }
   }
 
+  // CANONICAL COMPANY SCOPE: All queries include explicit company_id filter
+  // This prevents cross-company data bleed and ensures View-As mode works correctly
   const [cashboxCount, carsInStock, activeDeals, stockItems, employeesCount, contactsCount, finDealsCount, assetsCount] =
     await Promise.all([
-      safeCount(supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('is_archived', false)),
-      safeCount(supabase.from('cars').select('id', { count: 'exact', head: true }).eq('status', 'IN_STOCK')),
-      safeCount(supabase.from('deals').select('id', { count: 'exact', head: true }).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT'])),
-      safeCount(supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('is_active', true)),
+      safeCount(supabase.from('cashboxes').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('is_archived', false)),
+      safeCount(supabase.from('cars').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'IN_STOCK')),
+      safeCount(supabase.from('deals').select('id', { count: 'exact', head: true }).eq('company_id', companyId).in('status', ['NEW', 'IN_PROGRESS', 'PENDING_PAYMENT'])),
+      safeCount(supabase.from('stock_items').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('is_active', true)),
       getEmployeesCount(),
-      safeCount(supabase.from('contacts').select('id', { count: 'exact', head: true })),
-      safeCount(supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE'])),
-      safeCount(supabase.from('assets').select('id', { count: 'exact', head: true })),
+      safeCount(supabase.from('contacts').select('id', { count: 'exact', head: true }).eq('company_id', companyId)),
+      safeCount(supabase.from('core_deals').select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('kind', 'finance').in('status', ['NEW', 'ACTIVE'])),
+      safeCount(supabase.from('assets').select('id', { count: 'exact', head: true }).eq('company_id', companyId)),
     ])
 
   return { cashboxCount, carsInStock, activeDeals, stockItems, employeesCount, contactsCount, finDealsCount, assetsCount }

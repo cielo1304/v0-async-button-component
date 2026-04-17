@@ -11,8 +11,8 @@ import {
   GripVertical, MapPin, TrendingUp, TrendingDown, RefreshCw, Check, ChevronDown, Archive
 } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Cashbox } from '@/lib/types/database'
+import { getCashboxes, getCashboxDailyTotals } from '@/app/actions/cashbox'
 import { ExchangeDialog } from '@/components/finance/exchange-dialog'
 import { TransactionList } from '@/components/finance/transaction-list'
 import { AddCashboxDialog } from '@/components/finance/add-cashbox-dialog'
@@ -94,7 +94,12 @@ export default function FinancePage() {
   const [isLoadingRates, setIsLoadingRates] = useState(false)
   const [ratesUpdated, setRatesUpdated] = useState(false)
   const [ratesError, setRatesError] = useState(false)
-  const supabase = useMemo(() => createClient(), [])
+  
+  // Client supabase for system-wide currency rates (not company-scoped)
+  const supabase = useMemo(() => {
+    const { createClient } = require('@/lib/supabase/client')
+    return createClient()
+  }, [])
 
   useEffect(() => {
     loadCashboxes()
@@ -116,37 +121,31 @@ export default function FinancePage() {
 
   const loadCashboxes = async () => {
     try {
-      // Load active cashboxes
-      const { data, error } = await supabase
-        .from('cashboxes')
-        .select('*')
-        .eq('is_archived', false)
-        .order('sort_order', { ascending: true })
-        .order('name')
-
-if (error) throw error
-  setCashboxes(data || [])
-  
-  if (data && data.length > 0) {
-    if (!selectedCashbox) {
-      setSelectedCashbox(data[0])
-    } else {
-      // Update selectedCashbox with fresh data (e.g., updated balance)
-      const updatedSelected = data.find(c => c.id === selectedCashbox.id)
-      if (updatedSelected) {
-        setSelectedCashbox(updatedSelected)
-      }
-    }
-  }
-
-      // Load archived cashboxes
-      const { data: archivedData } = await supabase
-        .from('cashboxes')
-        .select('*')
-        .eq('is_archived', true)
-        .order('name')
+      // CANONICAL COMPANY SCOPE: Use server action for proper View-As support
+      const result = await getCashboxes({ includeArchived: true })
       
-      setArchivedCashboxes(archivedData || [])
+      if (!result.success) {
+        console.error('Error loading cashboxes:', result.error)
+        return
+      }
+      
+      const data = result.cashboxes || []
+      setCashboxes(data)
+      
+      if (data.length > 0) {
+        if (!selectedCashbox) {
+          setSelectedCashbox(data[0])
+        } else {
+          // Update selectedCashbox with fresh data (e.g., updated balance)
+          const updatedSelected = data.find(c => c.id === selectedCashbox.id)
+          if (updatedSelected) {
+            setSelectedCashbox(updatedSelected)
+          }
+        }
+      }
+
+      // Load archived cashboxes from the same server action result
+      setArchivedCashboxes(result.archivedCashboxes || [])
     } catch (error) {
       console.error('Error loading cashboxes:', error)
     } finally {

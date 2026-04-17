@@ -71,7 +71,7 @@ import {
   createEmployeeInviteLink,
   deleteEmployeeInviteLink,
   listEmployeeInviteLinks,
-  getEffectiveTeamContext,
+  loadTeamManagerData,
 } from '@/app/actions/team'
 
 // Типы
@@ -160,99 +160,50 @@ export function TeamManager() {
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      // HARD SCOPE: Use server action that respects View-As scope lock
-      // This prevents A+B scope mixing when platform admin is in View-As mode
-      const teamContext = await getEffectiveTeamContext()
-      
-      const companyId = teamContext.companyId
-      const companyName = teamContext.companyName
-      setIsOwner(teamContext.isOwner)
+      // CANONICAL SCOPE: All reads go through a single server action that uses
+      // adminSupabase + locked companyId in View-As mode, or user-scoped supabase
+      // + team_members companyId in normal mode.
+      //
+      // This replaces direct browser Supabase queries which were blocked by RLS
+      // when the platform admin (cielo) was impersonating a company without a
+      // team_members row — producing a false-empty Team state.
+      const data = await loadTeamManagerData()
+
+      if (data.error) {
+        console.error('[v0] loadTeamManagerData error:', data.error)
+        toast.error('Ошибка загрузки данных')
+      }
+
+      const companyId = data.companyId
+      setIsOwner(data.isOwner)
       setActiveCompanyId(companyId)
-      setActiveCompanyName(companyName)
-      
+      setActiveCompanyName(data.companyName)
+
       if (!companyId) {
         // Нет компании — показываем пустое состояние
-        setIsOwner(false)
         setEmployees([])
         setRoles([])
         setUsers([])
         setPositionDefaults([])
+        setInviteLinks([])
         return
       }
-      
-      // Загрузка сотрудников только текущей компании
-      // Exclude system employees (is_system = true) - they are for platform viewer only
-      const { data: employeesData } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('company_id', companyId)
-        .eq('is_system', false)
-        .order('full_name')
-      
+
       // UI-level safety filter (in case is_system column doesn't exist or query filter fails)
-      const filteredEmployees = filterOutSystemEmployees(employeesData || [])
-      
-      // Загрузка ролей
-      const { data: rolesData } = await supabase
-        .from('system_roles')
-        .select('*')
-        .order('name')
-      
-      // Используем уже полученного пользователя
-      const currentUser = currentUserEarly
-      
-      // ID сотрудников этой компании для фильтрации employee_roles
-      // Use filteredEmployees (UI-level safety filter applied)
-      const employeeIds = filteredEmployees.map(e => e.id)
-      
-      // Загрузка employee_roles только для сотрудников этой компании
-      const { data: employeeRolesData } = employeeIds.length > 0
-        ? await supabase
-            .from('employee_roles')
-            .select(`
-              id,
-              employee_id,
-              role_id,
-              assigned_at,
-              assigned_by,
-              system_roles (*)
-            `)
-            .in('employee_id', employeeIds)
-        : { data: [] }
-      
-      // Также загружаем user_roles для совместимости
-      const { data: userRolesData } = await supabase
-        .from('user_roles')
-        .select(`
-          id,
-          user_id,
-          role_id,
-          system_roles (*)
-        `)
-      
-      // Загрузка маппинга должностей к ролям
-      const { data: positionDefaultsData } = await supabase
-        .from('position_default_roles')
-        .select(`
-          id,
-          position,
-          system_role_id,
-          created_at,
-          system_roles (*)
-        `)
-      
+      const filteredEmployees = filterOutSystemEmployees(data.employees || [])
+
       // Группируем роли по пользователям
       const usersMap = new Map<string, UserWithRoles>()
-      
-      if (currentUser) {
-        usersMap.set(currentUser.id, {
-          id: currentUser.id,
-          email: currentUser.email || 'Неизвестно',
+
+      if (data.currentUser) {
+        usersMap.set(data.currentUser.id, {
+          id: data.currentUser.id,
+          email: data.currentUser.email || 'Неизвестно',
           roles: []
         })
       }
-      
-      userRolesData?.forEach(ur => {
+
+      data.userRolesRaw?.forEach(ur => {
         const userId = ur.user_id
         if (!usersMap.has(userId)) {
           usersMap.set(userId, {
@@ -265,10 +216,10 @@ export function TeamManager() {
           usersMap.get(userId)!.roles.push(ur.system_roles as SystemRole)
         }
       })
-      
+
       // Группируем employee_roles по employee_id
       const employeeRolesMap = new Map<string, EmployeeRole[]>()
-      employeeRolesData?.forEach(er => {
+      data.employeeRolesRaw?.forEach(er => {
         const empId = er.employee_id
         if (!employeeRolesMap.has(empId)) {
           employeeRolesMap.set(empId, [])
@@ -282,15 +233,14 @@ export function TeamManager() {
           role: er.system_roles as SystemRole
         })
       })
-      
+
       // Добавляем информацию о ролях к сотрудникам
-      // Use filteredEmployees (UI-level safety filter applied)
       const employeesWithRoles: EmployeeWithUser[] = filteredEmployees.map(emp => {
-        const userInfo = emp.user_id ? usersMap.get(emp.user_id) : 
+        const userInfo = emp.user_id ? usersMap.get(emp.user_id) :
                         emp.auth_user_id ? usersMap.get(emp.auth_user_id) : null
         const empRoles = employeeRolesMap.get(emp.id) || []
         const systemRoles = empRoles.map(er => er.role).filter((r): r is SystemRole => r !== undefined)
-        
+
         // Вычисляем доступ к модулям на основе ролей
         const computedModuleAccess: ModuleAccess = {
           exchange: getModuleAccessLevelFromRoles(systemRoles, 'exchange'),
@@ -298,7 +248,7 @@ export function TeamManager() {
           deals: getModuleAccessLevelFromRoles(systemRoles, 'deals'),
           stock: getModuleAccessLevelFromRoles(systemRoles, 'stock'),
         }
-        
+
         return {
           ...emp,
           modules: emp.modules || [],
@@ -308,16 +258,16 @@ export function TeamManager() {
           computed_module_access: computedModuleAccess
         }
       })
-      
+
       setEmployees(employeesWithRoles)
-      setRoles(rolesData || [])
+      setRoles(data.systemRoles || [])
       setUsers(Array.from(usersMap.values()))
-      setPositionDefaults((positionDefaultsData || []).map(pd => ({
+      setPositionDefaults((data.positionDefaults || []).map(pd => ({
         ...pd,
         role: pd.system_roles as SystemRole
       })))
 
-      // Load invite links
+      // Load invite links via server action (also routes through canonical scope helper).
       const { links } = await listEmployeeInviteLinks()
       setInviteLinks((links || []) as InviteLink[])
     } catch (error) {
@@ -326,7 +276,7 @@ export function TeamManager() {
     } finally {
       setIsLoading(false)
     }
-  }, [supabase])
+  }, [])
   
   useEffect(() => {
     loadData()

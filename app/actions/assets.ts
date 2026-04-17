@@ -1,6 +1,6 @@
 'use server'
 
-import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { createTenantSupabase } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 import type { AssetType, AssetStatus } from '@/lib/types/database'
@@ -10,7 +10,8 @@ export async function getAssets(filters?: {
   assetType?: string
   search?: string
 }) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
 
   let query = supabase
     .from('assets')
@@ -19,6 +20,8 @@ export async function getAssets(filters?: {
       owner_contact:contacts!owner_contact_id(id, display_name),
       responsible_employee:employees!responsible_employee_id(id, full_name)
     `)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('updated_at', { ascending: false })
 
   if (!filters?.showAll) {
@@ -94,7 +97,8 @@ export async function getAssets(filters?: {
 }
 
 export async function getAssetById(id: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
 
   const { data, error } = await supabase
     .from('assets')
@@ -104,6 +108,8 @@ export async function getAssetById(id: string) {
       responsible_employee:employees!responsible_employee_id(id, full_name)
     `)
     .eq('id', id)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .single()
 
   if (error) throw new Error(error.message)
@@ -111,11 +117,14 @@ export async function getAssetById(id: string) {
 }
 
 export async function getAssetValuations(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('asset_valuations')
     .select('*, created_by_employee:employees!created_by_employee_id(id, full_name)')
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -123,7 +132,8 @@ export async function getAssetValuations(assetId: string) {
 }
 
 export async function getAssetMoves(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('asset_location_moves')
     .select(`
@@ -133,6 +143,8 @@ export async function getAssetMoves(assetId: string) {
       moved_by_employee:employees!moved_by_employee_id(id, full_name)
     `)
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('moved_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -140,11 +152,14 @@ export async function getAssetMoves(assetId: string) {
 }
 
 export async function getAssetCollateralLinks(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('finance_collateral_links')
     .select('*, finance_deal:finance_deals!finance_deal_id(id, core_deal_id, principal_amount, contract_currency, core_deal:core_deals!core_deal_id(title, status))')
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('started_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -152,12 +167,15 @@ export async function getAssetCollateralLinks(assetId: string) {
 }
 
 export async function getAssetCollateralChain(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   // Get chain entries where this asset was either old or new
   const { data, error } = await supabase
     .from('finance_collateral_chain')
     .select('*, old_asset:assets!finance_collateral_chain_old_asset_id_fkey(id, title), new_asset:assets!finance_collateral_chain_new_asset_id_fkey(id, title)')
     .or(`old_asset_id.eq.${assetId},new_asset_id.eq.${assetId}`)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -165,11 +183,14 @@ export async function getAssetCollateralChain(assetId: string) {
 }
 
 export async function getAssetSaleEvents(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('asset_sale_events')
     .select('*, created_by_employee:employees!created_by_employee_id(id, full_name)')
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('sold_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -177,11 +198,14 @@ export async function getAssetSaleEvents(assetId: string) {
 }
 
 export async function getAssetTimeline(assetId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('v_timeline_asset_events')
     .select('*')
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('event_time', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -189,10 +213,13 @@ export async function getAssetTimeline(assetId: string) {
 }
 
 export async function getAssetLocations() {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('asset_locations')
     .select('*')
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .eq('is_active', true)
     .order('name')
   if (error) throw new Error(error.message)
@@ -200,12 +227,15 @@ export async function getAssetLocations() {
 }
 
 export async function getEmployeesList() {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   // Exclude system employees with ROBUST fallback
   // Try with is_system filter first, fallback to name-based filtering if column missing
   let { data, error } = await supabase
     .from('employees')
     .select('id, full_name, is_system')
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .eq('is_active', true)
     .eq('is_system', false)
     .order('full_name')
@@ -215,6 +245,8 @@ export async function getEmployeesList() {
     const fallback = await supabase
       .from('employees')
       .select('id, full_name')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .eq('is_active', true)
       .order('full_name')
     if (fallback.error) throw new Error(fallback.error.message)
@@ -230,8 +262,15 @@ export async function getEmployeesList() {
 }
 
 export async function getContactsList(search?: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
-  let query = supabase.from('contacts').select('id, display_name').order('display_name').limit(50)
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
+  let query = supabase
+    .from('contacts')
+    .select('id, display_name')
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
+    .order('display_name')
+    .limit(50)
   if (search) {
     query = query.ilike('display_name', `%${search}%`)
   }
@@ -251,11 +290,14 @@ export async function createAsset(formData: {
   actor_employee_id?: string | null
 }) {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
 
   const { data, error } = await supabase
     .from('assets')
     .insert({
+      // EXPLICIT COMPANY ID: Ensures correct tenant isolation
+      company_id: companyId,
       asset_type: formData.asset_type,
       title: formData.title,
       status: formData.status,
@@ -396,10 +438,13 @@ export async function addAssetMove(formData: {
 }
 
 export async function getCashboxesList() {
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
+  const { supabase, companyId } = await createTenantSupabase()
   const { data, error } = await supabase
     .from('cashboxes')
     .select('id, name, currency, balance')
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('sort_order', { ascending: true })
   if (error) throw new Error(error.message)
   return data || []
