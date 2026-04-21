@@ -171,7 +171,6 @@ CREATE POLICY "asset_sale_events_insert_by_company" ON asset_sale_events FOR INS
 
 -- finance_collateral_links (asset-side read from Assets module)
 ALTER TABLE finance_collateral_links ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON finance_collateral_links FROM anon;
 DROP POLICY IF EXISTS "finance_collateral_links_select_by_company" ON finance_collateral_links;
 DROP POLICY IF EXISTS "finance_collateral_links_insert_by_company" ON finance_collateral_links;
 DROP POLICY IF EXISTS "finance_collateral_links_update_by_company" ON finance_collateral_links;
@@ -195,7 +194,6 @@ CREATE POLICY "finance_collateral_links_delete_by_company" ON finance_collateral
 
 -- finance_collateral_chain (asset-side read from Assets module)
 ALTER TABLE finance_collateral_chain ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON finance_collateral_chain FROM anon;
 DROP POLICY IF EXISTS "finance_collateral_chain_select_by_company" ON finance_collateral_chain;
 DROP POLICY IF EXISTS "finance_collateral_chain_insert_by_company" ON finance_collateral_chain;
 CREATE POLICY "finance_collateral_chain_select_by_company" ON finance_collateral_chain FOR SELECT USING (
