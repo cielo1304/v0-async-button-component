@@ -168,6 +168,201 @@ export async function listCompanyInvites(): Promise<{
 }
 
 /**
+ * List all invites grouped by Company → Director → Employees.
+ *
+ * Platform admin only. Uses adminSupabase to bypass RLS because
+ * platform admin is not a team member of any company.
+ *
+ * Returns one group per:
+ *   - Active company (companies row), with its accepted company_invite (if any),
+ *     its owners (directors), its non-owner members (employees), and its
+ *     employee_invite_links.
+ *   - Pending company_invite (company_id IS NULL) — no company yet, just the
+ *     director-level invite waiting to be accepted.
+ */
+export async function listInvitesGrouped(): Promise<{
+  groups?: Array<{
+    companyId: string | null
+    companyName: string
+    companyStatus: 'pending' | 'active'
+    directorInvite: {
+      id: string
+      token: string
+      email: string
+      status: string
+      createdAt: string
+      expiresAt: string
+      acceptedAt: string | null
+    } | null
+    directors: Array<{
+      employeeId: string | null
+      fullName: string | null
+      email: string | null
+    }>
+    employees: Array<{
+      employeeId: string | null
+      fullName: string | null
+      email: string | null
+      memberRole: string
+    }>
+    employeeInviteLinks: Array<{
+      id: string
+      token: string
+      status: string
+      createdAt: string
+      expiresAt: string
+      acceptedAt: string | null
+    }>
+  }>
+  error?: string
+}> {
+  try {
+    const { supabase } = await createSupabaseAndRequireUser()
+
+    const { data: isAdmin, error: adminError } = await supabase.rpc('is_platform_admin')
+    if (adminError) {
+      console.error('[v0] is_platform_admin RPC error:', adminError)
+      return { error: 'Failed to verify admin status' }
+    }
+    if (!isAdmin) return { error: 'Unauthorized' }
+
+    // Parallel fetch of everything we need via service role (bypasses RLS).
+    const [companiesRes, invitesRes, linksRes, membersRes, employeesRes] = await Promise.all([
+      adminSupabase.from('companies').select('id, name').order('name'),
+      adminSupabase
+        .from('company_invites')
+        .select('id, email, company_name, token, status, expires_at, created_at, accepted_at, company_id')
+        .order('created_at', { ascending: false }),
+      adminSupabase
+        .from('employee_invite_links')
+        .select('id, token, company_id, status, created_at, expires_at, accepted_at')
+        .order('created_at', { ascending: false }),
+      adminSupabase.from('team_members').select('user_id, company_id, member_role, employee_id'),
+      adminSupabase.from('employees').select('id, company_id, full_name, email, auth_user_id'),
+    ])
+
+    if (companiesRes.error) {
+      console.error('[v0] listInvitesGrouped companies error:', companiesRes.error)
+      return { error: companiesRes.error.message }
+    }
+    if (invitesRes.error) {
+      console.error('[v0] listInvitesGrouped invites error:', invitesRes.error)
+      return { error: invitesRes.error.message }
+    }
+
+    const companies = companiesRes.data ?? []
+    const invites = invitesRes.data ?? []
+    const links = linksRes.data ?? []
+    const members = membersRes.data ?? []
+    const employees = employeesRes.data ?? []
+
+    // employee_id -> employee row
+    const empById = new Map<string, (typeof employees)[number]>()
+    for (const e of employees) empById.set(e.id, e)
+
+    // company_id -> { directors (owners), nonDirectors }
+    const byCompany = new Map<string, { directors: typeof members; nonDirectors: typeof members }>()
+    for (const m of members) {
+      if (!m.company_id) continue
+      const bucket = byCompany.get(m.company_id) ?? { directors: [], nonDirectors: [] }
+      if (m.member_role === 'owner') bucket.directors.push(m)
+      else bucket.nonDirectors.push(m)
+      byCompany.set(m.company_id, bucket)
+    }
+
+    // company_id -> invite links[]
+    const linksByCompany = new Map<string, typeof links>()
+    for (const l of links) {
+      if (!l.company_id) continue
+      const arr = linksByCompany.get(l.company_id) ?? []
+      arr.push(l)
+      linksByCompany.set(l.company_id, arr)
+    }
+
+    // company_id -> accepted director-invite row (most recent wins due to order)
+    const acceptedInviteByCompany = new Map<string, (typeof invites)[number]>()
+    for (const inv of invites) {
+      if (inv.company_id && !acceptedInviteByCompany.has(inv.company_id)) {
+        acceptedInviteByCompany.set(inv.company_id, inv)
+      }
+    }
+
+    type Group = NonNullable<Awaited<ReturnType<typeof listInvitesGrouped>>['groups']>[number]
+    const groups: Group[] = []
+
+    const resolveMember = (m: (typeof members)[number]) => {
+      const emp = m.employee_id ? empById.get(m.employee_id) : null
+      return {
+        employeeId: emp?.id ?? null,
+        fullName: emp?.full_name ?? null,
+        email: emp?.email ?? null,
+        memberRole: m.member_role ?? 'member',
+      }
+    }
+
+    // Active companies
+    for (const c of companies) {
+      const inv = acceptedInviteByCompany.get(c.id) ?? null
+      const bucket = byCompany.get(c.id) ?? { directors: [], nonDirectors: [] }
+      groups.push({
+        companyId: c.id,
+        companyName: c.name,
+        companyStatus: 'active',
+        directorInvite: inv
+          ? {
+              id: inv.id,
+              token: inv.token,
+              email: inv.email,
+              status: inv.status,
+              createdAt: inv.created_at,
+              expiresAt: inv.expires_at,
+              acceptedAt: inv.accepted_at,
+            }
+          : null,
+        directors: bucket.directors.map(resolveMember).map(({ memberRole: _r, ...rest }) => rest),
+        employees: bucket.nonDirectors.map(resolveMember),
+        employeeInviteLinks: (linksByCompany.get(c.id) ?? []).map((l) => ({
+          id: l.id,
+          token: l.token,
+          status: l.status,
+          createdAt: l.created_at,
+          expiresAt: l.expires_at,
+          acceptedAt: l.accepted_at,
+        })),
+      })
+    }
+
+    // Pending company invites (company_id IS NULL) — Boss hasn't accepted yet,
+    // so there's no company row to group under.
+    for (const inv of invites) {
+      if (inv.company_id) continue
+      groups.push({
+        companyId: null,
+        companyName: inv.company_name?.trim() || '(без названия)',
+        companyStatus: 'pending',
+        directorInvite: {
+          id: inv.id,
+          token: inv.token,
+          email: inv.email,
+          status: inv.status,
+          createdAt: inv.created_at,
+          expiresAt: inv.expires_at,
+          acceptedAt: inv.accepted_at,
+        },
+        directors: [],
+        employees: [],
+        employeeInviteLinks: [],
+      })
+    }
+
+    return { groups }
+  } catch (err) {
+    console.error('[v0] listInvitesGrouped error:', err)
+    return { error: 'Failed to list invites grouped' }
+  }
+}
+
+/**
  * Delete a company invite (platform admin only)
  */
 export async function deleteCompanyInvite(

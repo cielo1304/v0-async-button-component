@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   createCompanyInvite, 
-  listCompanyInvites, 
+  listInvitesGrouped,
   isPlatformAdmin, 
   deleteCompanyInvite,
   listAllCompanies,
@@ -19,7 +19,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
-import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Trash2, Eye, Building2, Users } from 'lucide-react'
+import { Loader2, Plus, Copy, CheckCircle2, XCircle, AlertCircle, Trash2, Eye, Building2, Users, UserCog, Link2, Clock } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,14 +38,38 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-interface Invite {
-  id: string
-  email: string
-  company_name: string
-  token: string
-  expires_at: string
-  used_at: string | null
-  created_at: string
+interface InviteGroup {
+  companyId: string | null
+  companyName: string
+  companyStatus: 'pending' | 'active'
+  directorInvite: {
+    id: string
+    token: string
+    email: string
+    status: string
+    createdAt: string
+    expiresAt: string
+    acceptedAt: string | null
+  } | null
+  directors: Array<{
+    employeeId: string | null
+    fullName: string | null
+    email: string | null
+  }>
+  employees: Array<{
+    employeeId: string | null
+    fullName: string | null
+    email: string | null
+    memberRole: string
+  }>
+  employeeInviteLinks: Array<{
+    id: string
+    token: string
+    status: string
+    createdAt: string
+    expiresAt: string
+    acceptedAt: string | null
+  }>
 }
 
 interface Company {
@@ -65,7 +89,7 @@ export default function PlatformPage() {
   const router = useRouter()
   const [isAdmin, setIsAdmin] = useState(false)
   const [loading, setLoading] = useState(true)
-  const [invites, setInvites] = useState<Invite[]>([])
+  const [inviteGroups, setInviteGroups] = useState<InviteGroup[]>([])
   const [email, setEmail] = useState('')
   const [companyName, setCompanyName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -111,11 +135,11 @@ export default function PlatformPage() {
         return
       }
 
-      const result = await listCompanyInvites()
+      const result = await listInvitesGrouped()
       if (result.error) {
         setError(result.error)
-      } else if (result.invites) {
-        setInvites(result.invites)
+      } else if (result.groups) {
+        setInviteGroups(result.groups)
       }
     } catch (err) {
       console.error('[v0] Platform page error:', err)
@@ -123,6 +147,11 @@ export default function PlatformPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const reloadInviteGroups = async () => {
+    const res = await listInvitesGrouped()
+    if (res.groups) setInviteGroups(res.groups)
   }
 
   const loadCompanies = async () => {
@@ -229,10 +258,7 @@ export default function PlatformPage() {
         toast.success('Приглашение создано!')
         
         // Reload invites list
-        const listResult = await listCompanyInvites()
-        if (listResult.invites) {
-          setInvites(listResult.invites)
-        }
+        await reloadInviteGroups()
       }
     } catch (err) {
       setError('Ошибка создания приглашения')
@@ -260,8 +286,7 @@ export default function PlatformPage() {
       }
       toast.success('Приглашение удалено')
       if (deletingToken === generatedToken) setGeneratedToken('')
-      const listResult = await listCompanyInvites()
-      if (listResult.invites) setInvites(listResult.invites)
+      await reloadInviteGroups()
     } catch (err) {
       toast.error('Ошибка удаления')
       console.error('[v0] deleteInvite error:', err)
@@ -416,9 +441,9 @@ export default function PlatformPage() {
 
       <h2 className="text-xl font-semibold mb-4">Управление приглашениями</h2>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-6 lg:grid-cols-3">
         {/* Create Invite Form (token + link) */}
-        <Card>
+        <Card className="lg:col-span-1">
           <CardHeader>
             <CardTitle>Создать приглашение</CardTitle>
             <CardDescription>
@@ -516,80 +541,242 @@ export default function PlatformPage() {
           </CardContent>
         </Card>
 
-        {/* Invites List */}
-        <Card>
+        {/* Grouped Invites: Company → Director → Employees */}
+        <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>Приглашения</CardTitle>
+            <CardTitle>Приглашения по компаниям</CardTitle>
             <CardDescription>
-              Список созданных приглашений
+              Иерархия: компания — директор — сотрудники
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {invites.length === 0 ? (
+            {inviteGroups.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Нет созданных приглашений
               </p>
             ) : (
-              <div className="flex flex-col gap-3">
-                {invites.map((invite) => (
-                  <div
-                    key={invite.id}
-                    className="flex flex-col gap-2 rounded-lg border border-border p-3"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="font-medium text-foreground">
-                          {invite.company_name}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {invite.email}
-                        </p>
+              <div className="flex flex-col gap-4">
+                {inviteGroups.map((group) => {
+                  const totalActiveLinks = group.employeeInviteLinks.filter(
+                    (l) => l.status === 'pending' && !l.acceptedAt
+                  ).length
+                  const groupKey = group.companyId ?? `pending-${group.directorInvite?.id ?? group.companyName}`
+                  return (
+                    <div
+                      key={groupKey}
+                      className="overflow-hidden rounded-lg border border-border bg-card"
+                    >
+                      {/* Company header */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-muted-foreground" />
+                          <span className="font-semibold text-foreground">
+                            {group.companyName}
+                          </span>
+                          {group.companyStatus === 'pending' ? (
+                            <Badge variant="outline" className="gap-1">
+                              <Clock className="h-3 w-3" />
+                              Ожидает создания
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              Активна
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {group.directors.length} дир. · {group.employees.length} сотр.
+                          {totalActiveLinks > 0 && ` · ${totalActiveLinks} активн. ссылок`}
+                        </div>
                       </div>
-                      {invite.used_at ? (
-                        <Badge variant="secondary" className="gap-1">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Использован
-                        </Badge>
-                      ) : (
-                        <Badge className="gap-1">
-                          <XCircle className="h-3 w-3" />
-                          Активен
-                        </Badge>
-                      )}
+
+                      <div className="divide-y divide-border">
+                        {/* Director section */}
+                        <div className="px-4 py-3">
+                          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                            <UserCog className="h-3 w-3" />
+                            Директор
+                          </p>
+                          <div className="flex flex-col gap-2">
+                            {group.directors.map((d) => (
+                              <div
+                                key={d.employeeId ?? d.email ?? Math.random()}
+                                className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-medium text-foreground">
+                                    {d.fullName || d.email || '(без имени)'}
+                                  </p>
+                                  {d.email && d.fullName && (
+                                    <p className="truncate text-xs text-muted-foreground">
+                                      {d.email}
+                                    </p>
+                                  )}
+                                </div>
+                                <Badge variant="secondary" className="gap-1">
+                                  <CheckCircle2 className="h-3 w-3" />
+                                  Присоединился
+                                </Badge>
+                              </div>
+                            ))}
+
+                            {group.directorInvite && !group.directorInvite.acceptedAt && (
+                              <div className="flex flex-col gap-2 rounded-md border border-dashed border-border bg-background p-3">
+                                <div className="flex flex-wrap items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium text-foreground">
+                                      {group.directorInvite.email || '(без email)'}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      Создано:{' '}
+                                      {new Date(
+                                        group.directorInvite.createdAt
+                                      ).toLocaleDateString('ru-RU')}
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className="gap-1">
+                                    <Clock className="h-3 w-3" />
+                                    Ожидает
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                                    {group.directorInvite.token}
+                                  </code>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      copyInviteLink(group.directorInvite!.token)
+                                    }
+                                    title="Скопировать ссылку"
+                                  >
+                                    <Copy className="h-3 w-3" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() =>
+                                      setDeletingToken(group.directorInvite!.token)
+                                    }
+                                    title="Удалить приглашение"
+                                    className="bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
+                            {group.directors.length === 0 && !group.directorInvite && (
+                              <p className="text-xs text-muted-foreground">
+                                Директор не назначен
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Employees section — only for active companies */}
+                        {group.companyStatus === 'active' && (
+                          <div className="px-4 py-3">
+                            <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                              <Users className="h-3 w-3" />
+                              Сотрудники
+                            </p>
+                            {group.employees.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Пока нет сотрудников
+                              </p>
+                            ) : (
+                              <div className="flex flex-col gap-2">
+                                {group.employees.map((e) => (
+                                  <div
+                                    key={e.employeeId ?? e.email ?? Math.random()}
+                                    className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-medium text-foreground">
+                                        {e.fullName || e.email || '(без имени)'}
+                                      </p>
+                                      {e.email && e.fullName && (
+                                        <p className="truncate text-xs text-muted-foreground">
+                                          {e.email}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline" className="text-xs">
+                                      {e.memberRole === 'admin'
+                                        ? 'Админ'
+                                        : 'Сотрудник'}
+                                    </Badge>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Invite links section — only for active companies */}
+                        {group.companyStatus === 'active' &&
+                          group.employeeInviteLinks.length > 0 && (
+                            <div className="px-4 py-3">
+                              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                <Link2 className="h-3 w-3" />
+                                Ссылки-приглашения сотрудников
+                              </p>
+                              <div className="flex flex-col gap-2">
+                                {group.employeeInviteLinks.map((l) => {
+                                  const isAccepted = !!l.acceptedAt
+                                  const isExpired =
+                                    !isAccepted &&
+                                    new Date(l.expiresAt).getTime() < Date.now()
+                                  return (
+                                    <div
+                                      key={l.id}
+                                      className="flex flex-col gap-2 rounded-md border border-border bg-background px-3 py-2"
+                                    >
+                                      <div className="flex flex-wrap items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-xs text-muted-foreground">
+                                            Создана:{' '}
+                                            {new Date(l.createdAt).toLocaleDateString(
+                                              'ru-RU'
+                                            )}
+                                          </p>
+                                        </div>
+                                        {isAccepted ? (
+                                          <Badge variant="secondary" className="gap-1">
+                                            <CheckCircle2 className="h-3 w-3" />
+                                            Использована
+                                          </Badge>
+                                        ) : isExpired ? (
+                                          <Badge variant="outline" className="gap-1">
+                                            <XCircle className="h-3 w-3" />
+                                            Истекла
+                                          </Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            Активна
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <code className="block truncate rounded bg-muted px-2 py-1 text-xs font-mono">
+                                        {l.token}
+                                      </code>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+                      </div>
                     </div>
-
-                    {!invite.used_at && (
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 truncate rounded bg-muted px-2 py-1 text-xs font-mono">
-                          {invite.token}
-                        </code>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => copyInviteLink(invite.token)}
-                          title="Скопировать ссылку"
-                        >
-                          <Copy className="h-3 w-3" />
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setDeletingToken(invite.token)}
-                          title="Удалить приглашение"
-                          className="bg-transparent text-destructive hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    )}
-
-                    <p className="text-xs text-muted-foreground">
-                      Создано: {new Date(invite.created_at).toLocaleDateString('ru-RU')}
-                    </p>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </CardContent>
