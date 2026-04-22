@@ -384,13 +384,18 @@ export type ExchangeLeg = {
 // ─── Get Exchange Deals List ───
 
 export async function getExchangeDeals() {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // CANONICAL COMPANY SCOPE: Prevents cross-company exchange deals access
+  const companyId = await getCompanyId(supabase, user.id)
   
   try {
     // Get deals
     const { data: deals, error } = await supabase
       .from('exchange_deals')
       .select('*')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .order('deal_date', { ascending: false })
       .order('created_at', { ascending: false })
 
@@ -432,13 +437,18 @@ export async function getExchangeDeals() {
 // ─── Get Exchange Legs by Deal ID ───
 
 export async function getExchangeLegsByDeal(dealId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // CANONICAL COMPANY SCOPE: Prevents cross-company access
+  const companyId = await getCompanyId(supabase, user.id)
   
   try {
     const { data: legs, error } = await supabase
       .from('exchange_legs')
       .select('*')
       .eq('deal_id', dealId)
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .order('created_at', { ascending: true })
 
     if (error) {
@@ -456,13 +466,18 @@ export async function getExchangeLegsByDeal(dealId: string) {
 // ─── Get Exchange Deal by ID ───
 
 export async function getExchangeDealById(dealId: string) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // CANONICAL COMPANY SCOPE: Prevents cross-company access
+  const companyId = await getCompanyId(supabase, user.id)
   
   try {
     const { data: deal, error: dealError } = await supabase
       .from('exchange_deals')
       .select('*')
       .eq('id', dealId)
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .single()
 
     if (dealError) {
@@ -474,6 +489,8 @@ export async function getExchangeDealById(dealId: string) {
       .from('exchange_legs')
       .select('*')
       .eq('deal_id', dealId)
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .order('created_at', { ascending: true })
 
     if (legsError) {

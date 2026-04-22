@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
-import { getCompanyId } from '@/lib/tenant/get-company-id'
+import { createSupabaseAndRequireUser, createTenantSupabase } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 
@@ -135,8 +134,29 @@ export async function getFinanceDealPnl(financeDealId: string) {
 // ─── Verified cashbox balances ───
 
 export async function getVerifiedBalances() {
-  const { supabase } = await createSupabaseAndRequireUser()
-  const { data } = await supabase.from('v_cashbox_verified_balance').select('*')
+  // CANONICAL SCOPE: in View-As mode, use adminSupabase + locked companyId,
+  // otherwise user-scoped supabase + team_members companyId. Previously this
+  // was unscoped (no company filter at all) AND used the user-scoped client
+  // in View-As — RLS on v_cashbox_verified_balance blocked rows for cielo,
+  // and in edge cases without RLS it could leak cross-company rows.
+  //
+  // The view does not expose company_id, so we scope by first collecting the
+  // cashbox IDs that belong to the current company, then filtering the view
+  // to exactly those IDs.
+  const { supabase, companyId } = await createTenantSupabase()
+
+  const { data: companyCashboxes } = await supabase
+    .from('cashboxes')
+    .select('id')
+    .eq('company_id', companyId)
+
+  const cashboxIds = (companyCashboxes || []).map(c => c.id)
+  if (cashboxIds.length === 0) return []
+
+  const { data } = await supabase
+    .from('v_cashbox_verified_balance')
+    .select('*')
+    .in('cashbox_id', cashboxIds)
   return data || []
 }
 
@@ -392,13 +412,14 @@ export type CreateCashboxInput = {
 }
 
 export async function createCashbox(input: CreateCashboxInput) {
+  // View-As is read-only, so this guard also covers the impersonation case.
   await assertNotReadOnly()
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: createTenantSupabase returns the user-scoped client
+  // + team_members companyId in normal mode. View-As never reaches here
+  // because assertNotReadOnly() throws first.
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // HARD SCOPE: Use getCompanyId which respects View-As scope lock
-    // This prevents A+B scope mixing when platform admin is in View-As mode
-    const companyId = await getCompanyId(supabase, user.id)
 
     const { data: newCashbox, error } = await supabase
       .from('cashboxes')
@@ -604,5 +625,252 @@ export async function updateCashboxSortOrders(input: UpdateCashboxSortOrdersInpu
     return { success: true }
   } catch (err: any) {
     return { success: false, error: err.message || 'Ошибка обновления порядка касс' }
+  }
+}
+
+// ─── Fetch Cashboxes (company-scoped) ───
+
+/**
+ * Get all cashboxes for the current company.
+ * CANONICAL COMPANY SCOPE: Uses createTenantSupabase (adminSupabase + locked
+ * companyId in View-As; user-scoped client + team_members companyId otherwise).
+ *
+ * This action should be used by client components instead of direct Supabase queries
+ * to ensure correct company scope in both normal and View-As modes.
+ */
+export async function getCashboxes(options?: { includeArchived?: boolean }): Promise<{
+  success: boolean
+  cashboxes: Array<{
+    id: string
+    name: string
+    type: string
+    currency: string
+    balance: number
+    initial_balance: number
+    location: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    is_hidden: boolean
+    is_archived: boolean
+    is_exchange_enabled: boolean
+    sort_order: number
+    created_at: string
+    updated_at: string
+  }>
+  archivedCashboxes?: Array<{
+    id: string
+    name: string
+    type: string
+    currency: string
+    balance: number
+    initial_balance: number
+    location: string | null
+    holder_name: string | null
+    holder_phone: string | null
+    is_hidden: boolean
+    is_archived: boolean
+    is_exchange_enabled: boolean
+    sort_order: number
+    created_at: string
+    updated_at: string
+  }>
+  error?: string
+}> {
+  // CANONICAL SCOPE: createTenantSupabase routes to adminSupabase + locked
+  // companyId in View-As mode (so cielo can read the impersonated company's
+  // cashboxes even without a team_members row), or to user-scoped supabase +
+  // team_members companyId in normal mode. Fixes false-empty cashbox lists
+  // caused by RLS blocking the user client in View-As.
+  const { supabase, companyId } = await createTenantSupabase()
+
+  try {
+    // Load active cashboxes
+    const { data: activeCashboxes, error: activeError } = await supabase
+      .from('cashboxes')
+      .select('*')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed,
+      // especially critical with adminSupabase (which bypasses RLS).
+      .eq('company_id', companyId)
+      .eq('is_archived', false)
+      .order('sort_order', { ascending: true })
+      .order('name')
+
+    if (activeError) {
+      return { success: false, cashboxes: [], error: activeError.message }
+    }
+
+    // Optionally load archived cashboxes
+    let archivedCashboxes: typeof activeCashboxes = []
+    if (options?.includeArchived) {
+      const { data: archivedData, error: archivedError } = await supabase
+        .from('cashboxes')
+        .select('*')
+        // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+        .eq('company_id', companyId)
+        .eq('is_archived', true)
+        .order('name')
+
+      if (!archivedError) {
+        archivedCashboxes = archivedData || []
+      }
+    }
+
+    return {
+      success: true,
+      cashboxes: activeCashboxes || [],
+      archivedCashboxes,
+    }
+  } catch (err: any) {
+    return { success: false, cashboxes: [], error: err.message || 'Ошибка загрузки касс' }
+  }
+}
+
+/**
+ * Get transactions for a specific cashbox within the current company.
+ * CANONICAL COMPANY SCOPE: Validates cashbox belongs to current company.
+ */
+export async function getCashboxTransactions(
+  cashboxId: string,
+  options?: { startDate?: string; endDate?: string; limit?: number }
+): Promise<{
+  success: boolean
+  transactions: Array<{
+    id: string
+    cashbox_id: string
+    amount: number
+    balance_after: number
+    category: string
+    description: string | null
+    reference_id: string | null
+    deal_id: string | null
+    created_by: string
+    created_at: string
+  }>
+  error?: string
+}> {
+  // CANONICAL SCOPE: adminSupabase + locked companyId in View-As, user-scoped
+  // otherwise. Previously the user-scoped client was used in View-As, so RLS
+  // on `cashboxes` / `transactions` blocked reads for cielo.
+  const { supabase, companyId } = await createTenantSupabase()
+
+  try {
+    // First verify the cashbox belongs to the current company
+    const { data: cashbox, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('id, company_id')
+      .eq('id', cashboxId)
+      .single()
+
+    if (cashboxError || !cashbox) {
+      return { success: false, transactions: [], error: 'Касса не найдена' }
+    }
+
+    if (cashbox.company_id !== companyId) {
+      return { success: false, transactions: [], error: 'Доступ запрещен' }
+    }
+
+    // Build query
+    let query = supabase
+      .from('transactions')
+      .select('*')
+      .eq('cashbox_id', cashboxId)
+      .order('created_at', { ascending: false })
+
+    if (options?.startDate) {
+      query = query.gte('created_at', options.startDate)
+    }
+    if (options?.endDate) {
+      query = query.lte('created_at', options.endDate)
+    }
+    if (options?.limit) {
+      query = query.limit(options.limit)
+    }
+
+    const { data: transactions, error: txError } = await query
+
+    if (txError) {
+      return { success: false, transactions: [], error: txError.message }
+    }
+
+    return { success: true, transactions: transactions || [] }
+  } catch (err: any) {
+    return { success: false, transactions: [], error: err.message || 'Ошибка загрузки транзакций' }
+  }
+}
+
+/**
+ * Get daily totals for a cashbox (income, expense, start-of-day balance).
+ * CANONICAL COMPANY SCOPE: Validates cashbox belongs to current company.
+ */
+export async function getCashboxDailyTotals(cashboxId: string): Promise<{
+  success: boolean
+  income: number
+  expense: number
+  startOfDay: number
+  error?: string
+}> {
+  // CANONICAL SCOPE: adminSupabase + locked companyId in View-As, user-scoped
+  // otherwise. This replaces the old user-client + getCompanyId flow that
+  // produced 0/0/0 totals for cielo in View-As because RLS blocked both the
+  // cashbox read and the transactions read.
+  const { supabase, companyId } = await createTenantSupabase()
+
+  try {
+    // First verify the cashbox belongs to the current company
+    const { data: cashbox, error: cashboxError } = await supabase
+      .from('cashboxes')
+      .select('id, company_id, balance')
+      .eq('id', cashboxId)
+      .single()
+
+    if (cashboxError || !cashbox) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: 'Касса не найдена' }
+    }
+
+    if (cashbox.company_id !== companyId) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: 'Доступ запрещен' }
+    }
+
+    // Start of today (00:00)
+    const startOfDay = new Date()
+    startOfDay.setHours(0, 0, 0, 0)
+
+    // Get today's transactions
+    const { data: todayTransactions, error: txError } = await supabase
+      .from('transactions')
+      .select('amount, category')
+      .eq('cashbox_id', cashboxId)
+      .gte('created_at', startOfDay.toISOString())
+
+    if (txError) {
+      return { success: false, income: 0, expense: 0, startOfDay: 0, error: txError.message }
+    }
+
+    const currentBalance = Number(cashbox.balance)
+
+    // Calculate income and expense
+    let income = 0
+    let expense = 0
+
+    todayTransactions?.forEach(t => {
+      const amount = Number(t.amount)
+      if (amount > 0) {
+        income += amount
+      } else {
+        expense += Math.abs(amount)
+      }
+    })
+
+    // Calculate balance at start of day
+    const balanceAtStartOfDay = currentBalance - income + expense
+
+    return {
+      success: true,
+      income,
+      expense,
+      startOfDay: balanceAtStartOfDay,
+    }
+  } catch (err: any) {
+    return { success: false, income: 0, expense: 0, startOfDay: 0, error: err.message || 'Ошибка загрузки итогов' }
   }
 }

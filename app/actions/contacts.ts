@@ -10,13 +10,18 @@ import { revalidatePath } from 'next/cache'
 // ================================================
 
 export async function searchContacts(query: string, limit = 20) {
-  const { supabase } = await createSupabaseAndRequireUser()
+  const { supabase, user } = await createSupabaseAndRequireUser()
+  
+  // CANONICAL COMPANY SCOPE: Prevents cross-company contact search
+  const companyId = await getCompanyId(supabase, user.id)
 
   const q = query.trim()
   if (!q) {
     const { data, error } = await supabase
       .from('contacts')
       .select('id, display_name, nickname, mobile_phone, extra_phones, organization')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .order('display_name')
       .limit(limit)
 
@@ -39,6 +44,8 @@ export async function searchContacts(query: string, limit = 20) {
   let queryBuilder = supabase
     .from('contacts')
     .select('id, display_name, nickname, mobile_phone, extra_phones, organization')
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
 
   if (digitsOnly.length >= 3) {
     // If query looks like a phone number, search phone fields too
@@ -64,6 +71,8 @@ export async function searchContacts(query: string, limit = 20) {
     const { data: extraPhoneMatches } = await supabase
       .from('contacts')
       .select('id, display_name, mobile_phone, extra_phones, organization')
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .contains('extra_phones', []) // just to get all, we'll filter in JS
       .order('display_name')
       .limit(200)

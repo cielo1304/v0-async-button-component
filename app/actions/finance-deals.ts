@@ -360,6 +360,15 @@ export async function linkCollateral(params: {
 }) {
   await assertNotReadOnly()
   const { supabase } = await createSupabaseAndRequireUser()
+
+  // Get company_id from the asset (required for tenant isolation on finance_collateral_links)
+  const { data: asset, error: assetErr } = await supabase
+    .from('assets')
+    .select('company_id')
+    .eq('id', params.asset_id)
+    .single()
+  if (assetErr || !asset?.company_id) throw new Error('Актив не найден или без company_id')
+
   const { data, error } = await supabase
     .from('finance_collateral_links')
     .insert({
@@ -367,6 +376,7 @@ export async function linkCollateral(params: {
       asset_id: params.asset_id,
       status: 'active',
       note: params.note || null,
+      company_id: asset.company_id,
     })
     .select()
     .single()

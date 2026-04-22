@@ -1,11 +1,11 @@
 'use server'
 
-import { createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { createSupabaseAndRequireUser, createTenantSupabase } from '@/lib/supabase/require-user'
 import { adminSupabase } from '@/lib/supabase/admin'
 import { assertNotReadOnly, getLockedCompanyScope } from '@/lib/view-as'
 import { getCompanyId } from '@/lib/tenant/get-company-id'
 import { revalidatePath } from 'next/cache'
-import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope } from '@/lib/types/database'
+import type { BusinessModule, ModuleAccessLevel, ModuleAccess, VisibilityScope, Employee, SystemRole, PositionDefaultRole } from '@/lib/types/database'
 import { PRESET_ROLE_CODE_BY_MODULE_LEVEL, ALL_MODULE_PRESET_ROLE_CODES } from '@/lib/constants/team-access'
 
 // ================================================
@@ -74,6 +74,194 @@ export async function getEffectiveTeamContext(): Promise<{
     companyName,
     isOwner: membership.member_role === 'owner',
     isImpersonation: false,
+  }
+}
+
+// ================================================
+// Consolidated Team Manager Data Loader
+// ================================================
+
+/**
+ * Load ALL data required by the TeamManager UI in a single server action.
+ * 
+ * CANONICAL SCOPE:
+ * - In View-As mode: uses adminSupabase to bypass RLS + reads locked companyId from session.
+ * - In normal mode: uses user-scoped supabase + companyId from team_members.
+ * 
+ * This fixes the false-empty Team state that was caused by the browser Supabase client
+ * making direct queries that were blocked by RLS when the platform admin (cielo) was
+ * impersonating into a company it has no team_members row for.
+ */
+export async function loadTeamManagerData(): Promise<{
+  companyId: string | null
+  companyName: string | null
+  isOwner: boolean
+  isImpersonation: boolean
+  currentUser: { id: string; email: string | null } | null
+  employees: Employee[]
+  systemRoles: SystemRole[]
+  employeeRolesRaw: Array<{
+    id: string
+    employee_id: string
+    role_id: string
+    assigned_at: string
+    assigned_by: string | null
+    system_roles: SystemRole | null
+  }>
+  userRolesRaw: Array<{
+    id: string
+    user_id: string
+    role_id: string
+    system_roles: SystemRole | null
+  }>
+  positionDefaults: Array<PositionDefaultRole & { system_roles: SystemRole | null }>
+  error?: string
+}> {
+  try {
+    // Effective context (company name + ownership flag).
+    // getEffectiveTeamContext already routes correctly for View-As (adminSupabase) vs normal (team_members).
+    const ctx = await getEffectiveTeamContext()
+
+    const emptyResult = {
+      companyId: ctx.companyId,
+      companyName: ctx.companyName,
+      isOwner: ctx.isOwner,
+      isImpersonation: ctx.isImpersonation,
+      currentUser: null,
+      employees: [],
+      systemRoles: [],
+      employeeRolesRaw: [],
+      userRolesRaw: [],
+      positionDefaults: [],
+    }
+
+    if (!ctx.companyId) {
+      return emptyResult
+    }
+
+    // CANONICAL SCOPE: admin client in View-As, user client in normal mode.
+    const { supabase, user, companyId } = await createTenantSupabase()
+
+    // Employees for this company (exclude system viewer employees).
+    let employees: Employee[] = []
+    {
+      let { data, error } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('is_system', false)
+        .order('full_name')
+
+      // Graceful fallback if is_system column is missing.
+      if (error && (error.message?.includes('is_system') || error.code === '42703')) {
+        const fallback = await supabase
+          .from('employees')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('full_name')
+        if (fallback.error) {
+          return { ...emptyResult, error: fallback.error.message }
+        }
+        data = (fallback.data || []).filter(
+          emp => !emp.full_name?.startsWith('Просмотр (админ платформы)')
+        )
+        error = null
+      }
+
+      if (error) {
+        return { ...emptyResult, error: error.message }
+      }
+      employees = (data || []) as Employee[]
+    }
+
+    const employeeIds = employees.map(e => e.id)
+
+    // System roles (global, no company filter).
+    const { data: systemRolesData, error: rolesError } = await supabase
+      .from('system_roles')
+      .select('*')
+      .order('name')
+
+    if (rolesError) {
+      return { ...emptyResult, error: rolesError.message }
+    }
+
+    // Employee roles scoped to employees of this company.
+    const employeeRolesRaw = employeeIds.length > 0
+      ? (await supabase
+          .from('employee_roles')
+          .select(`
+            id,
+            employee_id,
+            role_id,
+            assigned_at,
+            assigned_by,
+            system_roles (*)
+          `)
+          .in('employee_id', employeeIds)
+        ).data || []
+      : []
+
+    // User roles for display (unscoped — platform-wide table, but rows are user_id specific).
+    const { data: userRolesData } = await supabase
+      .from('user_roles')
+      .select(`
+        id,
+        user_id,
+        role_id,
+        system_roles (*)
+      `)
+
+    // Position default roles (global mapping).
+    const { data: positionDefaultsData } = await supabase
+      .from('position_default_roles')
+      .select(`
+        id,
+        position,
+        system_role_id,
+        created_at,
+        system_roles (*)
+      `)
+
+    return {
+      companyId: ctx.companyId,
+      companyName: ctx.companyName,
+      isOwner: ctx.isOwner,
+      isImpersonation: ctx.isImpersonation,
+      currentUser: { id: user.id, email: user.email ?? null },
+      employees,
+      systemRoles: (systemRolesData || []) as SystemRole[],
+      employeeRolesRaw: employeeRolesRaw as unknown as Array<{
+        id: string
+        employee_id: string
+        role_id: string
+        assigned_at: string
+        assigned_by: string | null
+        system_roles: SystemRole | null
+      }>,
+      userRolesRaw: (userRolesData || []) as unknown as Array<{
+        id: string
+        user_id: string
+        role_id: string
+        system_roles: SystemRole | null
+      }>,
+      positionDefaults: (positionDefaultsData || []) as unknown as Array<PositionDefaultRole & { system_roles: SystemRole | null }>,
+    }
+  } catch (err) {
+    console.error('[loadTeamManagerData] error:', err)
+    return {
+      companyId: null,
+      companyName: null,
+      isOwner: false,
+      isImpersonation: false,
+      currentUser: null,
+      employees: [],
+      systemRoles: [],
+      employeeRolesRaw: [],
+      userRolesRaw: [],
+      positionDefaults: [],
+      error: err instanceof Error ? err.message : 'Failed to load team data',
+    }
   }
 }
 
@@ -159,10 +347,9 @@ export async function updateEmployee(
  * Use this in client components instead of direct Supabase queries with .eq('is_system', false).
  */
 export async function getEmployeesForSelect(): Promise<{ id: string; full_name: string }[]> {
-  const { supabase, user } = await createSupabaseAndRequireUser()
-  
-  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
-  const companyId = await getCompanyId(supabase, user.id)
+  // CANONICAL SCOPE: createTenantSupabase bypasses RLS with adminSupabase in View-As mode,
+  // so platform admin (cielo) can see employees of the impersonated company B.
+  const { supabase, companyId } = await createTenantSupabase()
   
   // Try with is_system filter first
   let { data, error } = await supabase
@@ -194,10 +381,11 @@ export async function getEmployeesForSelect(): Promise<{ id: string; full_name: 
 }
 
 export async function listEmployees() {
-  const { supabase, user } = await createSupabaseAndRequireUser()
-  
-  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
-  const companyId = await getCompanyId(supabase, user.id)
+  // CANONICAL SCOPE: createTenantSupabase returns adminSupabase + locked companyId in View-As mode,
+  // and user-scoped supabase + team_members companyId in normal mode.
+  // This fixes false-empty Team state when platform admin (cielo) is in View-As on company B
+  // — previously user-scoped supabase was used, and RLS blocked reads since cielo has no team_members row.
+  const { supabase, companyId } = await createTenantSupabase()
   
   // List employees for this company only (exclude system employees)
   // ROBUST: Handle missing is_system column gracefully
@@ -726,21 +914,23 @@ export async function listEmployeeInviteLinks(): Promise<{
   }[]
   error?: string
 }> {
-  const { supabase, user } = await createSupabaseAndRequireUser()
+  // CANONICAL SCOPE: in View-As, read invite links of the impersonated company via adminSupabase.
+  // In normal mode, user-scoped supabase is used with RLS.
+  const { supabase, user, companyId, isViewAs } = await createTenantSupabase()
 
-  // HARD SCOPE: Use getCompanyId which respects View-As scope lock
-  const companyId = await getCompanyId(supabase, user.id)
+  // In View-As mode, platform admin can VIEW invite links read-only (no owner check).
+  // In normal mode, only company owner can list invite links.
+  if (!isViewAs) {
+    const { data: membership } = await supabase
+      .from('team_members')
+      .select('member_role')
+      .eq('user_id', user.id)
+      .eq('company_id', companyId)
+      .single()
 
-  // Check role permission (only owner can list invite links)
-  const { data: membership } = await supabase
-    .from('team_members')
-    .select('member_role')
-    .eq('user_id', user.id)
-    .eq('company_id', companyId)
-    .single()
-
-  if (!membership || membership.member_role !== 'owner') {
-    return { error: 'forbidden' }
+    if (!membership || membership.member_role !== 'owner') {
+      return { error: 'forbidden' }
+    }
   }
 
   const { data, error } = await supabase

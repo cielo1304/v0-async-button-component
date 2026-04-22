@@ -194,7 +194,10 @@ export async function listEntityFiles(params: {
   error?: string
 }> {
   try {
-    const { supabase } = await createSupabaseAndRequireUser()
+    const { supabase, user } = await createSupabaseAndRequireUser()
+    
+    // CANONICAL COMPANY SCOPE: Prevents cross-company file access
+    const companyId = await getCompanyId(supabase, user.id)
 
     const { data, error } = await supabase
       .from('entity_files')
@@ -215,6 +218,8 @@ export async function listEntityFiles(params: {
       )
       .eq('entity_type', params.entity_type)
       .eq('entity_id', params.entity_id)
+      // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+      .eq('company_id', companyId)
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: false })
 

@@ -96,7 +96,15 @@ export async function replaceCollateral(params: {
       .update({ status: 'released' })
       .eq('id', oldLink.asset_id)
 
-    // 3. Create new link
+    // 3. Get company_id from the new asset (required for tenant isolation)
+    const { data: newAsset, error: naErr } = await supabase
+      .from('assets')
+      .select('company_id')
+      .eq('id', params.newAssetId)
+      .single()
+    if (naErr || !newAsset?.company_id) return { success: false, error: 'Новый актив не найден или без company_id' }
+
+    // 4. Create new link
     const { data: newLink, error: nlErr } = await supabase.from('finance_collateral_links')
       .insert({
         finance_deal_id: params.financeDealId,
@@ -104,17 +112,18 @@ export async function replaceCollateral(params: {
         status: 'active',
         started_at: new Date().toISOString(),
         pledged_units: params.pledgedUnits ?? null,
+        company_id: newAsset.company_id,
       })
       .select()
       .single()
     if (nlErr) return { success: false, error: nlErr.message }
 
-    // 4. Mark new asset as pledged
+    // 5. Mark new asset as pledged
     await supabase.from('assets')
       .update({ status: 'pledged' })
       .eq('id', params.newAssetId)
 
-    // If divisible, decrement available_units
+    // 5b. If divisible, decrement available_units
     if (params.pledgedUnits) {
       const { data: asset } = await supabase
         .from('assets')
@@ -128,16 +137,17 @@ export async function replaceCollateral(params: {
       }
     }
 
-    // 5. Write chain record
+    // 6. Write chain record
     await supabase.from('finance_collateral_chain').insert({
       finance_deal_id: params.financeDealId,
       old_asset_id: oldLink.asset_id,
       new_asset_id: params.newAssetId,
       reason: params.reason || 'Замена залога',
       created_by_employee_id: params.actorEmployeeId || null,
+      company_id: newAsset.company_id,
     })
 
-    // 6. Audit
+    // 7. Audit
     await writeAuditLog(supabase, {
       action: 'collateral_replace',
       module: 'finance',

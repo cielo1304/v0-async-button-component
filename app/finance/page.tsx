@@ -11,8 +11,8 @@ import {
   GripVertical, MapPin, TrendingUp, TrendingDown, RefreshCw, Check, ChevronDown, Archive
 } from 'lucide-react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Cashbox } from '@/lib/types/database'
+import { getCashboxes, getCashboxDailyTotals } from '@/app/actions/cashbox'
 import { ExchangeDialog } from '@/components/finance/exchange-dialog'
 import { TransactionList } from '@/components/finance/transaction-list'
 import { AddCashboxDialog } from '@/components/finance/add-cashbox-dialog'
@@ -94,7 +94,12 @@ export default function FinancePage() {
   const [isLoadingRates, setIsLoadingRates] = useState(false)
   const [ratesUpdated, setRatesUpdated] = useState(false)
   const [ratesError, setRatesError] = useState(false)
-  const supabase = useMemo(() => createClient(), [])
+  
+  // Client supabase for system-wide currency rates (not company-scoped)
+  const supabase = useMemo(() => {
+    const { createClient } = require('@/lib/supabase/client')
+    return createClient()
+  }, [])
 
   useEffect(() => {
     loadCashboxes()
@@ -116,37 +121,31 @@ export default function FinancePage() {
 
   const loadCashboxes = async () => {
     try {
-      // Load active cashboxes
-      const { data, error } = await supabase
-        .from('cashboxes')
-        .select('*')
-        .eq('is_archived', false)
-        .order('sort_order', { ascending: true })
-        .order('name')
-
-if (error) throw error
-  setCashboxes(data || [])
-  
-  if (data && data.length > 0) {
-    if (!selectedCashbox) {
-      setSelectedCashbox(data[0])
-    } else {
-      // Update selectedCashbox with fresh data (e.g., updated balance)
-      const updatedSelected = data.find(c => c.id === selectedCashbox.id)
-      if (updatedSelected) {
-        setSelectedCashbox(updatedSelected)
-      }
-    }
-  }
-
-      // Load archived cashboxes
-      const { data: archivedData } = await supabase
-        .from('cashboxes')
-        .select('*')
-        .eq('is_archived', true)
-        .order('name')
+      // CANONICAL COMPANY SCOPE: Use server action for proper View-As support
+      const result = await getCashboxes({ includeArchived: true })
       
-      setArchivedCashboxes(archivedData || [])
+      if (!result.success) {
+        console.error('Error loading cashboxes:', result.error)
+        return
+      }
+      
+      const data = result.cashboxes || []
+      setCashboxes(data)
+      
+      if (data.length > 0) {
+        if (!selectedCashbox) {
+          setSelectedCashbox(data[0])
+        } else {
+          // Update selectedCashbox with fresh data (e.g., updated balance)
+          const updatedSelected = data.find(c => c.id === selectedCashbox.id)
+          if (updatedSelected) {
+            setSelectedCashbox(updatedSelected)
+          }
+        }
+      }
+
+      // Load archived cashboxes from the same server action result
+      setArchivedCashboxes(result.archivedCashboxes || [])
     } catch (error) {
       console.error('Error loading cashboxes:', error)
     } finally {
@@ -390,45 +389,22 @@ if (error) throw error
 
   const loadTotals = async (cashboxId: string) => {
     try {
-      // Start of today (00:00)
-      const startOfDay = new Date()
-      startOfDay.setHours(0, 0, 0, 0)
-
-      // Get today's transactions and current cashbox balance in parallel
-      const [transactionsResult, cashboxResult] = await Promise.all([
-        supabase
-          .from('transactions')
-          .select('amount, category')
-          .eq('cashbox_id', cashboxId)
-          .gte('created_at', startOfDay.toISOString()),
-        supabase
-          .from('cashboxes')
-          .select('balance')
-          .eq('id', cashboxId)
-          .single()
-      ])
-
-      const todayTransactions = transactionsResult.data
-      const currentBalance = cashboxResult.data ? Number(cashboxResult.data.balance) : 0
-
-      // Calculate income (DEPOSIT, TRANSFER_IN, EXCHANGE_IN - positive amounts)
-      // and expense (WITHDRAW, TRANSFER_OUT, EXCHANGE_OUT - negative amounts)
-      let income = 0
-      let expense = 0
-
-      todayTransactions?.forEach(t => {
-        const amount = Number(t.amount)
-        if (amount > 0) {
-          income += amount
-        } else {
-          expense += Math.abs(amount)
-        }
+      // CANONICAL SCOPE: go through the server action so View-As (cielo
+      // impersonating company B) uses adminSupabase + locked companyId and
+      // also re-verifies cashbox ownership on the server. Previously the
+      // browser client was used, which was silently blocked by RLS on both
+      // `transactions` and `cashboxes` for cielo and produced 0/0/0 totals.
+      const result = await getCashboxDailyTotals(cashboxId)
+      if (!result.success) {
+        console.error('Error loading totals:', result.error)
+        setTotals({ income: 0, expense: 0, startOfDay: 0 })
+        return
+      }
+      setTotals({
+        income: result.income,
+        expense: result.expense,
+        startOfDay: result.startOfDay,
       })
-
-      // Calculate balance at start of day: current balance - today's income + today's expense
-      const balanceAtStartOfDay = currentBalance - income + expense
-
-      setTotals({ income, expense, startOfDay: balanceAtStartOfDay })
     } catch (error) {
       console.error('Error loading totals:', error)
     }
