@@ -1,6 +1,6 @@
 'use server'
 
-import { createTenantSupabase, createSupabaseAndRequireUser } from '@/lib/supabase/require-user'
+import { createTenantSupabase } from '@/lib/supabase/require-user'
 import { writeAuditLog } from '@/lib/audit'
 import { assertNotReadOnly } from '@/lib/view-as'
 import type { AssetType, AssetStatus } from '@/lib/types/database'
@@ -355,10 +355,21 @@ export async function updateAsset(
   }
 ) {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: Use createTenantSupabase so we can explicitly
+  // scope the UPDATE by company_id instead of relying only on implicit RLS.
+  const { supabase, companyId } = await createTenantSupabase()
 
-  // Get before state
-  const { data: before } = await supabase.from('assets').select('*').eq('id', id).single()
+  // Get before state, scoped to company (prevents cross-company probe)
+  const { data: before } = await supabase
+    .from('assets')
+    .select('*')
+    .eq('id', id)
+    .eq('company_id', companyId)
+    .single()
+
+  if (!before) {
+    throw new Error('Актив не найден или принадлежит другой компании')
+  }
 
   const updateData: Record<string, unknown> = {}
   if (formData.title !== undefined) updateData.title = formData.title
@@ -372,7 +383,14 @@ export async function updateAsset(
   if (formData.allowed_role_codes !== undefined) updateData.allowed_role_codes = formData.allowed_role_codes
   if (formData.client_audience_notes !== undefined) updateData.client_audience_notes = formData.client_audience_notes
 
-  const { data, error } = await supabase.from('assets').update(updateData).eq('id', id).select().single()
+  // EXPLICIT COMPANY FILTER on UPDATE: defense-in-depth beyond RLS
+  const { data, error } = await supabase
+    .from('assets')
+    .update(updateData)
+    .eq('id', id)
+    .eq('company_id', companyId)
+    .select()
+    .single()
 
   if (error) throw new Error(error.message)
 
@@ -400,11 +418,28 @@ export async function addAssetValuation(formData: {
   created_by_employee_id?: string | null
 }) {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: resolve caller's companyId so we can validate
+  // the target asset belongs to the same company AND stamp company_id on
+  // the new asset_valuations row (column is now NOT NULL post-hardening).
+  const { supabase, companyId } = await createTenantSupabase()
+
+  // Verify the target asset belongs to the caller's company.
+  // Prevents creating a valuation row that references a foreign asset.
+  const { data: asset } = await supabase
+    .from('assets')
+    .select('id')
+    .eq('id', formData.asset_id)
+    .eq('company_id', companyId)
+    .single()
+
+  if (!asset) {
+    throw new Error('Актив не найден или принадлежит другой компании')
+  }
 
   const { data, error } = await supabase
     .from('asset_valuations')
-    .insert(formData)
+    // EXPLICIT company_id on INSERT — do not rely solely on the BEFORE-INSERT trigger
+    .insert({ ...formData, company_id: companyId })
     .select()
     .single()
 
@@ -430,11 +465,26 @@ export async function addAssetMove(formData: {
   note?: string | null
 }) {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: resolve caller's companyId to validate the
+  // target asset and stamp company_id on the move row (NOT NULL post-hardening).
+  const { supabase, companyId } = await createTenantSupabase()
+
+  // Verify the target asset belongs to the caller's company.
+  const { data: asset } = await supabase
+    .from('assets')
+    .select('id')
+    .eq('id', formData.asset_id)
+    .eq('company_id', companyId)
+    .single()
+
+  if (!asset) {
+    throw new Error('Актив не найден или принадлежит другой компании')
+  }
 
   const { data, error } = await supabase
     .from('asset_location_moves')
-    .insert(formData)
+    // EXPLICIT company_id on INSERT — do not rely solely on the BEFORE-INSERT trigger
+    .insert({ ...formData, company_id: companyId })
     .select()
     .single()
 
@@ -477,25 +527,30 @@ export async function recordAssetSale(formData: {
   note?: string | null
 }): Promise<{ success: boolean; error?: string }> {
   await assertNotReadOnly()
-  const { supabase } = await createSupabaseAndRequireUser()
+  // CANONICAL COMPANY SCOPE: resolve caller's companyId so we can both
+  // scope the asset lookup AND stamp company_id on asset_sale_events
+  // (the column is NOT NULL after Step 3 DB hardening).
+  const { supabase, companyId } = await createTenantSupabase()
 
   try {
-    // 1. Verify asset exists and is not already sold
+    // 1. Verify asset exists in caller's company and is not already sold
     const { data: asset, error: assetErr } = await supabase
       .from('assets')
       .select('id, title, status')
       .eq('id', formData.asset_id)
+      .eq('company_id', companyId)
       .single()
 
-    if (assetErr || !asset) return { success: false, error: 'Asset not found' }
+    if (assetErr || !asset) return { success: false, error: 'Asset not found or belongs to another company' }
     if (asset.status === 'sold') return { success: false, error: 'Asset is already sold' }
     if (asset.status === 'written_off') return { success: false, error: 'Asset is written off' }
 
-    // 2. Insert sale event
+    // 2. Insert sale event with explicit company_id
     const { data: saleEvent, error: saleErr } = await supabase
       .from('asset_sale_events')
       .insert({
         asset_id: formData.asset_id,
+        company_id: companyId, // explicit stamp, do not rely solely on trigger
         sale_amount: formData.sale_amount,
         sale_currency: formData.sale_currency,
         base_amount: formData.base_amount,
@@ -525,11 +580,12 @@ export async function recordAssetSale(formData: {
       if (rpcErr) throw rpcErr
     }
 
-    // 4. Update asset status to 'sold'
+    // 4. Update asset status to 'sold' (explicit company scope)
     const { error: updateErr } = await supabase
       .from('assets')
       .update({ status: 'sold' })
       .eq('id', formData.asset_id)
+      .eq('company_id', companyId)
 
     if (updateErr) throw updateErr
 
