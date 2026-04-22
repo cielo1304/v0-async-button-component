@@ -155,24 +155,12 @@ export async function getAssetCollateralLinks(assetId: string) {
   // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
   const { supabase, companyId } = await createTenantSupabase()
 
-  // First verify the asset belongs to the current company (finance_collateral_links
-  // doesn't have company_id column yet, so we scope via the parent asset)
-  const { data: asset } = await supabase
-    .from('assets')
-    .select('id')
-    .eq('id', assetId)
-    .eq('company_id', companyId)
-    .single()
-
-  if (!asset) {
-    // Asset either doesn't exist or belongs to another company
-    return []
-  }
-
   const { data, error } = await supabase
     .from('finance_collateral_links')
     .select('*, finance_deal:finance_deals!finance_deal_id(id, core_deal_id, principal_amount, contract_currency, core_deal:core_deals!core_deal_id(title, status))')
     .eq('asset_id', assetId)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('started_at', { ascending: false })
 
   if (error) throw new Error(error.message)
@@ -183,25 +171,13 @@ export async function getAssetCollateralChain(assetId: string) {
   // CANONICAL COMPANY SCOPE: Use createTenantSupabase for proper View-As support
   const { supabase, companyId } = await createTenantSupabase()
 
-  // First verify the asset belongs to the current company (finance_collateral_chain
-  // doesn't have company_id column yet, so we scope via the parent asset)
-  const { data: asset } = await supabase
-    .from('assets')
-    .select('id')
-    .eq('id', assetId)
-    .eq('company_id', companyId)
-    .single()
-
-  if (!asset) {
-    // Asset either doesn't exist or belongs to another company
-    return []
-  }
-
   // Get chain entries where this asset was either old or new
   const { data, error } = await supabase
     .from('finance_collateral_chain')
     .select('*, old_asset:assets!finance_collateral_chain_old_asset_id_fkey(id, title), new_asset:assets!finance_collateral_chain_new_asset_id_fkey(id, title)')
     .or(`old_asset_id.eq.${assetId},new_asset_id.eq.${assetId}`)
+    // EXPLICIT COMPANY FILTER: Prevents cross-company data bleed
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)
